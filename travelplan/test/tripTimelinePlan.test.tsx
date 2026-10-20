@@ -1040,13 +1040,14 @@ describe("TripTimeline plan action", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
-    // Stat strip: duration, station count, cost link and open-item count.
+    // Stat strip: duration, station count, cost link and total distance (Story 7.14 replaced the
+    // open-item count; this fixture has no legs, and the gap alert below still reports day 2).
     expect(screen.getByText("Duration")).toBeInTheDocument();
     expect(screen.getByText("2 days")).toBeInTheDocument();
     expect(screen.getByText("Stations")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open cost overview" })).toHaveTextContent("€250.00");
-    const openItemsValue = screen.getByText("Open items").parentElement;
-    expect(openItemsValue).toHaveTextContent("1");
+    expect(screen.getByText("Total distance").parentElement).toHaveTextContent("0 km");
+    expect(screen.queryByText("Open items")).toBeNull();
 
     // Cost breakdown: accommodation comes straight from the API, activities are the remainder.
     expect(screen.getByText("Accommodation")).toBeInTheDocument();
@@ -1195,9 +1196,186 @@ describe("TripTimeline plan action", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     expect(screen.queryByText(/Action needed/)).toBeNull();
-    expect(screen.getByText("Open items").parentElement).toHaveTextContent("0");
+    expect(screen.getByText("Total distance").parentElement).toHaveTextContent("0 km");
 
     vi.unstubAllGlobals();
+  });
+
+  /**
+   * Story 7.14. The distance card and the header figure come from one summary over the legs the
+   * day timelines draw: an orphaned leg counts for nothing, a mode without any distance shows no km.
+   */
+  describe("Story 7.14 planned distance", () => {
+    const stay = (id: string) => ({
+      id,
+      name: `Stay ${id}`,
+      notes: null,
+      status: "booked" as const,
+      costCents: null,
+      link: null,
+      checkInTime: "15:00",
+      checkOutTime: "10:00",
+      location: null,
+    });
+    const activity = (id: string, sortOrder: number) => ({
+      id,
+      title: id,
+      fromTime: null,
+      toTime: null,
+      contentJson: JSON.stringify({ type: "doc", content: [] }),
+      linkUrl: null,
+      location: null,
+      createdAt: "2026-12-01T00:00:00.000Z",
+      sortOrder,
+    });
+    const segment = (
+      id: string,
+      from: ["accommodation" | "dayPlanItem", string],
+      to: ["accommodation" | "dayPlanItem", string],
+      transportType: string,
+      durationMinutes: number,
+      distanceKm: number | null,
+    ) => ({
+      id,
+      fromItemType: from[0],
+      fromItemId: from[1],
+      toItemType: to[0],
+      toItemId: to[1],
+      transportType,
+      durationMinutes,
+      distanceKm,
+      linkUrl: null,
+    });
+    const buildDetail = (days: unknown[]) => ({
+      data: {
+        trip: {
+          id: "trip-1",
+          name: "Trip",
+          accessRole: "owner",
+          startDate: "2026-12-01T00:00:00.000Z",
+          endDate: "2026-12-02T00:00:00.000Z",
+          dayCount: days.length,
+          plannedCostTotal: 0,
+          accommodationCostTotalCents: null,
+          heroImageUrl: null,
+        },
+        days,
+      },
+      error: null,
+    });
+    // Day 1: a → (flight) → stay-1. Day 2: stay-1 → (car 1000.25) → b → (walk) → c → (car 234.25) →
+    // stay-2, plus an orphaned car leg b → stay-2 of 5000 km that must not count anywhere.
+    const mixedTrip = buildDetail([
+      {
+        id: "day-1",
+        date: "2026-12-01T00:00:00.000Z",
+        dayIndex: 1,
+        imageUrl: null,
+        note: null,
+        missingAccommodation: false,
+        missingPlan: false,
+        accommodation: stay("stay-1"),
+        dayPlanItems: [activity("a", 0)],
+        travelSegments: [segment("fly", ["dayPlanItem", "a"], ["accommodation", "stay-1"], "flight", 150, null)],
+      },
+      {
+        id: "day-2",
+        date: "2026-12-02T00:00:00.000Z",
+        dayIndex: 2,
+        imageUrl: null,
+        note: null,
+        missingAccommodation: false,
+        missingPlan: false,
+        accommodation: stay("stay-2"),
+        dayPlanItems: [activity("b", 0), activity("c", 1)],
+        travelSegments: [
+          segment("car-1", ["accommodation", "stay-1"], ["dayPlanItem", "b"], "car", 600, 1000.25),
+          segment("walk", ["dayPlanItem", "b"], ["dayPlanItem", "c"], "walking", 20, null),
+          segment("car-2", ["dayPlanItem", "c"], ["accommodation", "stay-2"], "car", 1260, 234.25),
+          segment("orphan", ["dayPlanItem", "b"], ["accommodation", "stay-2"], "car", 3000, 5000),
+        ],
+      },
+    ]);
+    const emptyTrip = buildDetail([
+      {
+        id: "day-1",
+        date: "2026-12-01T00:00:00.000Z",
+        dayIndex: 1,
+        imageUrl: null,
+        note: null,
+        missingAccommodation: false,
+        missingPlan: false,
+        accommodation: stay("stay-1"),
+        dayPlanItems: [],
+        travelSegments: [],
+      },
+    ]);
+    const stubDetail = (detail: unknown) => {
+      const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => detail })) as unknown as typeof fetch;
+      vi.stubGlobal("fetch", fetchMock);
+      return fetchMock;
+    };
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("shows the same drawn-legs total in the header and the card, with one row per mode", async () => {
+      stubDetail(mixedTrip);
+      renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+      const card = await screen.findByTestId("trip-distance-card");
+      // 1000.25 + 234.25 = 1234.5; the orphan's 5000 km is in neither figure.
+      expect(screen.getByTestId("trip-header-total-distance")).toHaveTextContent("1,234.5 km");
+      expect(screen.getByText("Total distance")).toBeInTheDocument();
+      expect(within(card).getByTestId("trip-distance-card-total")).toHaveTextContent("1,234.5 km");
+      expect(within(card).getByText("Distance")).toBeInTheDocument();
+      expect(within(card).getByText("planned travel · whole trip")).toBeInTheDocument();
+      expect(card).not.toHaveTextContent("6,234.5");
+
+      // Rows in TRANSPORT_TYPES order: car, flight, walking. Hours are not wrapped into days.
+      const rows = within(card).getAllByTestId(/^trip-distance-row-/);
+      expect(rows.map((row) => row.getAttribute("data-testid"))).toEqual([
+        "trip-distance-row-car",
+        "trip-distance-row-flight",
+        "trip-distance-row-walking",
+      ]);
+      expect(rows[0]).toHaveTextContent("Car");
+      expect(rows[0]).toHaveTextContent("1,234.5 km · 2 legs · 31h");
+      expect(rows[1]).toHaveTextContent("Flight");
+      expect(rows[1]).toHaveTextContent("1 leg · 2h 30m");
+      expect(rows[1]).not.toHaveTextContent("km");
+      expect(rows[2]).toHaveTextContent("1 leg · 20m");
+      expect(rows[2]).not.toHaveTextContent("km");
+      expect(within(card).queryByText("No travel planned yet.")).toBeNull();
+    });
+
+    it("formats the total in the UI language", async () => {
+      stubDetail(mixedTrip);
+      renderWithProviders(<TripTimeline tripId="trip-1" />, { language: "de" });
+
+      const card = await screen.findByTestId("trip-distance-card");
+      expect(screen.getByTestId("trip-header-total-distance")).toHaveTextContent("1.234,5 km");
+      // A no-break space, so a narrow header cell (390px, 2×2 grid) cannot put "km" on its own line.
+      // Read raw, because `toHaveTextContent` folds every whitespace character into a plain space.
+      expect(screen.getByTestId("trip-header-total-distance").textContent).toBe("1.234,5\u00A0km");
+      expect(screen.getByText("Gesamtstrecke")).toBeInTheDocument();
+      expect(within(card).getByText("Strecken")).toBeInTheDocument();
+      expect(within(card).getByTestId("trip-distance-row-car")).toHaveTextContent("Auto");
+      expect(within(card).getByTestId("trip-distance-row-car")).toHaveTextContent("1.234,5 km · 2 Fahrten");
+      expect(within(card).getByTestId("trip-distance-row-flight")).toHaveTextContent("1 Fahrt");
+    });
+
+    it("shows 0 km and an empty line, with no rows, for a trip without legs", async () => {
+      stubDetail(emptyTrip);
+      renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+      const card = await screen.findByTestId("trip-distance-card");
+      expect(screen.getByTestId("trip-header-total-distance")).toHaveTextContent("0 km");
+      expect(within(card).getByTestId("trip-distance-card-total")).toHaveTextContent("0 km");
+      expect(within(card).getByText("No travel planned yet.")).toBeInTheDocument();
+      expect(within(card).queryAllByTestId(/^trip-distance-row-/)).toHaveLength(0);
+    });
   });
 
   it("keeps timeline cards readable when viewport changes between mobile and desktop widths", async () => {

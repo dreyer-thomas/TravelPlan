@@ -55,6 +55,8 @@ editHistory:
     changes: 'Rewrote FR42-FR43 and added FR46-FR47 (activities planned by duration as flexible or fixed; plan collision warnings; check-in no longer a warning). Amended FR45. See Sprint Change Proposal 2026-10-17.'
   - date: '2026-10-17'
     changes: 'Amended FR35-FR36 (bucket list entries are activities without a day). Added FR48 (park an activity) and FR49 (park AI suggestions). See Sprint Change Proposal 2026-10-17, Bucket List as a Parking Lot.'
+  - date: '2026-10-19'
+    changes: 'Added FR50 (planned distance on the trip overview: total kilometres and a per-mode breakdown of the travel legs). Story 7.14.'
 ---
 
 # Product Requirements Document - TravelPlan
@@ -271,6 +273,7 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 - FR25: Users can add transport segments between days with mode, origin, destination, and time.
 - FR26: Users can view a map-based overview of the trip route, including a full-size trip map that can be opened from the overview and inspected via clickable place markers.
 - FR27: Users can see travel time and distance for transport segments.
+- FR50: Users can see on the trip overview the planned distance of the whole trip, as the sum of the known kilometres of its travel legs, and a breakdown per mode of transport with kilometres, number of legs and travel time. Only legs the day shows are counted. **(Added 2026-10-19 — Story 7.14)**
 
 ### Trip Seeding
 

@@ -43,15 +43,9 @@ import {
 } from "@/lib/auth/tripAccessRole";
 import { extractAttachmentFilename, triggerBlobDownload } from "@/lib/browser/blobDownload";
 import { formatShortDate } from "@/lib/trips/formatShortDate";
-// Story 8.5 review. The same two rules `TripDayView` uses, because this file's coverage bar and that
-// screen's travel figure describe the same day: the order the day's endpoints are in, and which pairs
-// of that order are legs the timeline draws.
-import { compareDayPlanItemsByOrder } from "@/lib/trips/dayPlanItemOrder";
-import {
-  buildDrawnDaySegmentPairKeys,
-  isDrawnDaySegment,
-  type DaySegmentEndpoint,
-} from "@/lib/trips/daySegmentPairs";
+// Story 8.5 review / Story 7.14. The same drawn-leg rule `TripDayView` uses, because this file's
+// coverage bar, its distance figures and that screen's travel figure describe the same legs.
+import { selectDrawnTravelSegments, summarizeTripTravel } from "@/lib/trips/tripTravelSummary";
 import { withImageCacheBuster } from "@/lib/trips/imageUploads";
 import type { TransportType } from "@/lib/trips/transportTypes";
 import { useI18n } from "@/i18n/provider";
@@ -304,6 +298,17 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
       }).format(value / 100),
     [language],
   );
+  // Story 7.14. The value arrives already rounded to one decimal (`summarizeTripTravel`); the format
+  // only localises it and drops a trailing ",0" - "1.234,5 km", "6.682 km". The space is a no-break
+  // space, as `formatCost`'s currency style uses before "€": at 390px the header cell otherwise
+  // breaks "km" onto a line of its own.
+  const formatDistanceKm = useMemo(
+    () => (value: number) =>
+      `${new Intl.NumberFormat(language === "de" ? "de-DE" : "en-US", { maximumFractionDigits: 1 }).format(value)}\u00A0${t(
+        "trips.travelSegment.kmSuffix",
+      )}`,
+    [language, t],
+  );
 
   const loadTrip = useCallback(async () => {
     setLoading(true);
@@ -422,6 +427,10 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
       getPlanItemFallbackLabel: (index) => formatMessage(t("trips.plan.previewFallback"), { index }),
     });
   }, [detail, t, tripId]);
+
+  // Story 7.14. One summary feeds both the header figure and the distance card, so the two cannot
+  // disagree. Above the early returns, as every hook here must be (see DW-107 above).
+  const travelSummary = useMemo(() => summarizeTripTravel(detail?.days ?? []), [detail]);
 
   if (loading) {
     return (
@@ -568,7 +577,6 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
           : "/images/world-map-placeholder.svg",
       )
     : "none";
-  const openDaysCount = detail?.days.filter((day) => day.missingAccommodation).length ?? 0;
   const firstGapDay = detail?.days.find((day) => day.missingAccommodation) ?? null;
   const accommodationCostTotal = detail?.trip.accommodationCostTotalCents ?? 0;
   const activitiesCostTotal = Math.max((detail?.trip.plannedCostTotal ?? 0) - accommodationCostTotal, 0);
@@ -793,17 +801,13 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
               </Box>
               <Box sx={{ p: "16px 24px" }}>
                 <Typography variant="labelCaps" sx={{ color: tokens.inkSoft, display: "block", mb: 0.75 }}>
-                  {t("trips.timeline.statOpenItems")}
+                  {t("trips.timeline.statTotalDistance")}
                 </Typography>
                 <Typography
-                  sx={{
-                    fontSize: 21,
-                    fontWeight: 900,
-                    fontVariantNumeric: "tabular-nums",
-                    color: openDaysCount > 0 ? theme.palette.warning.main : tokens.ink,
-                  }}
+                  data-testid="trip-header-total-distance"
+                  sx={{ fontSize: 21, fontWeight: 900, fontVariantNumeric: "tabular-nums", color: tokens.ink }}
                 >
-                  {openDaysCount}
+                  {formatDistanceKm(travelSummary.totalKm)}
                 </Typography>
               </Box>
             </Box>
@@ -832,42 +836,11 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
               {!listEmpty &&
                 detail.days.map((day, index) => {
                   const previousDay = index > 0 ? detail.days[index - 1] : null;
-                  /**
-                   * Story 8.5 review (`DW-151`). The day's endpoint order, exactly as `TripDayView`
-                   * builds it: last night's stay, the day's activities, this night's stay. Only the
-                   * consecutive pairs of it are legs the timeline draws, and only those may be counted.
-                   *
-                   * This bar renders through the *same* `trips.dayView.ganttSummary` string as the day
-                   * view's, so fed every stored row it reported a different "Planned" figure for the
-                   * very day the day view lists the extra leg under "Orphaned travel legs" as not
-                   * counted — 7h 45m here against 7h 30m there, on this story's own fixture. One rule,
-                   * imported, rather than a second local opinion about what is drawn.
-                   *
-                   * **And the activity order is derived here, not taken from the payload.** This bar
-                   * used to read `day.dayPlanItems` in array order, which was correct only because
-                   * `getTripWithDaysForUser` sorts each day's activities before serialising them
-                   * (`tripRepo.ts`) — the same invisible, unpinned dependency this story removed from
-                   * `TripDayView`, left standing on the surface that renders the *same* summary string.
-                   * Applying the shared comparator here means both screens compute their drawn set from
-                   * an order they own, so they cannot come apart if that mapping ever changes.
-                   */
-                  const orderedPlanItems = [...day.dayPlanItems].sort((left, right) =>
-                    compareDayPlanItemsByOrder(
-                      { sortOrder: left.sortOrder ?? 0, fromTime: left.fromTime ?? null, createdAt: left.createdAt ?? "", id: left.id },
-                      { sortOrder: right.sortOrder ?? 0, fromTime: right.fromTime ?? null, createdAt: right.createdAt ?? "", id: right.id },
-                    ),
-                  );
-                  const dayEndpoints: DaySegmentEndpoint[] = [
-                    ...(previousDay?.accommodation
-                      ? [{ type: "accommodation" as const, id: previousDay.accommodation.id }]
-                      : []),
-                    ...orderedPlanItems.map((item) => ({ type: "dayPlanItem" as const, id: item.id })),
-                    ...(day.accommodation ? [{ type: "accommodation" as const, id: day.accommodation.id }] : []),
-                  ];
-                  const drawnPairKeys = buildDrawnDaySegmentPairKeys(dayEndpoints);
-                  const drawnTravelSegments = Array.isArray(day.travelSegments)
-                    ? day.travelSegments.filter((segment) => isDrawnDaySegment(drawnPairKeys, segment))
-                    : [];
+                  // Story 8.5 review (`DW-151`) / Story 7.14. Only the legs the day's timeline draws are
+                  // counted, by the same derivation the trip's distance card uses — this bar renders
+                  // through the same `trips.dayView.ganttSummary` string as the day view, so a second
+                  // local opinion about what is drawn would report a different "Planned" figure.
+                  const { orderedPlanItems, drawnTravelSegments } = selectDrawnTravelSegments(day, previousDay);
                   const ganttSegments = buildOverviewGanttSegments({
                     previousStay: previousDay?.accommodation
                       ? {
@@ -1172,6 +1145,70 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                     </Box>
                   ))}
                 </Box>
+              </Box>
+
+              {/* Story 7.14. Same shell as the cost card above; every role sees it, read-only. */}
+              <Box
+                data-testid="trip-distance-card"
+                sx={{ backgroundColor: tokens.card, border: "1px solid", borderColor: tokens.borderStrong, borderRadius: "8px", padding: "18px", mb: 2 }}
+              >
+                <Typography variant="labelCaps" component="h5" sx={{ color: tokens.inkSoft, display: "block", mb: 1.25 }}>
+                  {t("trips.timeline.distanceSummaryTitle")}
+                </Typography>
+                <Typography
+                  variant="metricLg"
+                  data-testid="trip-distance-card-total"
+                  sx={{ color: tokens.ink, fontVariantNumeric: "tabular-nums" }}
+                >
+                  {formatDistanceKm(travelSummary.totalKm)}
+                </Typography>
+                <Typography variant="body2" sx={{ color: tokens.inkSoft, mb: 1.5, display: "block" }}>
+                  {t("trips.timeline.distanceSummarySubtitle")}
+                </Typography>
+                {travelSummary.byMode.length === 0 ? (
+                  <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
+                    {t("trips.timeline.distanceEmpty")}
+                  </Typography>
+                ) : (
+                  <Box sx={{ "& > div:last-child": { borderBottom: "none" } }}>
+                    {travelSummary.byMode.map((row) => {
+                      const legs =
+                        row.legCount === 1
+                          ? t("trips.timeline.distanceLegCountOne")
+                          : formatMessage(t("trips.timeline.distanceLegCount"), { count: row.legCount });
+                      // `null` is the data saying "no leg of this mode has a distance" - flights and
+                      // ships always - so the row shows no km figure rather than "0 km".
+                      const parts = [
+                        ...(row.distanceKm === null ? [] : [formatDistanceKm(row.distanceKm)]),
+                        legs,
+                        formatDurationSummary(row.durationMinutes),
+                      ];
+                      return (
+                        <Box
+                          key={row.transportType}
+                          data-testid={`trip-distance-row-${row.transportType}`}
+                          sx={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: 1,
+                            py: 1,
+                            borderBottom: "1px solid",
+                            borderColor: tokens.border,
+                          }}
+                        >
+                          <Typography sx={{ fontSize: "12.5px", fontWeight: 600, color: tokens.ink }}>
+                            {t(`trips.travelSegment.transport.${row.transportType}`)}
+                          </Typography>
+                          <Typography
+                            sx={{ fontSize: "12.5px", color: tokens.ink, fontVariantNumeric: "tabular-nums", fontWeight: 700, textAlign: "right" }}
+                          >
+                            {parts.join(" · ")}
+                          </Typography>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                )}
               </Box>
 
               <TripOverviewMapPanel

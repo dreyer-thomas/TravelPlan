@@ -326,6 +326,9 @@ describe("TripTimeline role gating", () => {
     expect(screen.getByRole("heading", { name: "Viewer Trip", level: 4 })).toBeInTheDocument();
     expect(screen.getByText("Dec 1, 2026 - Dec 2, 2026")).toBeInTheDocument();
     expect(screen.getByTestId("overview-map-panel")).toBeInTheDocument();
+    // Story 7.14 AC10: the distance card and the header figure are read-only and need no role.
+    expect(screen.getByTestId("trip-distance-card")).toHaveTextContent("No travel planned yet.");
+    expect(screen.getByTestId("trip-header-total-distance")).toHaveTextContent("0 km");
 
     const dayCard = screen.getByTestId("timeline-day-card");
     expect(dayCard).toHaveTextContent("Planned 0m, Unplanned 24h");

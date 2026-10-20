@@ -59,6 +59,7 @@ FR46: Users plan an activity either as flexible, by giving only how long it take
 FR47: Users are warned, on the day and in the trip overview, when a day's plan cannot work: an activity cannot be reached by its fixed start, two fixed activities overlap, or the day runs past midnight. The plan is saved anyway. Arriving at the night's stay after its check-in time is not a warning.
 FR48: Users who can plan a trip can park an activity of a day in the bucket list, keeping all its data; the day is recomputed and the parking can be undone.
 FR49: When applying AI suggestions, users choose for each selected suggestion whether to schedule it or park it in the bucket list.
+FR50: Users can see on the trip overview the planned distance of the whole trip (sum of known kilometres) and a per-mode breakdown with kilometres, number of legs and travel time; only legs the day shows are counted.
 
 ### NonFunctional Requirements
 
@@ -138,6 +139,7 @@ FR46: Epic 13 - Days Planned by Duration
 FR47: Epic 13 - Days Planned by Duration
 FR48: Epic 14 - The Bucket List as a Parking Lot
 FR49: Epic 14 - The Bucket List as a Parking Lot
+FR50: Epic 7 - Visual Redesign — Light Cockpit System (Story 7.14, added 2026-10-19)
 
 ## Epic List
 
@@ -167,7 +169,7 @@ Users can iterate on focused UX improvements that simplify planning screens with
 
 ### Epic 7: Visual Redesign — Light Cockpit System
 Users experience the approved `DESIGN.md`/`EXPERIENCE.md` visual system across every screen instead of the current inconsistent styling — no new capability, existing screens re-skinned to the new tokens/components.
-**FRs covered:** FR6, FR9, FR22 (no new FRs — implements an already-approved design spine, not new product capability)
+**FRs covered:** FR6, FR9, FR22 (no new FRs — implements an already-approved design spine, not new product capability); FR50 (Story 7.14, added 2026-10-19 — the one exception: new content on the redesigned trip overview, placed here because every overview card was built in this epic)
 
 ### Epic 8: Maintenance & Infrastructure
 The maintainer can keep the runtime, toolchain, and accumulated technical debt current without threading infrastructure work through feature or redesign epics.
@@ -3147,6 +3149,61 @@ It also closes DW-27, whose own text names this file and assigns the fix to "the
 **Given** every existing behaviour — the cost roll-up, the day grouping, the month grouping, the back link and the trip total
 **When** the screen is redesigned
 **Then** all of it works unchanged: this story is visual only
+
+### Story 7.14: Planned Distance on the Trip Overview
+
+As a trip planner looking at the whole trip,
+I want to see how many kilometres I have planned, in total and per mode of transport,
+So that I can judge the trip's travel load at a glance without adding up the legs day by day.
+
+**FRs covered:** FR50
+
+**Context:** Added 2026-10-19 on Tommy's request. Epic 7 re-skins existing screens and adds no capability; this story is the one exception, placed here because every card of the trip overview (`TripTimeline.tsx`) was built in this epic (7.2, 7.8, 7.12, 7.13). Everything it needs is already in the `GET /api/trips/{id}` payload — each day's `travelSegments` carry `transportType`, `durationMinutes` and `distanceKm` — so there is no API, schema or migration change.
+
+Tommy's rulings (2026-10-19): (1) the card shows kilometres, number of legs and travel time per mode; (2) "planned" means every leg entered between the day's activities and stays — legs have no planned/done status and none is introduced; (3) only known kilometres are summed, with no hint about legs without a distance; (4) the header's fourth figure, "Offene Punkte", is replaced by the total kilometres. The *Meine Reisen* dashboard keeps its own "Offene Punkte" figure untouched.
+
+**Trap:** dev.db holds orphaned legs (legs whose endpoints are no longer consecutive, see the parked orphan-cleanup proposal). Summing every stored leg would inflate the figure and contradict the day view. The count must use the same drawn-leg rule the overview's Gantt bars already use (`buildDrawnDaySegmentPairKeys` / `isDrawnDaySegment` over the day's endpoint order).
+
+**Acceptance Criteria:**
+
+**Given** a trip whose days have travel legs
+**When** the trip overview renders
+**Then** a "Strecken" card appears in the side column directly below the "Kosten bisher" card, in the same token card treatment
+**And** it shows the total of all known kilometres as its headline figure
+**And** below it one row per mode of transport that occurs in the trip, each with kilometres, number of legs and summed travel time
+
+**Given** a mode whose legs never carry a distance (flight, ship) or whose legs carry none in this trip
+**When** its row renders
+**Then** it shows the number of legs and the travel time, and no kilometre figure (not "0 km")
+
+**Given** legs with a distance and legs without one in the same mode
+**When** the totals are computed
+**Then** only the known kilometres are summed, the legs without a distance still count toward number of legs and travel time, and no hint about missing distances is shown
+
+**Given** a day holding an orphaned leg that the day view does not draw
+**When** the totals are computed
+**Then** that leg is not counted — neither in kilometres, nor in number of legs, nor in travel time — using the same drawn-leg rule as the overview's Gantt bars
+
+**Given** the header's fourth figure, today "Offene Punkte" (days without a stay)
+**When** the overview renders
+**Then** it shows the trip's total known kilometres instead, matching the card's headline figure
+**And** the days-without-stay information remains available through the existing "Handlungsbedarf" alert
+
+**Given** kilometre figures
+**When** they render
+**Then** they are rounded to at most one decimal and formatted in the user's locale (e.g. "1.234,5 km" in German), and travel times use the app's existing duration format
+
+**Given** a trip without any travel legs
+**When** the overview renders
+**Then** the header shows "0 km" and the card shows an empty state instead of rows
+
+**Given** a viewer, a contributor or the owner
+**When** they open the trip overview
+**Then** each of them sees the card and the header figure — they are read-only
+
+**Given** the *Meine Reisen* dashboard
+**When** this story ships
+**Then** its "Offene Punkte" figure is unchanged
 
 ## Epic 8: Maintenance & Infrastructure
 
