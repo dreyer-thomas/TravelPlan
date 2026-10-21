@@ -3534,6 +3534,103 @@ Haiku 5.5 was weighed and set aside for now. It would need the older `web_search
 **Then** the page shows them, and a search with several web searches shows `cache_read_input_tokens` above zero. If it is zero, caching is not working, and the story is not done until it is understood
 
 
+### Story 8.8: Password-Reset Emails That Arrive
+
+As someone who forgot their password,
+I want the reset email to actually reach my inbox,
+So that I can get back into my account without asking the operator.
+
+**FRs covered:** FR29 (already marked done by Story 1.5, never delivered in production)
+
+**Depends on:** nothing. **Origin:** Tommy with John (PM), 2026-10-21. See `sprint-change-proposal-2026-10-21.md` for the verified Strato facts.
+
+**Context:** `sendEmail` in `src/lib/notifications/email.ts` is a stub: outside production it pushes into an in-memory outbox, in production it does nothing. The reset route then answers success. No password-reset email has ever been sent. Strato SMTP was verified by hand on 2026-10-21: `smtp.strato.de:465`, login `webmaster@dreyer-travels.de` (mailbox password), sender alias `system@plan.dreyer-travels.de` accepted, delivered to the inbox at GMX. `dreyer-travels.de` publishes DMARC `p=reject` and no SPF, so delivery rests on Strato's DKIM signature.
+
+**Acceptance Criteria:**
+
+**Given** `NODE_ENV=production` and the SMTP settings present
+**When** `sendEmail` is called
+**Then** the message is sent through SMTP with `nodemailer` using `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` and `MAIL_FROM`, with implicit TLS on port 465 and STARTTLS required on any other port. Certificate verification stays on
+**And** the From header is `MAIL_FROM` (e.g. `TravelPlan <system@plan.dreyer-travels.de>`)
+
+**Given** `NODE_ENV` is not `production` (dev, test, CI)
+**When** `sendEmail` is called
+**Then** it behaves exactly as today: the message goes into the in-memory outbox and no network connection is made, even if SMTP variables are set
+
+**Given** `NODE_ENV=production` and any of the five SMTP variables missing or empty
+**When** the server starts
+**Then** it refuses to start with an error naming the missing variable(s), not their values. The same pattern as `MEDIA_STORAGE_ROOT`'s production fail-fast. Mail must never again be swallowed silently
+
+**Given** an SMTP failure (connection, authentication, rejection)
+**When** a reset is requested for an existing account
+**Then** the response is still the same `{ success: true }` as for an unknown address, so the endpoint does not reveal which addresses have accounts
+**And** the failure is logged with the SMTP error code and message, but never the password, the reset token, the reset URL or the message body
+**And** a stuck SMTP server cannot hang the request: connection and send have a timeout of at most 15 s
+
+**Given** the reset email
+**Then** it is plain text, contains the reset link built from `APP_BASE_URL`, and is sent to exactly the requested address
+**And** its subject and body are in the account's `preferredLanguage` (`de` or `en`, the language the user picked in the app), with both texts in `en.ts` and `de.ts`. The language of the page the request came from does not matter: the address is all the request carries, and the account is what the mail is about
+
+**Given** the test suite
+**Then** the production path is covered by tests that stub the transport (no real network): the config fail-fast, the From header, the error path logging without secrets, and the reset route still answering success when the transport throws
+**And** a test asserts that the non-production path never creates a transport
+
+**Given** the deployment docs
+**Then** `docs/deployment-configuration.md` and `docs/deployment-guide.md` list the five variables, the Strato values, which mailbox the login belongs to, that the password is the **mailbox** password set under "Postfach bearbeiten" (not the Strato customer login), and the DMARC/DKIM dependency
+
+**Given** the production server
+**When** the story is deployed (Tommy, manual)
+**Then** first a TCP connection from the server to `smtp.strato.de:465` succeeds (the host has no `nc`; `timeout 5 bash -c "</dev/tcp/smtp.strato.de/465"` works). If it does not, port 587 with STARTTLS is tried before anything else changes
+**And** a real password reset requested on `https://plan.dreyer-travels.de` for Tommy's own account arrives in the inbox, its link points at `https://plan.dreyer-travels.de/auth/reset-password?token=…`, and setting a new password through it works
+**And** the journal for that request shows no error
+
+**Out of scope:** the nightly day-plan email for offline use (parked, Tommy 2026-10-21; it will build on this transport); HTML email; an SPF record (recommended `v=spf1 include:_spf.strato.com -all` for `dreyer-travels.de` and `plan.dreyer-travels.de`, a DNS step for Tommy, not code).
+
+
+### Story 8.9: Security Updates for Next.js, Prisma and Tiptap
+
+As the operator of TravelPlan,
+I want the production dependencies updated past every published advisory,
+So that the app is not running known-exploitable code and the `audit:check` gate is green again.
+
+**FRs covered:** None (security maintenance; NFR2/NFR3 hygiene)
+
+**Depends on:** Story 8.8 committed first, so the two diffs stay separate. **Origin:** Tommy, 2026-10-21, after Story 8.8's dev run found `npm run audit:check` red with 23 production findings, none from 8.8.
+
+**Context:** On 2026-10-21 `npm audit --omit=dev` reports findings in `next@16.2.12` (8 advisories, 3 critical RCEs, all fixed by 16.3.8), `sharp@0.35.3` (via `next` and the `overrides` pin `^0.35.1`, fixed in 0.35.5), `source-map-js@1.2.1` (via `postcss`, fixed in 1.2.2), `prisma@7.9.1` → `mysql2@3.15.3` and `@prisma/config` → `deepmerge-ts@7.1.5` (fixed by `prisma@7.10.1`), `fast-uri@3.1.5` (via `@prisma/dev` → `ajv`, fixed in 3.1.8+), `@tiptap/*@3.29.1` (fixed in 3.30.5+) and `prosemirror-view@1.42.2` (paste XSS, fixed in 1.42.3+). The app renders plain `<img>` and never imports `next/image` or `next/og`, but Next serves `/_next/image` by default anyway, so exposure is not ruled out. The server is Linux, so the Windows-only RCE does not apply. `npm audit fix` proposes `next@16.4.2`.
+
+**Acceptance Criteria:**
+
+**Given** the dependency tree after the update
+**When** `npm run audit:check` runs
+**Then** it passes with **zero** production findings and **no** new entry in `audit-allowlist.json`
+**And** `npm audit signatures` passes
+
+**Given** `next` and `eslint-config-next`
+**Then** both move together to the same exact version, at least `16.3.8` (default `16.4.2`, the current minor that still gets patches), and stay exact-pinned as today
+**And** the `sharp` override is raised to at least `^0.35.5`. The `postcss` override stays unless the update makes it unnecessary, and the Completion Notes say which
+
+**Given** `prisma`, `@prisma/client` and `@prisma/adapter-better-sqlite3`
+**Then** all three move to the same version, at least `7.10.1`
+**And** `prisma generate` output is regenerated, `npm run check:migrations` passes, and no new migration is created (no schema change)
+
+**Given** the Tiptap packages (`@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-link`)
+**Then** they resolve to one 3.x version of at least `3.30.5` and `prosemirror-view` resolves to at least `1.42.3`
+**And** the rich-text editor still works: typing, bold/italic, lists, links, and saving and reloading a trip or day note keep their content, checked in a real browser
+
+**Given** transitive findings with no direct-parent bump (`fast-uri`, `source-map-js`)
+**Then** they are fixed by refreshing the lockfile within the declared ranges, and an `overrides` entry is added only if that is not enough, each with its reason in the Completion Notes
+
+**Given** the full verification
+**Then** `npm test`, `npm run typecheck`, `npm run lint` (no new errors) and `npm run build` pass
+**And** the app runs under `next start` and the main flows work in a browser: sign-in, trip overview, day view with images, the print sheet, uploading and viewing a photo, the document packet download, and the password-reset request
+
+**Given** the production server
+**When** the story is deployed (Tommy, via the deploy script, which runs `npm ci` because the lockfile changed and then `prisma migrate deploy` and the build)
+**Then** the service is active, a signed-in page answers 200 through the public hostname, `/uploads/…` still answers 401 to an anonymous request, and the journal shows no new errors
+
+**Out of scope:** major-version upgrades not required by an advisory; dev-only findings (the gate is `--omit=dev`); dependency-update automation (Dependabot/Renovate), which is a separate decision.
+
 ## Epic 9: Travel Documents
 
 Users can keep tickets and booking confirmations as the original files on the stay or activity they belong to, see and open them from the day timeline, and take them offline as one PDF.

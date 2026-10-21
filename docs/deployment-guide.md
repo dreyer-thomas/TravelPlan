@@ -64,9 +64,10 @@ the *next* major, so it is documented as it was actually performed.
 
 ## Environment configuration
 
-The source tree reads eight variables. Three fail loudly when unset; two fall back silently, and those
-are the ones to watch. The other three (Story 12.1) configure the optional AI day suggestions, which are
-simply off without a key. Full table in
+The source tree reads thirteen variables. Three fail loudly when unset; two fall back silently, and those
+are the ones to watch. Three (Story 12.1) configure the optional AI day suggestions, which are simply off
+without a key. The last five (Story 8.8) are the SMTP settings for password-reset email; in production
+the server refuses to start without them. Full table in
 [deployment-configuration.md](deployment-configuration.md#environment-variables).
 
 | Variable | Notes |
@@ -79,6 +80,11 @@ simply off without a key. Full table in
 | `ANTHROPIC_API_KEY` | Optional. Turns on the AI day suggestions; **every search is paid by the operator**. A secret — see the warning in the configuration guide. |
 | `ANTHROPIC_MODEL` | Optional. Model for the suggestions; defaults to `claude-haiku-5-5`. A `claude-haiku-*` model is sent the basic web search tool (`web_search_20250305`), any other model the dynamic-filtering one (`web_search_20260209`). |
 | `AI_SUGGESTIONS_DAILY_LIMIT` | Optional. Searches per user per server-local day; defaults to `20`. |
+| `SMTP_HOST` | `smtp.strato.de`. **Required in production**, like the four below: missing or empty, the server refuses to start, and as with `MEDIA_STORAGE_ROOT` that shows as `500` on every request with the missing names in the journal. |
+| `SMTP_PORT` | `465` (implicit TLS). `587` (STARTTLS, then required) is the fallback if the server cannot reach 465. |
+| `SMTP_USER` | `webmaster@dreyer-travels.de`, the only mailbox in the Strato contract. |
+| `SMTP_PASS` | That mailbox's password, set under "Postfach bearbeiten" in the Strato customer area. **Not** the Strato customer login. A secret. |
+| `MAIL_FROM` | `TravelPlan <system@plan.dreyer-travels.de>`, an alias on that mailbox. |
 
 Since Story 8.7, every AI day search that reaches Claude records what it consumed: the token counts,
 the web searches, the outcome and the duration, but never the wish, the trip or the answer. Admins
@@ -95,6 +101,27 @@ search slower: on Haiku 5.5 a search took 14-31 s (about
 22 s on average) in the comparison, against 3-9 s before, when no search ever reached the web. The
 60 s deadline is unchanged. Each web search adds $0.01, which on Haiku is most of a search's cost
 (about $0.04 per search in the comparison).
+
+Outside production (dev, test, CI) mail never leaves the process: it goes into an in-memory outbox, even
+with the SMTP variables set. Delivery depends on Strato's DKIM signature, because `dreyer-travels.de`
+publishes DMARC `p=reject` and no SPF record. Details, the reachability check and the optional SPF
+record are in
+[deployment-configuration.md](deployment-configuration.md#password-reset-email).
+
+### Upgrading past Story 8.8: SMTP variables before the new build starts
+
+Add the five `SMTP_*`/`MAIL_FROM` lines to `TravelPlan.service`, run `systemctl daemon-reload`, and only
+then start the build that contains Story 8.8. Started without them, it answers `500` to every request.
+Before that, check that the server can reach Strato at all:
+
+```sh
+timeout 5 bash -c "</dev/tcp/smtp.strato.de/465" && echo open   # the host has no nc
+```
+
+If it is not open, try `587` and set `SMTP_PORT=587`. Then request a real password reset on
+`https://plan.dreyer-travels.de` for your own account, check that the mail arrives and its link points
+at `https://plan.dreyer-travels.de/auth/reset-password?token=…`, set a new password through it, and check
+the journal for a `password-reset/request: reset email not sent` line (there should be none).
 
 ### The media root
 

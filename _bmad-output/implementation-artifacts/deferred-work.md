@@ -3897,3 +3897,25 @@ severity: low
 summary: `20260308120020_add_cost_payments` no longer matches the checksum recorded in dev.db's `_prisma_migrations`, so `prisma migrate dev` (and `--create-only`) wants to reset dev.db. 8.7 worked around it with `prisma migrate diff` plus `migrate deploy`. A diff against dev.db also carries old, unrelated CHECK-constraint drift.
 evidence: 8.7 Completion Notes (migration bullet). Pre-existing, not caused by 8.7. A fix re-baselines dev.db's checksum (`prisma migrate resolve`) or rebuilds dev.db from migrations, after a backup.
 status: open
+
+## Deferred from: code review of 8-8-password-reset-emails-that-arrive (2026-10-21)
+
+### DW-403: Auth rate limits key on the client-supplied first `X-Forwarded-For` entry
+
+source_spec: `_bmad-output/implementation-artifacts/8-8-password-reset-emails-that-arrive.md`
+origin: code review of 8-8-password-reset-emails-that-arrive, 2026-10-21
+location: `travelplan/src/app/api/auth/password-reset/request/route.ts` (`getClientIp`), the same helper in the other auth routes; nginx `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for` in `docs/deployment-configuration.md`
+severity: medium
+summary: `getClientIp` takes the first `X-Forwarded-For` entry, and nginx appends the real address to whatever the client sent, so a client picks its own rate-limit key and bypasses the 10-per-10-minutes limit. Before 8.8 the reset endpoint sent nothing in production; now each request to a known address sends a real mail from the Strato mailbox, so the bypass allows mail-bombing an account holder and burning the mailbox's sending reputation. There is no per-address throttle either.
+evidence: Pre-existing in every auth route; 8.8 raised the blast radius. A fix keys on `X-Real-IP` (set by nginx from `$remote_addr`) or the last `X-Forwarded-For` entry, and adds a per-address limit (e.g. one reset mail per address per few minutes) to the reset request.
+status: open
+
+### DW-404: Malformed `APP_BASE_URL` answers 500 for known addresses only
+
+source_spec: `_bmad-output/implementation-artifacts/8-8-password-reset-emails-that-arrive.md`
+origin: code review of 8-8-password-reset-emails-that-arrive, 2026-10-21
+location: `travelplan/src/app/api/auth/password-reset/request/route.ts` (`new URL("/auth/reset-password", baseUrl)`)
+severity: low
+summary: A set but malformed `APP_BASE_URL` makes `new URL` throw inside the outer try, so known addresses get 500 and unknown ones 200 — an enumeration signal, and the reset is broken without a startup error.
+evidence: Pre-existing (the URL construction predates 8.8). A fix validates `APP_BASE_URL` at boot in production, alongside the SMTP check.
+status: open

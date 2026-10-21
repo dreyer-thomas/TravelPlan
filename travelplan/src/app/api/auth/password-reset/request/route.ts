@@ -7,9 +7,29 @@ import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { createPasswordResetToken } from "@/lib/auth/passwordReset";
 import { checkRateLimit } from "@/lib/security/rateLimit";
 import { sendEmail } from "@/lib/notifications/email";
+import { dictionaries, formatMessage, translate } from "@/i18n";
 
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX = 10;
+
+/** Anything shaped like a mail address. nodemailer's messages quote the server's reply, recipient included. */
+const ADDRESS_PATTERN = /[^\s<>"',;:()[\]]+@[^\s<>"',;:()[\]]+/g;
+
+/**
+ * What an SMTP failure is allowed to put in the journal: nodemailer's error code (`EAUTH`,
+ * `ECONNECTION`, `ETIMEDOUT`...), the server's reply code and the message with any address blanked -
+ * never the error object, whose `command`, `response` and envelope fields are not ours to vouch for,
+ * and never a non-`Error` throw, which could be anything.
+ */
+const describeSendFailure = (error: unknown) => {
+  const fields = (typeof error === "object" && error !== null ? error : {}) as Record<string, unknown>;
+  return {
+    code: typeof fields.code === "string" ? fields.code : undefined,
+    responseCode: typeof fields.responseCode === "number" ? fields.responseCode : undefined,
+    message:
+      error instanceof Error ? error.message.replace(ADDRESS_PATTERN, "<address>") : `non-Error thrown (${typeof error})`,
+  };
+};
 
 const getClientIp = (request: NextRequest) => {
   const forwarded = request.headers.get("x-forwarded-for");
@@ -47,17 +67,32 @@ export const POST = async (request: NextRequest) => {
   const { email } = parsed.data;
 
   try {
-    const user = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, preferredLanguage: true },
+    });
     if (user) {
       const rawToken = await createPasswordResetToken(user.id);
       const baseUrl = process.env.APP_BASE_URL ?? "http://localhost:3000";
       const resetUrl = new URL("/auth/reset-password", baseUrl);
       resetUrl.searchParams.set("token", rawToken);
 
-      await sendEmail({
+      // The account's language, not the `lang` cookie: the address is all the request carries, and
+      // the account is what the mail is about.
+      const dictionary = dictionaries[user.preferredLanguage];
+
+      // Not awaited, on purpose. Waiting for SMTP would make a known address answer seconds later than
+      // an unknown one - which tells the caller the account exists - and a slow server could hold the
+      // request open past any timeout. So the answer is the same success either way, at once, and a
+      // failed send surfaces only in the journal. The log line names the failure and nothing else: no
+      // token, no link, no body, no credentials. (The process is a long-running `next start`, so the
+      // send outlives the response.)
+      void sendEmail({
         to: email,
-        subject: "Reset your password",
-        text: `Use this link to reset your password: ${resetUrl.toString()}`,
+        subject: translate(dictionary, "auth.resetEmail.subject"),
+        text: formatMessage(translate(dictionary, "auth.resetEmail.body"), { url: resetUrl.toString() }),
+      }).catch((error: unknown) => {
+        console.error("password-reset/request: reset email not sent", describeSendFailure(error));
       });
     }
   } catch {

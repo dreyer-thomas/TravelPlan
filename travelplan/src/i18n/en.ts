@@ -48,6 +48,9 @@ const en: Dictionary = {
   "auth.forgot.submit": "Send reset link",
   "auth.forgot.error": "Password reset failed. Please try again.",
   "auth.forgot.initError": "Unable to initialize password reset. Please refresh.",
+  "auth.resetEmail.subject": "Reset your TravelPlan password",
+  "auth.resetEmail.body":
+    "Someone (hopefully you) asked to reset the password for your TravelPlan account.\n\nOpen this link to choose a new password. It is valid for one hour:\n{url}\n\nIf you did not ask for this, ignore this email. Your password stays unchanged.",
   "auth.reset.title": "Set a new password",
   "auth.reset.subtitle": "Choose a new password for your account.",
   "auth.reset.success": "Password updated. You can now sign in.",

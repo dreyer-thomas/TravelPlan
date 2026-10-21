@@ -10,22 +10,59 @@ Still not written down anywhere: **how new code reaches the server.** See
 
 ## Environment variables
 
-These are the eight variables the source tree reads (`grep -r 'process\.env\.' travelplan/src`, excluding
+These are the thirteen variables the source tree reads (`grep -r 'process\.env\.' travelplan/src`, excluding
 `NODE_ENV`). Two of the first five have silent fallbacks, which is worth more attention than the three that
-fail loudly: a variable that defaults to something plausible is one nobody discovers is unset. The last
+fail loudly: a variable that defaults to something plausible is one nobody discovers is unset. The next
 three (Story 12.1) belong to the optional AI day suggestions and are read only in `src/lib/ai/config.ts`.
-`travelplan/.env.example` lists all eight without values.
+The last five (Story 8.8) are the SMTP settings for password-reset email, read only in
+`src/lib/notifications/smtpConfig.ts`; in production the server refuses to start without them (see
+*Password-reset email* below). `travelplan/.env.example` lists all thirteen without values.
 
 | Variable | Required | Notes |
 |---|---|---|
 | `MEDIA_STORAGE_ROOT` | **Yes, in production** | Absolute path to the directory that holds uploaded media. See below. |
 | `DATABASE_URL` | Yes | SQLite connection string, e.g. `file:/absolute/path/prisma/dev.db`. In production it is `file:/home/app/apps/TravelPlan/travelplan/prisma/prod.db` — **inside the application tree**, which is the same hazard this file spends several paragraphs warning about for media, except that nothing validates it at startup. A deploy that replaces the tree rather than updating it in place destroys production data. Tracked as `DW-328`. |
 | `JWT_SECRET` | Yes | Session signing key (HS256). |
-| `APP_BASE_URL` | **In practice yes** | Origin used to build the link in password-reset emails (`password-reset/request/route.ts:53`). **Falls back to `http://localhost:3000` with no warning**, so if it is unset in production every reset email links to localhost and the flow is unusable, with nothing in any log to say why. Set it to the public origin. From Story 12.2 it is also the contact named in the `User-Agent` of the Wikimedia picture lookups (see *AI day suggestions* below). **This was unset in production until 2026-08-12** — the failure predicted in this row had been live for the entire life of the deployment, and was found by enumerating the service's environment during Story 8.1 rather than by anybody reporting a broken email. It is now `https://plan.dreyer-travels.de`. |
+| `APP_BASE_URL` | **In practice yes** | Origin used to build the link in password-reset emails (`password-reset/request/route.ts`). **Falls back to `http://localhost:3000` with no warning**, so if it is unset in production every reset email links to localhost and the flow is unusable, with nothing in any log to say why. Set it to the public origin. From Story 12.2 it is also the contact named in the `User-Agent` of the Wikimedia picture lookups (see *AI day suggestions* below). **This was unset in production until 2026-08-12** — the failure predicted in this row had been live for the entire life of the deployment, and was found by enumerating the service's environment during Story 8.1 rather than by anybody reporting a broken email. It is now `https://plan.dreyer-travels.de`. |
 | `OSRM_BASE_URL` | No | Route-geometry service. Defaults to the public `https://routing.openstreetmap.de`; set it only to point at a self-hosted deployment. |
 | `ANTHROPIC_API_KEY` | No (feature off without it) | Claude API key for the AI day suggestions. Unset or blank, the feature is off: the search endpoint answers `503 ai_unavailable` and the day page is told the capability is missing. **A secret** — see the warning below. |
 | `ANTHROPIC_MODEL` | No | Model for the suggestions. Defaults to `claude-haiku-5-5`. A `claude-haiku-*` model is sent the basic web search tool (`web_search_20250305`), any other model `web_search_20260209`. |
 | `AI_SUGGESTIONS_DAILY_LIMIT` | No | Searches per user per server-local day. Defaults to `20`; a missing, non-numeric or non-positive value also means `20`. The count is kept in process memory, so a restart resets it. |
+| `SMTP_HOST` | **Yes, in production** | Outgoing mail server. Production: `smtp.strato.de`. |
+| `SMTP_PORT` | **Yes, in production** | `465` = implicit TLS (production). Any other port must offer STARTTLS, which is then required; `587` is the fallback if the server cannot reach 465. A whole number from 1 to 65535. |
+| `SMTP_USER` | **Yes, in production** | SMTP login. Production: `webmaster@dreyer-travels.de`, the only mailbox in the Strato contract. |
+| `SMTP_PASS` | **Yes, in production** | The **mailbox** password of `SMTP_USER`, set in the Strato customer area under "Postfach bearbeiten". **Not** the Strato customer login. **A secret**: see the warning below. |
+| `MAIL_FROM` | **Yes, in production** | From header of every mail. Production: `TravelPlan <system@plan.dreyer-travels.de>` (no quotes in the value; the unit line below quotes the whole assignment). The address is an alias on the `SMTP_USER` mailbox; Strato accepts only addresses that mailbox owns. |
+
+### Password-reset email
+
+Since Story 8.8, `sendEmail` (`src/lib/notifications/email.ts`) sends over SMTP when `NODE_ENV=production`.
+Before that it silently did nothing in production, so no reset email was ever delivered. In every other
+environment (development, test, CI) mail goes to an in-memory outbox and no connection is made, even if
+the SMTP variables are set.
+
+- **Startup refuses a missing setting.** With `NODE_ENV=production` and any of the five unset or empty,
+  `src/instrumentation.ts` throws with the names of the missing variables (never their values). As with
+  `MEDIA_STORAGE_ROOT`, that shows as **500 on every request, with the reason in the journal**, not as an
+  exiting process. `next build` is exempt. **So the variables go into the unit before a build containing
+  Story 8.8 is started.**
+- **A failed send is logged, not shown.** The reset endpoint answers `{ success: true }` at once and sends
+  the mail in the background, so a known address answers exactly like an unknown one, in content and in
+  time. A failure appears in the journal, possibly seconds after the request, as
+  `password-reset/request: reset email not sent` with nodemailer's error code (`EAUTH`, `ECONNECTION`,
+  `ETIMEDOUT`…), the server's reply code and the message, with any mail address in it replaced by
+  `<address>`. The token, the link and the credentials are never logged. Connect, greeting and socket
+  inactivity each time out after 15 s, so a stuck background send ends.
+- **Delivery rests on DKIM.** `dreyer-travels.de` publishes DMARC `p=reject` (which also governs
+  `plan.dreyer-travels.de`) and **no SPF record**, so a receiver accepts the mail only because Strato signs
+  it with DKIM (`strato-dkim-0002` / `-0003`). Verified on 2026-10-21: a test mail reached the GMX inbox.
+  Recommended but not required: `v=spf1 include:_spf.strato.com -all` as a TXT record on both
+  `dreyer-travels.de` and `plan.dreyer-travels.de`.
+- **Checking the server can reach Strato** (the host has no `nc`):
+  `timeout 5 bash -c "</dev/tcp/smtp.strato.de/465" && echo open`. If 465 is blocked, try 587 and set
+  `SMTP_PORT=587` before changing anything else.
+- **The mail** is plain text, in the account's chosen language (`preferredLanguage`), with the link
+  `APP_BASE_URL/auth/reset-password?token=…`, valid for one hour.
 
 ### AI day suggestions: cost and data
 
@@ -251,6 +288,12 @@ Environment="APP_BASE_URL=https://plan.dreyer-travels.de"
 # Optional, Story 12.1 - AI day suggestions are off without the key.
 Environment="ANTHROPIC_API_KEY=…"
 Environment="AI_SUGGESTIONS_DAILY_LIMIT=20"
+# Required since Story 8.8 - the server will not start without them.
+Environment="SMTP_HOST=smtp.strato.de"
+Environment="SMTP_PORT=465"
+Environment="SMTP_USER=webmaster@dreyer-travels.de"
+Environment="SMTP_PASS=…"
+Environment="MAIL_FROM=TravelPlan <system@plan.dreyer-travels.de>"
 
 Environment=PATH=/opt/node-24/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/opt/node-24/bin/npm start
@@ -276,7 +319,7 @@ Three things about it are load-bearing:
 
 ### Secrets in the unit are readable by every local user
 
-`JWT_SECRET` — and `ANTHROPIC_API_KEY`, once it is set — are inline `Environment=` values.
+`JWT_SECRET`, `SMTP_PASS` and `ANTHROPIC_API_KEY` (once it is set) are inline `Environment=` values.
 **`systemctl show -p Environment TravelPlan` returns them to any unprivileged local account**, because
 the values are served from the systemd manager over D-Bus rather than read from the file — so
 tightening the unit file's permissions does not help. Unit files are also mode `644` by default, so
@@ -284,8 +327,9 @@ tightening the unit file's permissions does not help. Unit files are also mode `
 
 The API key is a different kind of secret from the session key: whoever reads it can spend the
 operator's money on the Claude API until the console spend limit stops them, without touching this
-application at all. The accepted risk below was decided for `JWT_SECRET`; adding the key is a reasonable
-moment to reconsider the `EnvironmentFile=` move.
+application at all. `SMTP_PASS` is a third kind: whoever reads it can send mail as
+`webmaster@dreyer-travels.de` and read that mailbox. The accepted risk below was decided for
+`JWT_SECRET`; adding either secret is a reasonable moment to reconsider the `EnvironmentFile=` move.
 
 **This is an accepted risk, not an outstanding recommendation.** The decision was taken on 2026-08-15
 (`DW-331`): the inline `Environment=` values stay as they are. The host has two accounts that matter —

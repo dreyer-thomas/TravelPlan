@@ -43,6 +43,9 @@ const de: Dictionary = {
   "auth.forgot.submit": "Link zum Zurücksetzen senden",
   "auth.forgot.error": "Zurücksetzen fehlgeschlagen. Bitte erneut versuchen.",
   "auth.forgot.initError": "Passwort-Reset konnte nicht initialisiert werden. Bitte aktualisieren.",
+  "auth.resetEmail.subject": "TravelPlan: Passwort zurücksetzen",
+  "auth.resetEmail.body":
+    "Jemand (hoffentlich du) möchte das Passwort für dein TravelPlan-Konto zurücksetzen.\n\nÖffne diesen Link, um ein neues Passwort zu wählen. Er ist eine Stunde gültig:\n{url}\n\nWenn du das nicht angefordert hast, ignoriere diese E-Mail. Dein Passwort bleibt unverändert.",
   "auth.reset.title": "Neues Passwort setzen",
   "auth.reset.subtitle": "Lege ein neues Passwort für dein Konto fest.",
   "auth.reset.success": "Passwort aktualisiert. Du kannst dich jetzt anmelden.",
