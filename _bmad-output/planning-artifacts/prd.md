@@ -57,6 +57,8 @@ editHistory:
     changes: 'Amended FR35-FR36 (bucket list entries are activities without a day). Added FR48 (park an activity) and FR49 (park AI suggestions). See Sprint Change Proposal 2026-10-17, Bucket List as a Parking Lot.'
   - date: '2026-10-19'
     changes: 'Added FR50 (planned distance on the trip overview: total kilometres and a per-mode breakdown of the travel legs). Story 7.14.'
+  - date: '2026-10-21'
+    changes: 'Added FR51 (send a day''s plan and document packet to the signed-in user''s own email address). Amended the Integration Requirements line on email. See Sprint Change Proposal 2026-10-21 (Day by Email).'
 ---
 
 # Product Requirements Document - TravelPlan
@@ -172,7 +174,7 @@ TravelPlan is a free, private, day-by-day travel planning web app that makes gap
 
 - Map integration for overall trip visualization and day-plan mapping.
 - Ability to start a trip plan using Google search (start + destination).
-- Calendar/email integrations are explicitly not required at this stage.
+- Calendar/email integrations are explicitly not required at this stage. The app sends transactional mail of its own through the operator's SMTP account (password reset, FR4; a day sent to oneself, FR51); it does not connect to the user's mailbox or calendar. **(Amended 2026-10-21)**
 - AI provider (Anthropic Claude, with its web search tool) for day suggestions, operator-paid via a server-side key. Requests contain place names and coordinates, the user's free-text wish and existing activity titles — no account or member data. **(Added 2026-10-16)**
 
 ### Risk Mitigations
@@ -303,6 +305,7 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 - FR38: Users can attach documents (PDF or image files) to an accommodation entry and to a day plan item.
 - FR39: Users can see attached documents on the entry in the day timeline, open them, and delete them from the entry's dialog.
 - FR40: Users can produce an offline document packet as a single PDF containing a day's attached documents.
+- FR51: Users can send a day's plan, with a link to the day and the day's document packet attached, to the email address of their own account, so the day is available offline in their mail app. **(Added 2026-10-21)**
 
 ### AI Day Suggestions
 

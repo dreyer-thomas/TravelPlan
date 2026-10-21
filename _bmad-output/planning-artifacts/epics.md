@@ -60,6 +60,7 @@ FR47: Users are warned, on the day and in the trip overview, when a day's plan c
 FR48: Users who can plan a trip can park an activity of a day in the bucket list, keeping all its data; the day is recomputed and the parking can be undone.
 FR49: When applying AI suggestions, users choose for each selected suggestion whether to schedule it or park it in the bucket list.
 FR50: Users can see on the trip overview the planned distance of the whole trip (sum of known kilometres) and a per-mode breakdown with kilometres, number of legs and travel time; only legs the day shows are counted.
+FR51: Users can send a day's plan, with a link to the day and the day's document packet attached, to their own account's email address for offline use.
 
 ### NonFunctional Requirements
 
@@ -140,6 +141,7 @@ FR47: Epic 13 - Days Planned by Duration
 FR48: Epic 14 - The Bucket List as a Parking Lot
 FR49: Epic 14 - The Bucket List as a Parking Lot
 FR50: Epic 7 - Visual Redesign — Light Cockpit System (Story 7.14, added 2026-10-19)
+FR51: Epic 9 - Travel Documents (Story 9.3, added 2026-10-21)
 
 ## Epic List
 
@@ -177,7 +179,7 @@ The maintainer can keep the runtime, toolchain, and accumulated technical debt c
 
 ### Epic 9: Travel Documents
 Users can keep tickets and booking confirmations as the original files on the stay or activity they belong to, see and open them from the day timeline, and take them offline as one PDF.
-**FRs covered:** FR38, FR39, FR40
+**FRs covered:** FR38, FR39, FR40, FR51
 
 ### Epic 10: Costs in Another Currency
 Users can type a price in the currency it was quoted in and have the app convert it to EUR, keeping what was entered and the rate that was applied so the stored figure stays explainable.
@@ -3584,7 +3586,7 @@ So that I can get back into my account without asking the operator.
 **And** a real password reset requested on `https://plan.dreyer-travels.de` for Tommy's own account arrives in the inbox, its link points at `https://plan.dreyer-travels.de/auth/reset-password?token=…`, and setting a new password through it works
 **And** the journal for that request shows no error
 
-**Out of scope:** the nightly day-plan email for offline use (parked, Tommy 2026-10-21; it will build on this transport); HTML email; an SPF record (recommended `v=spf1 include:_spf.strato.com -all` for `dreyer-travels.de` and `plan.dreyer-travels.de`, a DNS step for Tommy, not code).
+**Out of scope:** the nightly day-plan email for offline use (parked, Tommy 2026-10-21; it will build on this transport); HTML email (superseded 2026-10-21: Story 9.3 adds HTML for the day email; the reset email stays plain text); an SPF record (recommended `v=spf1 include:_spf.strato.com -all` for `dreyer-travels.de` and `plan.dreyer-travels.de`, a DNS step for Tommy, not code).
 
 
 ### Story 8.9: Security Updates for Next.js, Prisma and Tiptap
@@ -3630,6 +3632,40 @@ So that the app is not running known-exploitable code and the `audit:check` gate
 **Then** the service is active, a signed-in page answers 200 through the public hostname, `/uploads/…` still answers 401 to an anonymous request, and the journal shows no new errors
 
 **Out of scope:** major-version upgrades not required by an advisory; dev-only findings (the gate is `--omit=dev`); dependency-update automation (Dependabot/Renovate), which is a separate decision.
+
+### Story 8.10: *Alle flexibel machen* Goes Away
+
+As someone whose trips are all migrated to durations,
+I want the one-time *Alle flexibel machen* entry gone from the day menu,
+So that the menu only offers what I still use.
+
+**FRs covered:** None (removal of a migration aid from Story 13.3; FR43/FR46 unchanged)
+
+**Depends on:** nothing. **Origin:** Tommy, 2026-10-21. See `sprint-change-proposal-2026-10-21-day-email.md`.
+
+**Context:** Story 13.3 added *Alle flexibel machen* because every activity was fixed after the 13.1 migration. Tommy has released his days; nothing else needs the step. Undo receipts exist only in memory, so no stored data refers to the `madeFlexible` kind.
+
+**Acceptance Criteria:**
+
+**Given** the day view's ⋯ menu, for every role
+**Then** *Alle flexibel machen* is not offered and its confirmation dialog no longer exists
+**And** the menu's divider logic (`dayMenuItemsVisible`) still shows a divider only between two non-empty groups
+
+**Given** the code base
+**Then** the `make-flexible` route, the repository function and its error type, the `dayScheduleTransaction` branch, the `madeFlexible` receipt kind and its schema, the request schema, the client handler and the `trips.dayView.makeFlexible*` keys in `en.ts` and `de.ts` are deleted, with their tests
+**And** a search for `makeFlexible`, `make-flexible` and `madeFlexible` in `src` and `test` finds nothing
+**And** `POST /api/trips/{id}/day-plan-items/make-flexible` answers 404
+
+**Given** `tripImportSchemas.ts`
+**Then** the minimum duration of 1 stays, so exports made before or after the migration still import; its comment no longer names the removed feature as the reason
+
+**Given** everything else Story 13.3 built
+**Then** *Nach oben / Nach unten*, *Einfügen nach*, cross-day moves and their undo behave exactly as before, and their tests pass unchanged
+
+**Given** the gates
+**Then** `npm test`, `npm run typecheck`, `npm run lint` (no new errors), `npm run build` and `i18nDictionaries.test.ts` pass
+
+**Out of scope:** anything else in the day menu; FR42/FR43/FR46 behaviour.
 
 ## Epic 9: Travel Documents
 
@@ -3724,6 +3760,69 @@ Two approaches were rejected. Rendering the whole day plan server-side through h
 **Given** `pdf-lib` is a new dependency
 **When** it is added
 **Then** it is a runtime dependency of the server only, the 0-vulnerability audit gate stays green, and a real multi-page ticket PDF plus a portrait phone photo are both verified in the merged output — page count, orientation, and legibility, on screen
+
+### Story 9.3: The Day in My Inbox
+
+As a traveller who will be without signal tomorrow,
+I want to send a day's plan and its tickets to my own email address from the day view,
+So that both are on my phone in my mail app, offline.
+
+**FRs covered:** FR51
+
+**Depends on:** Story 8.8 (SMTP transport), Story 9.2 (document packet), Story 8.10 committed first (same menu, separate diffs). **Origin:** Tommy with John (PM), 2026-10-21. See `sprint-change-proposal-2026-10-21-day-email.md`.
+
+**Context:** `sendEmail` sends plain text through Strato in production and fills an in-memory outbox elsewhere. The packet route builds the day's packet in timeline order. The print sheet already turns plan content into plain text. This story reuses all three. The nightly automatic mail stays parked; this is the manual first step.
+
+**Acceptance Criteria:**
+
+**Given** the day view's ⋯ menu, for owner, contributor and viewer
+**Then** it offers *Per E-Mail senden* / *Send by email* beside print and the packet download
+
+**Given** I choose it
+**When** the request runs
+**Then** the entry shows a pending state and cannot be triggered twice
+**And** the mail goes to **my account's email address only**, taken from the session. The request carries no recipient, and one in the body is ignored
+**And** the route guards with `requireSession`, `hasTripReadAccess` (others get 404) and the CSRF check the other mutating trip routes use
+
+**Given** the mail
+**Then** subject, body and every label are in my **currently selected UI language** (the language cookie, `getRequestLanguage`), with every string in `en.ts` and `de.ts`
+**And** it has an HTML part and a plain-text alternative carrying the same content
+**And** it contains the trip name, the day's date (formatted as in the day view), the previous night's stay, the activities in timeline order with times, durations, places and travel legs between them, the day's stay, and plan text converted with `parsePlanText`
+**And** it contains a link to the day, built from `APP_BASE_URL` (`/trips/{id}/days/{dayId}`)
+**And** it contains no images, no remote resources, no scripts and no external CSS. Styling is inline and simple enough that the mail reads well on a phone at 390px
+**And** all user text (titles, places, notes, file names) is HTML-escaped. No stored HTML reaches the mail
+
+**Given** the day has documents and the finished mail including the packet is **at most 20 MB**
+**Then** the packet PDF is attached, built by the same code as the packet download (same order, same label pages, same failure pages for bad files)
+
+**Given** the mail with the packet would exceed 20 MB, or the packet cannot be built at all (more documents than the packet's limits allow)
+**Then** the mail is still sent without the attachment and says in a sentence of its own that the documents were too large for email and can be downloaded on the day page via the link
+**And** the app shows a message saying the same
+
+**Given** the day has no documents
+**Then** the mail is sent without an attachment and says that the day has no documents; the app shows no extra message
+
+**Given** the send succeeds
+**Then** the app confirms it, naming the address it went to
+
+**Given** SMTP fails or times out (8.8's 15 s timeouts)
+**Then** the app shows that the mail could not be sent and nothing else changes. The send is **awaited**, unlike the reset mail, so the result is honest
+**And** the log follows 8.8's rules: error code and message, never the body, the attachment or the address
+
+**Given** `sendEmail`
+**Then** it accepts optional `html` and `attachments` (filename, content type, bytes) and passes them to `nodemailer` in production and into the outbox elsewhere
+**And** the password-reset mail is unchanged: plain text only
+
+**Given** the test suite
+**Then** route tests cover 401, non-member 404, viewer allowed, recipient from the session even when the body names another, language from the cookie (one German case), attachment present, attachment dropped over the cap, no-documents day, SMTP failure, and HTML escaping of a hostile title
+**And** they run against the outbox, with no network
+
+**Given** the production server
+**When** the story is deployed (Tommy, manual)
+**Then** a real day with documents sent from `https://plan.dreyer-travels.de` arrives in Tommy's inbox at GMX, the HTML reads correctly on his phone, the packet opens offline, and the link opens the day after signing in
+**And** an oversized day produces the mail without the attachment and the in-app message
+
+**Out of scope:** the nightly automatic mail; sending to other members or arbitrary addresses; a separate day-plan PDF; a ZIP of original files; images in the mail; changing the password-reset mail.
 
 ## Epic 10: Costs in Another Currency
 
@@ -4356,7 +4455,7 @@ So that the order is mine to set and the times follow from it.
 
 **Depends on:** Story 13.1.
 
-**Context:** Since 13.1, order is stored and flexible times follow from it. *Nach oben / Nach unten* (11.3) therefore becomes a pure order change. A fixed activity's place follows from its time, so it is not moved by these controls. Because every existing activity is fixed after the migration, the user needs one step to release a whole day.
+**Context:** Since 13.1, order is stored and flexible times follow from it. *Nach oben / Nach unten* (11.3) therefore becomes a pure order change. A fixed activity's place follows from its time, so it is not moved by these controls. Because every existing activity is fixed after the migration, the user needs one step to release a whole day. *(That step was removed again by Story 8.10 once the migration was done.)*
 
 **Acceptance Criteria:**
 
@@ -4373,9 +4472,10 @@ So that the order is mine to set and the times follow from it.
 **Given** an activity moved to another day (Stories 6.7, 6.23, including whole-day move and swap)
 **Then** a flexible one is appended to the target day, a fixed one is placed by time, and both days are recomputed in the same transaction (undo for this path remains out of scope, as in Epic 11)
 
-**Given** a day with fixed activities
+~~**Given** a day with fixed activities
 **When** *Alle flexibel machen* is chosen from the day menu and confirmed
-**Then** every fixed activity on the day becomes flexible with its current duration, keeping the order, the day is recomputed, and the notice offers *Rückgängig*
+**Then** every fixed activity on the day becomes flexible with its current duration, keeping the order, the day is recomputed, and the notice offers *Rückgängig*~~
+> **Removed 2026-10-21 by Story 8.10.** A one-time migration aid; Tommy finished migrating his trips.
 
 **Given** both dictionaries
 **Then** `en.ts` and `de.ts` carry every new string

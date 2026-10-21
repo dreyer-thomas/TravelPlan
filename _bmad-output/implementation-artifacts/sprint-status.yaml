@@ -1,5 +1,6 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-10-21 (8-9-security-updates-for-next-prisma-and-tiptap review -> done via bmad-code-review: no AC violation; patches: AC7 hand-off names /usr/local/bin/deploy-travelplan.sh + recovery note for a failed deploy after npm ci, Task 3 migrate-diff drift annotated as pre-existing; per Tommy deploy/travelplan.env.example as production env template (13 vars + NODE_ENV, empty secrets) and root .env/.env.example untracked (SendGrid key to be revoked by Tommy); 8-8 close-out rides in the same commit (Tommy); DW-405..DW-411 deferred; AC7 production deploy pending with Tommy.)
+# last_updated: 2026-10-21 (correct-course 'Day by Email' approved by Tommy: 8-10-alle-flexibel-machen-goes-away and 9-3-the-day-in-my-inbox added as backlog; FR51 added; see planning-artifacts/sprint-change-proposal-2026-10-21-day-email.md)
+# previously: 2026-10-21 (8-9-security-updates-for-next-prisma-and-tiptap review -> done via bmad-code-review: no AC violation; patches: AC7 hand-off names /usr/local/bin/deploy-travelplan.sh + recovery note for a failed deploy after npm ci, Task 3 migrate-diff drift annotated as pre-existing; per Tommy deploy/travelplan.env.example as production env template (13 vars + NODE_ENV, empty secrets) and root .env/.env.example untracked (SendGrid key to be revoked by Tommy); 8-8 close-out rides in the same commit (Tommy); DW-405..DW-411 deferred; AC7 production deploy pending with Tommy.)
 # previously: 2026-10-21 (8-9-security-updates-for-next-prisma-and-tiptap in-progress -> review via bmad-dev-story: next+eslint-config-next 16.4.2 exact, sharp override ^0.35.5, prisma trio 7.10.1, tiptap 3.32.0 / prosemirror-view 1.42.6, fast-uri 3.1.9 + source-map-js 1.2.2 by in-range update, postcss override removed as redundant (0 lockfile entries changed); production audit 35 -> 0, no allowlist entry, no source change; 3582 tests, typecheck clean, lint 0/80, build ok; browser pass under next start on cloned data all green incl. editor and photo upload; pre-existing migrate-diff drift and dev-only findings recorded; AC7 deploy pending with Tommy.)
 # previously: 2026-10-21 (8-8-password-reset-emails-that-arrive review -> done via bmad-code-review: 6 patches incl. fire-and-forget send (Tommy), DW-403/DW-404 deferred; AC8 passed on production - real reset mail arrived in GMX inbox, link works, journal clean.)
 # previously: 2026-10-21 (8-8-password-reset-emails-that-arrive in-progress -> review via bmad-dev-story. nodemailer 10.1.7 (own types, no @types); smtpConfig.ts with usesSmtp() + boot fail-fast in instrumentation (verified: next start without SMTP -> 500 + named vars in log, build passes without them); reset mail in account preferredLanguage; send failure logged as {code,responseCode,message} and answers success. 223 files / 3578 tests, typecheck clean, lint 0/80. AC8 server acceptance pending Tommy. audit:check red from 23 pre-existing findings (next criticals), not nodemailer.)
@@ -299,11 +300,13 @@ development_status:
   8-7-what-the-ai-searches-cost: done
   8-8-password-reset-emails-that-arrive: done
   8-9-security-updates-for-next-prisma-and-tiptap: done
+  8-10-alle-flexibel-machen-goes-away: backlog
   epic-8-retrospective: optional
 
   epic-9: in-progress
   9-1-documents-on-stays-and-activities: done
   9-2-documents-in-print-and-an-offline-packet: done
+  9-3-the-day-in-my-inbox: backlog
   epic-9-retrospective: optional
 
   epic-10: in-progress
