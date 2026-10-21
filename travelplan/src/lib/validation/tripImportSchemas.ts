@@ -491,8 +491,8 @@ const dayPlanItemImportSchema = z
     /*
       Story 13.4. The schedule fields, on the day item only (a parked one carries no `sortOrder`). Absent in
       a backup from before that story, whose import applies the legacy rule; per day, all or none
-      (`tripDayImportSchema`). The minimum duration is 1, not 5: *Alle flexibel machen* keeps a migrated
-      one-minute row at one minute (Story 13.3 §7); 5 is the dialog's input rule only.
+      (`tripDayImportSchema`). The minimum duration is 1, not 5: a row migrated by Story 13.1 can last one
+      minute; 5 is the dialog's input rule only.
     */
     scheduleMode: z.enum(["FIXED", "FLEXIBLE"]).optional(),
     durationMinutes: z.number().int().min(1).max(MAX_ACTIVITY_DURATION_MINUTES).optional(),

@@ -313,14 +313,6 @@ const de: Dictionary = {
   "trips.dayView.moreActions": "Weitere Aktionen",
   "trips.dayView.printAction": "Tag drucken",
   "trips.dayView.fixedTimeLabel": "Feste Zeit",
-  "trips.dayView.makeFlexibleAction": "Alle flexibel machen",
-  "trips.dayView.makeFlexibleTitle": "Alle Aktivitäten flexibel machen?",
-  "trips.dayView.makeFlexibleBody": "{count} Aktivitäten mit fester Zeit behalten ihre Dauer und Reihenfolge. Ihre Zeiten berechnet danach die App.",
-  "trips.dayView.makeFlexibleBodyOne": "1 Aktivität mit fester Zeit behält ihre Dauer und ihren Platz. Ihre Zeit berechnet danach die App.",
-  "trips.dayView.makeFlexibleKeep": "Feste Zeiten behalten",
-  "trips.dayView.makeFlexibleConfirm": "Alle flexibel machen",
-  "trips.dayView.makeFlexibleStale": "Der Tag wurde inzwischen geändert. Die Ansicht ist aktualisiert.",
-  "trips.dayView.makeFlexibleError": "Die Aktivitäten konnten nicht flexibel gemacht werden.",
   "trips.dayPrint.back": "← Zurück zum Tag",
   "trips.dayPrint.loadError": "Tag konnte nicht zum Drucken geladen werden.",
   // DW-230. Alles, was der Tagesausdruck druckt. Bisher standen diese Texte als englische Literale in
@@ -665,8 +657,6 @@ const de: Dictionary = {
   "trips.dayChange.scheduled": "„{title}“ eingeplant",
   // Story 14.2: *Parken* hat die Aktivität vom Tag in die Bucket-Liste gelegt.
   "trips.dayChange.parked": "„{title}“ geparkt",
-  "trips.dayChange.madeFlexibleOne": "1 Aktivität flexibel gemacht",
-  "trips.dayChange.madeFlexible": "{count} Aktivitäten flexibel gemacht",
   // Story 14.1: die Dauer einer Aktivität, wie die Zeile der Bucket-Liste sie zeigt.
   "trips.duration.hours": "{hours} Std",
   "trips.duration.minutes": "{minutes} Min",

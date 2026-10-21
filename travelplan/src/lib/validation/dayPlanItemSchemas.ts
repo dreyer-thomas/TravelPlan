@@ -287,15 +287,6 @@ export const dayPlanItemParkSchema = z
 
 export type DayPlanItemParkInput = z.infer<typeof dayPlanItemParkSchema>;
 
-/** Story 13.3. *Alle flexibel machen*: every FIXED activity of this day becomes FLEXIBLE. */
-export const dayMakeFlexibleSchema = z
-  .object({
-    tripDayId: z.string().trim().min(1, "Trip day is required"),
-  })
-  .strict();
-
-export type DayMakeFlexibleInput = z.infer<typeof dayMakeFlexibleSchema>;
-
 export const dayActivityTransferSchema = z
   .object({
     operation: z.enum(["move", "swap"]),

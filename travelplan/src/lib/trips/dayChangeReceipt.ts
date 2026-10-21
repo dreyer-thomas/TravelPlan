@@ -187,19 +187,6 @@ export type DayChangeEdited<T extends Date | string = Date> =
         updatedAt: T;
       };
     }
-  /**
-   * Story 13.3. *Alle flexibel machen*: every FIXED activity of the day became FLEXIBLE, order unchanged.
-   * `updatedAt` is each row's post-write stamp; `previous` is what undo writes back (the mode was always
-   * FIXED, so it is not stored). These rows are never also in `movedItems`.
-   */
-  | {
-      kind: "madeFlexible";
-      items: Array<{
-        itemId: string;
-        updatedAt: T;
-        previous: { durationMinutes: number; fromTime: string | null; toTime: string | null; sortOrder: number; updatedAt: T };
-      }>;
-    }
   /** Story 12.4. Everything one apply of picked suggestions created; `updatedAt` is each row's post-write stamp. */
   | {
       kind: "suggestionsApplied";
@@ -326,16 +313,6 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
         previous: { ...receipt.edited.previous, updatedAt: convert(receipt.edited.previous.updatedAt) },
       };
       break;
-    case "madeFlexible":
-      edited = {
-        kind: "madeFlexible",
-        items: receipt.edited.items.map((item) => ({
-          ...item,
-          updatedAt: convert(item.updatedAt),
-          previous: { ...item.previous, updatedAt: convert(item.previous.updatedAt) },
-        })),
-      };
-      break;
     case "suggestionsApplied":
       edited = {
         kind: "suggestionsApplied",
@@ -388,11 +365,9 @@ const movedTimes = <T extends Date | string>(row: MovedItemRow<T>) =>
  * Story 14.1: scheduling an idea always has one: it left the bucket list, and its notice is the only
  * way to take that back, even when nothing on the day moved.
  * Story 14.2: so does parking one, for the same reason in the other direction.
- * Story 13.3: *Alle flexibel machen* always has one: the day's modes changed, and the notice is its undo.
  */
 export const receiptHasSideEffects = <T extends Date | string>(receipt: DayChangeReceipt<T>): boolean =>
   receipt.edited.kind === "reordered" ||
-  receipt.edited.kind === "madeFlexible" ||
   receipt.edited.kind === "scheduled" ||
   receipt.edited.kind === "parked" ||
   receipt.edited.kind === "suggestionsApplied" ||
@@ -433,9 +408,6 @@ const summarizeSuggestionsApplied = (itemCount: number, legCount: number, t: (ke
  *
  * Story 14.2: a `parked` receipt leads with „{title}" geparkt, from the same `itemTitle`.
  *
- * Story 13.3: a `madeFlexible` receipt leads with "N Aktivitäten flexibel gemacht"; the converted rows are
- * never in `movedItems`, so the moved count that follows is the other rows'.
- *
  * Story 14.3: a `suggestionsApplied` receipt with `parkedItems` adds "N geparkt" after the added part.
  */
 export const summarizeDayChangeReceipt = <T extends Date | string>(
@@ -461,10 +433,6 @@ export const summarizeDayChangeReceipt = <T extends Date | string>(
     }
     const parkedCount = edited.parkedItems?.length ?? 0;
     if (parkedCount > 0) parts.push(summarizeSuggestionsParked(parkedCount, t));
-  }
-  if (edited.kind === "madeFlexible") {
-    const count = edited.items.length;
-    parts.push(count === 1 ? t("trips.dayChange.madeFlexibleOne") : formatMessage(t("trips.dayChange.madeFlexible"), { count }));
   }
   if (edited.kind === "reordered") {
     parts.push(t("trips.dayChange.reordered"));

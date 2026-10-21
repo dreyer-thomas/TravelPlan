@@ -54,7 +54,6 @@ describe("planDaySchedule append (Story 13.4)", () => {
     expect(plan.appended.map((row) => row.sortOrder)).toEqual([0, 1]);
     expect(plan.changes).toEqual([]);
     expect(plan.edited).toBeNull();
-    expect(plan.converted).toEqual([]);
   });
 
   it("appends after a FIXED row: waiting time before it stays, the chain starts at its end plus the leg", () => {

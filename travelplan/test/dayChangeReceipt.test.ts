@@ -324,67 +324,6 @@ describe("dayChangeReceipt, parked (Story 14.2 AC3, AC5)", () => {
   });
 });
 
-describe("dayChangeReceipt, madeFlexible (Story 13.3 AC5)", () => {
-  const converted = (itemId: string, sortOrder: number) => ({
-    itemId,
-    updatedAt: at("2026-10-18T10:00:00.000Z"),
-    previous: { durationMinutes: 60, fromTime: "10:00", toTime: "11:00", sortOrder, updatedAt: at("2026-09-01T08:00:00.000Z") },
-  });
-  const madeFlexible = (count: number, extra: MovedItemRow[] = []): DayChangeReceipt => ({
-    version: 3,
-    tripDayId: "day-1",
-    edited: { kind: "madeFlexible", items: Array.from({ length: count }, (_, index) => converted(`fixed-${index}`, index)) },
-    removedTravelSegments: [],
-    movedItems: extra,
-  });
-
-  it("round-trips through the wire form at version 3, and the schema accepts it", () => {
-    const wire = toDayChangeReceiptWire(madeFlexible(2, [moved("item-2")]));
-    expect(wire.version).toBe(3);
-    expect(wire.edited).toEqual({
-      kind: "madeFlexible",
-      items: [0, 1].map((index) => ({
-        itemId: `fixed-${index}`,
-        updatedAt: "2026-10-18T10:00:00.000Z",
-        previous: { durationMinutes: 60, fromTime: "10:00", toTime: "11:00", sortOrder: index, updatedAt: "2026-09-01T08:00:00.000Z" },
-      })),
-    });
-    expect(fromDayChangeReceiptWire(wire)).toEqual(madeFlexible(2, [moved("item-2")]));
-    const signed = JSON.parse(JSON.stringify(signDayChangeReceipt(wire, BINDING)));
-    const parsed = dayChangeReceiptSchema.safeParse(signed);
-    expect(parsed.success).toBe(true);
-    if (parsed.success) expect(verifyDayChangeReceipt(parsed.data, BINDING)).not.toBeNull();
-  });
-
-  it("refuses empty items, an unknown key, and the same activity twice", () => {
-    const wire = signDayChangeReceipt(toDayChangeReceiptWire(madeFlexible(2)), BINDING);
-    const edited = wire.edited as { kind: "madeFlexible"; items: Array<Record<string, unknown>> };
-    expect(dayChangeReceiptSchema.safeParse(wire).success).toBe(true);
-    expect(dayChangeReceiptSchema.safeParse({ ...wire, edited: { ...edited, items: [] } }).success).toBe(false);
-    expect(dayChangeReceiptSchema.safeParse({ ...wire, edited: { ...edited, title: "x" } }).success).toBe(false);
-    expect(
-      dayChangeReceiptSchema.safeParse({ ...wire, edited: { ...edited, items: [{ ...edited.items[0], extra: 1 }] } }).success,
-    ).toBe(false);
-    expect(
-      dayChangeReceiptSchema.safeParse({ ...wire, edited: { ...edited, items: [edited.items[0], edited.items[0]] } }).success,
-    ).toBe(false);
-  });
-
-  it("always has side effects", () => {
-    expect(receiptHasSideEffects(madeFlexible(1))).toBe(true);
-  });
-
-  it("leads with how many were made flexible, then the others' moved count, in both languages", () => {
-    expect(summarizeDayChangeReceipt(madeFlexible(1), dictionary(de))).toBe("1 Aktivität flexibel gemacht");
-    expect(summarizeDayChangeReceipt(madeFlexible(3), dictionary(de))).toBe("3 Aktivitäten flexibel gemacht");
-    expect(summarizeDayChangeReceipt(madeFlexible(3), dictionary(en))).toBe("3 activities made flexible");
-    expect(summarizeDayChangeReceipt(madeFlexible(1), dictionary(en))).toBe("1 activity made flexible");
-    expect(summarizeDayChangeReceipt(madeFlexible(2, [moved("item-2"), moved("item-3")]), dictionary(de))).toBe(
-      "2 Aktivitäten flexibel gemacht · 2 Aktivitäten verschoben",
-    );
-  });
-});
-
 describe("dayChangeReceipt, leg and check-out kinds (Story 11.4)", () => {
   const withEdited = (edited: DayChangeReceipt["edited"], movedItems: MovedItemRow[] = []): DayChangeReceipt => ({
     version: 3,

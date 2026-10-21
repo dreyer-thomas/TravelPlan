@@ -335,14 +335,6 @@ const en: Dictionary = {
   "trips.dayView.moreActions": "More actions",
   "trips.dayView.printAction": "Print day",
   "trips.dayView.fixedTimeLabel": "Fixed time",
-  "trips.dayView.makeFlexibleAction": "Make all flexible",
-  "trips.dayView.makeFlexibleTitle": "Make all activities flexible?",
-  "trips.dayView.makeFlexibleBody": "{count} activities with a fixed time keep their duration and order. The app then works out their times.",
-  "trips.dayView.makeFlexibleBodyOne": "1 activity with a fixed time keeps its duration and place. The app then works out its time.",
-  "trips.dayView.makeFlexibleKeep": "Keep fixed times",
-  "trips.dayView.makeFlexibleConfirm": "Make all flexible",
-  "trips.dayView.makeFlexibleStale": "The day has changed meanwhile. The view has been refreshed.",
-  "trips.dayView.makeFlexibleError": "The activities could not be made flexible.",
   "trips.dayPrint.back": "← Back to day",
   "trips.dayPrint.loadError": "Unable to load day for printing.",
   // DW-230. Everything the day print sheet draws, which until now was English literals inside
@@ -721,8 +713,6 @@ const en: Dictionary = {
   "trips.dayChange.scheduled": "\"{title}\" scheduled",
   // Story 14.2: *Park* moved the activity off the day into the bucket list.
   "trips.dayChange.parked": "\"{title}\" parked",
-  "trips.dayChange.madeFlexibleOne": "1 activity made flexible",
-  "trips.dayChange.madeFlexible": "{count} activities made flexible",
   // Story 14.1: an activity's duration as the bucket-list row's meta line shows it.
   "trips.duration.hours": "{hours} h",
   "trips.duration.minutes": "{minutes} min",

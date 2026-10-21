@@ -224,34 +224,6 @@ const editedSchema = z.discriminatedUnion("kind", [
         .strict(),
     })
     .strict(),
-  // Story 13.3. *Alle flexibel machen*: one entry per converted row, at least one, each id once.
-  // `dayPlanChangeRepo.ts` checks every row against the day and against `movedItems`.
-  z
-    .object({
-      kind: z.literal("madeFlexible"),
-      items: z
-        .array(
-          z
-            .object({
-              itemId: idSchema,
-              updatedAt: isoDateSchema,
-              previous: z
-                .object({
-                  durationMinutes: dayPlanItemColumns.durationMinutes,
-                  fromTime: nullableText(),
-                  toTime: nullableText(),
-                  sortOrder: dayPlanItemColumns.sortOrder,
-                  updatedAt: isoDateSchema,
-                })
-                .strict(),
-            })
-            .strict(),
-        )
-        .min(1)
-        .max(MAX_LEGS)
-        .refine((items) => new Set(items.map((item) => item.itemId)).size === items.length, "Each activity once"),
-    })
-    .strict(),
   // Story 12.4. Additive; the bounds are what one apply can create (8 suggestions, a leg into each, 3
   // pictures each). `dayPlanChangeRepo.ts` checks every row against the day.
   // Story 14.3: `parkedItems` are the ones parked to the bucket list; optional, so a 13.4 receipt stays

@@ -111,9 +111,6 @@ export type DayPlanItemParkResult =
   | { status: "missing" }
   | { status: "parked"; item: DayPlanItemDetail; receipt: DayChangeReceipt };
 
-/** Story 13.3. *Alle flexibel machen*; a day without a FIXED activity throws `DayPlanChangedError`. */
-export type DayMakeFlexibleResult = { status: "not_found" } | { status: "made_flexible"; receipt: DayChangeReceipt };
-
 type DayPlanItemMutationParams = {
   userId: string;
   tripId: string;
@@ -881,71 +878,6 @@ export const parkDayPlanItemForTripDay = async (params: {
       },
     });
     return { status: "parked", item: toDetail({ ...item, payments: toPaymentDetails(item.payments) }), receipt };
-  });
-};
-
-/**
- * Story 13.3. *Alle flexibel machen*: every FIXED activity of the day becomes FLEXIBLE with its fixed
- * duration (`fixedDurationOf`), in place, and the day is recomputed, so the gaps before them close. Park's
- * order (14.2): the writer check, then in one transaction the read, the plan, each converted row written
- * conditionally on the `updatedAt` and the mode read here, the other rows' changes and 11.1's sweep (which
- * in practice finds nothing: the order does not change). The menu offers it only on a day with a FIXED
- * activity, so a day without one is the day changing under the user: `DayPlanChangedError`.
- */
-export const makeDayFlexibleForTripDay = async (params: {
-  userId: string;
-  tripId: string;
-  tripDayId: string;
-}): Promise<DayMakeFlexibleResult> => {
-  const { userId, tripId, tripDayId } = params;
-  const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
-  if (!tripDay) {
-    return { status: "not_found" };
-  }
-
-  return prisma.$transaction(async (tx): Promise<DayMakeFlexibleResult> => {
-    const state = await readScheduleInputInTransaction(tx, tripId, tripDayId);
-    if (!state) return { status: "not_found" };
-    const fixedRows = state.rows.filter((row) => row.scheduleMode === "FIXED");
-    if (fixedRows.length === 0) throw new DayPlanChangedError();
-    const plan = planDaySchedule(state, { kind: "makeFlexible", itemIds: fixedRows.map((row) => row.id) });
-
-    const now = new Date();
-    const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
-    const stored = new Map(fixedRows.map((row) => [row.id, row]));
-    const items = [];
-    for (const row of plan.converted) {
-      const previous = stored.get(row.id)!;
-      const written = await tx.dayPlanItem.updateMany({
-        where: { id: row.id, tripDayId, updatedAt: previous.updatedAt, scheduleMode: "FIXED" },
-        data: {
-          scheduleMode: "FLEXIBLE",
-          durationMinutes: fixedDurationOf(previous),
-          fromTime: row.fromTime,
-          toTime: row.toTime,
-          sortOrder: row.sortOrder,
-          updatedAt: now,
-        },
-      });
-      if (written.count !== 1) throw new DayPlanChangedError();
-      items.push({
-        itemId: row.id,
-        updatedAt: now,
-        previous: {
-          durationMinutes: previous.durationMinutes,
-          fromTime: previous.fromTime,
-          toTime: previous.toTime,
-          sortOrder: previous.sortOrder,
-          updatedAt: previous.updatedAt,
-        },
-      });
-    }
-
-    const { receipt } = await finishActivityWriteInTransaction(tx, { tripId, tripDayId, drawnBefore, now }, plan, {
-      kind: "madeFlexible",
-      items,
-    });
-    return { status: "made_flexible", receipt };
   });
 };
 

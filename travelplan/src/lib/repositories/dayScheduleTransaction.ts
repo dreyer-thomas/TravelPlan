@@ -157,19 +157,14 @@ export type ScheduleEdit =
   /** Last night's check-out as it will be stored. */
   | { kind: "checkOut"; checkOutTime: string | null }
   /**
-   * Story 13.3. *Alle flexibel machen*: each named row becomes FLEXIBLE in place with its fixed duration
-   * (`fixedDurationOf`); the order is unchanged and nothing is placed by time.
-   */
-  | { kind: "makeFlexible"; itemIds: string[] }
-  /**
    * Story 13.4. Applied suggestions: each item FLEXIBLE, appended in the given order after the day's last
    * row; `legs` are put first so they win their pair, as a leg save's are.
    */
   | { kind: "append"; items: ScheduleItem[]; legs: ScheduleLeg[] };
 
 /**
- * Story 13.3. A FIXED row's duration as the user saw it: `toTime − fromTime` when both read and the end is
- * after the start, else the stored `durationMinutes`. No clamp: a migrated row may last one minute.
+ * A FIXED row's duration as the user saw it: `toTime − fromTime` when both read and the end is after the
+ * start, else the stored `durationMinutes`. No clamp: a migrated row may last one minute.
  */
 export const fixedDurationOf = (row: { fromTime: string | null; toTime: string | null; durationMinutes: number }) => {
   const start = timeToMinutes(row.fromTime);
@@ -197,8 +192,6 @@ export type DaySchedulePlan = {
   order: PlannedRow[];
   /** The inserted or updated row as it will be written; `null` for every other edit. */
   edited: PlannedRow | null;
-  /** Story 13.3. The rows `makeFlexible` converted, in order, as they will be written; empty otherwise. */
-  converted: PlannedRow[];
   /** Story 13.4. The rows `append` added, in order, as they will be written; empty otherwise. */
   appended: PlannedRow[];
   changes: PlannedChange[];
@@ -219,8 +212,6 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
   let legs: ScheduleLeg[] = state.legs;
   let stay = beforeStay;
   let editedId: string | null = null;
-  // Story 13.3: the rows `makeFlexible` converts are edited too, but are several and land in `converted`.
-  const convertedIds = new Set<string>();
   // Story 13.4: the rows `append` adds are new, like an insert's, and land in `appended`.
   const appendedIds = new Set<string>();
   let placeId: string | null = null;
@@ -275,13 +266,6 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
     case "checkOut":
       stay = beforeStay ? { ...beforeStay, checkOutTime: edit.checkOutTime } : beforeStay;
       break;
-    case "makeFlexible":
-      for (const itemId of edit.itemIds) {
-        const index = indexOf(itemId);
-        items[index] = { ...items[index], scheduleMode: "FLEXIBLE", durationMinutes: fixedDurationOf(items[index]) };
-        convertedIds.add(itemId);
-      }
-      break;
     case "append":
       items.push(...edit.items);
       legs = [...edit.legs, ...state.legs];
@@ -318,16 +302,11 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
   }));
 
   let edited: PlannedRow | null = null;
-  const converted: PlannedRow[] = [];
   const appended: PlannedRow[] = [];
   const changes: PlannedChange[] = [];
   for (const row of order) {
     if (row.id === editedId) {
       edited = row;
-      continue;
-    }
-    if (convertedIds.has(row.id)) {
-      converted.push(row);
       continue;
     }
     if (appendedIds.has(row.id)) {
@@ -361,7 +340,7 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
     return !previous || conflict.lateMinutes > previous.lateMinutes;
   });
 
-  return { order, edited, converted, appended, changes, newConflicts };
+  return { order, edited, appended, changes, newConflicts };
 };
 
 /**
