@@ -16,7 +16,7 @@ fail loudly: a variable that defaults to something plausible is one nobody disco
 three (Story 12.1) belong to the optional AI day suggestions and are read only in `src/lib/ai/config.ts`.
 The last five (Story 8.8) are the SMTP settings for password-reset email, read only in
 `src/lib/notifications/smtpConfig.ts`; in production the server refuses to start without them (see
-*Password-reset email* below). `travelplan/.env.example` lists all thirteen without values.
+*Password-reset email* below). `travelplan/.env.example` lists all thirteen for local development; [`deploy/travelplan.env.example`](../deploy/travelplan.env.example) is the production starting point for a new server (all thirteen plus `NODE_ENV`, the non-secret values below, empty secrets).
 
 | Variable | Required | Notes |
 |---|---|---|

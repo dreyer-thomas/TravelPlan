@@ -3,3 +3,8 @@
 .bmad-loop/cache/
 .bmad-loop/policy.toml
 node_modules/
+# Filled-in production env files (template: deploy/travelplan.env.example)
+deploy/*.env
+# Local env files, never committed (production template: deploy/travelplan.env.example)
+.env
+.env.example

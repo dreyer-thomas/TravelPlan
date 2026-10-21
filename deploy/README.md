@@ -5,6 +5,7 @@ Infrastructure that lives on the server but belongs in version control.
 | File | Lives on the server at |
 |---|---|
 | [`deploy-travelplan.sh`](deploy-travelplan.sh) | `/usr/local/bin/deploy-travelplan.sh` |
+| [`travelplan.env.example`](travelplan.env.example) | Template only: the production environment for a new server, with every variable, the reference non-secret values and empty secrets. Today the values live inline in `TravelPlan.service`; as a file it goes outside the application tree (`root:root`, `600`, `EnvironmentFile=`). A filled-in copy must never be committed (`deploy/*.env` is ignored). |
 
 The operational reference — host, systemd units, Node runtime, health checks, rollback — is
 [`docs/deployment-guide.md`](../docs/deployment-guide.md). This directory holds the artefacts

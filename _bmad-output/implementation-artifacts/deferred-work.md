@@ -3919,3 +3919,75 @@ severity: low
 summary: A set but malformed `APP_BASE_URL` makes `new URL` throw inside the outer try, so known addresses get 500 and unknown ones 200 — an enumeration signal, and the reset is broken without a startup error.
 evidence: Pre-existing (the URL construction predates 8.8). A fix validates `APP_BASE_URL` at boot in production, alongside the SMTP check.
 status: open
+
+## Deferred from: code review of 8-9-security-updates-for-next-prisma-and-tiptap (2026-10-21)
+
+### DW-405: A deploy that fails after `npm ci` restarts the old build against the new dependencies
+
+source_spec: `_bmad-output/implementation-artifacts/8-9-security-updates-for-next-prisma-and-tiptap.md`
+origin: code review of 8-9-security-updates-for-next-prisma-and-tiptap, 2026-10-21
+location: `deploy/deploy-travelplan.sh:37` (ERR trap), `:58-61` (`npm ci`), `:69` (`prisma migrate deploy`); server copy `/usr/local/bin/deploy-travelplan.sh`
+severity: medium
+summary: Once `npm ci` has rewritten `node_modules`, any later failure (postinstall `prisma generate`, `migrate deploy`, the build) fires the ERR trap, which only runs `systemctl start`. The service comes back on the previous `.next` (built by the old Next) against the new or partial tree, so `is-active` can report green on a mismatched server. The script has no rollback path for `node_modules`.
+evidence: Pre-existing in the script; 8.9 is the first deploy whose lockfile change crosses Next minors (16.2 → 16.4) and Prisma 7.9 → 7.10. A fix either keeps the service stopped when the failure happens after `npm ci` (print a loud message instead), or installs into a staging copy and swaps it in only after a successful build.
+status: open
+
+### DW-406: Deploy script cites stale `next-server.js` line numbers
+
+source_spec: `_bmad-output/implementation-artifacts/8-9-security-updates-for-next-prisma-and-tiptap.md`
+origin: code review of 8-9-security-updates-for-next-prisma-and-tiptap, 2026-10-21
+location: `deploy/deploy-travelplan.sh:75` and the server copy
+severity: low
+summary: The comment justifying `rm -rf .next` cites `next-server.js:1065-1079`. On next 16.4.2 `loadNodeMiddleware()` is at line 1098 and the ENOENT/MODULE_NOT_FOUND swallow at 1108. The fail-open still exists, so the step stays; only the reference is stale.
+evidence: `travelplan/node_modules/next/dist/server/next-server.js` on 16.4.2. Fix both copies together (the committed one is a verbatim copy), ideally citing the function name instead of line numbers.
+status: open
+
+### DW-407: `prisma migrate diff` (migrations vs schema) reports drift on `cost_payments` and `trip_members`
+
+source_spec: `_bmad-output/implementation-artifacts/8-9-security-updates-for-next-prisma-and-tiptap.md`
+origin: code review of 8-9-security-updates-for-next-prisma-and-tiptap, 2026-10-21
+location: `travelplan/prisma/migrations/`, `travelplan/prisma/schema.prisma`
+severity: low
+summary: `prisma migrate diff --from-migrations … --to-schema … --exit-code` exits 2 with a 40-line script that redefines `cost_payments` and `trip_members`. The column sets match, so it looks like constraint history (see the CHECK-constraint drift noted in DW-402). `check:migrations` and `migrate status` are green.
+evidence: 8.9 Debug Log: byte-identical output at baseline on Prisma 7.9.1, so it is not caused by 8.9. A fix decides whether the schema or the migrations are right and adds a migration (or a schema change) that brings them back in line.
+status: open
+
+### DW-408: Dev-only audit findings are installed on the production server
+
+source_spec: `_bmad-output/implementation-artifacts/8-9-security-updates-for-next-prisma-and-tiptap.md`
+origin: code review of 8-9-security-updates-for-next-prisma-and-tiptap, 2026-10-21
+location: `travelplan/package.json` devDependencies (`vitest`, `eslint-config-next` chain)
+severity: medium
+summary: `npm audit` (with dev) has 13 findings, 2 critical (`vitest`/`tinypool`, fixed only in `vitest@5`), high on `vite`, `undici`, `js-yaml`, `brace-expansion`, and the `eslint-config-next` → `@next/eslint-plugin-next` → `fast-glob`/`micromatch`/`braces` chain (npm only offers a downgrade). The gate is `--omit=dev`, but the server installs dev dependencies (DW-329), so the code is on disk in production even though it never runs there.
+evidence: 8.9 Completion Notes, follow-up (a). A fix is a story for the `vitest@5` major plus whatever upstream fix exists for the eslint chain; or, with DW-329, stop installing dev dependencies on the server.
+status: open
+
+### DW-409: `@types/node` and `undici-types` now count as production dependencies
+
+source_spec: `_bmad-output/implementation-artifacts/8-9-security-updates-for-next-prisma-and-tiptap.md`
+origin: code review of 8-9-security-updates-for-next-prisma-and-tiptap, 2026-10-21
+location: `travelplan/package-lock.json` (`node_modules/@types/node`, `node_modules/undici-types` lost `"dev": true`)
+severity: low
+summary: `mysql2@3.24.4` (pulled in by `prisma@7.10.1`, unused on SQLite) declares a non-optional peer `@types/node >= 8`, so npm reclassifies both type packages as production. An advisory on either would turn the `--omit=dev` audit gate red with no runtime exposure.
+evidence: Upstream, nothing to fix today. If it ever trips the gate, the honest answer is an allowlist entry with that reason, or a Prisma release that drops `mysql2` from its hard dependencies.
+status: open
+
+### DW-410: Turbopack "whole project traced" warnings grew from 1 to 11
+
+source_spec: `_bmad-output/implementation-artifacts/8-9-security-updates-for-next-prisma-and-tiptap.md`
+origin: code review of 8-9-security-updates-for-next-prisma-and-tiptap, 2026-10-21
+location: `travelplan/next.config.ts`; `fs` call sites in `tripRepo.ts` (×2), `importPhotos.ts` (×6), `uploadPaths.ts` (×3)
+severity: low
+summary: Next 16.4.2 reports the existing whole-project NFT trace at each dynamic `fs` call site instead of once. No effect on the in-tree `next start` deploy, but the build log is noisier and a real new warning is easier to miss.
+evidence: 8.9 Debug Log (baseline 1 warning, 16.4.2 11). A fix narrows the dynamic paths (e.g. `path.join` with a constant root plus `/* turbopackIgnore */` where appropriate) or sets `outputFileTracingExcludes`.
+status: open
+
+### DW-411: `/_next/image` is still served although the app never uses it
+
+source_spec: `_bmad-output/implementation-artifacts/8-9-security-updates-for-next-prisma-and-tiptap.md`
+origin: code review of 8-9-security-updates-for-next-prisma-and-tiptap, 2026-10-21
+location: `travelplan/next.config.ts`
+severity: low
+summary: The app renders plain `<img>` and never imports `next/image`, yet Next serves the Image Optimization endpoint by default — the endpoint behind 8.9's critical and high advisories. `images: { unoptimized: true }` would remove that whole advisory class's attack surface.
+evidence: 8.9 story, Questions §2 (open with Tommy). Hardening, not an update, so it was out of scope.
+status: open

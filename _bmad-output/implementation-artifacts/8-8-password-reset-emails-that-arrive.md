@@ -5,7 +5,7 @@ baseline_commit: 9dfbc0e
 
 # Story 8.8: Password-Reset Emails That Arrive
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -167,6 +167,7 @@ Claude Opus 5.5 (claude-opus-5-5), via bmad-dev-story.
 - **Docs**: `deployment-configuration.md` (count 8→13, five rows, new *Password-reset email* section, unit block, secrets section names `SMTP_PASS`, dropped the stale `route.ts:53` line number), `deployment-guide.md` (count, five rows, short note, new *Upgrading past Story 8.8* section with the AC8 steps), `.env.example` (commented SMTP block).
 - **AC8 is pending Tommy (manual, on the server)**: put the five variables in `TravelPlan.service` + `systemctl daemon-reload` **before** starting this build; run `timeout 5 bash -c "</dev/tcp/smtp.strato.de/465" && echo open` (fallback 587); then do a real reset on `https://plan.dreyer-travels.de` for your own account: the mail arrives, the link is `https://plan.dreyer-travels.de/auth/reset-password?token=…`, the new password works, and the journal has no `reset email not sent` line.
   - 2026-10-21: TCP from the production server to `smtp.strato.de:465` checked by Tommy: open, so 465 with implicit TLS stays (no 587 fallback). The five variables are in the unit (Tommy, 2026-10-21). Still pending: deploy, and the real reset on `https://plan.dreyer-travels.de`.
+  - 2026-10-21: **AC8 passed (Tommy).** First start failed the boot check as designed: the unit line read `nvironment="SMTP_HOST=…"`, so systemd dropped it and the journal named `SMTP_HOST` only; fixed, daemon-reload, restart clean. A real reset on `https://plan.dreyer-travels.de` arrived in the GMX inbox (not spam, so Strato DKIM passes under DMARC `p=reject`), in German per the account, From `TravelPlan`, link `https://plan.dreyer-travels.de/auth/reset-password?token=<64 hex>`; the new password set through it works; the journal shows no error for the request.
 - **Questions for Tommy:** (1) Timing: a known address now waits for the SMTP round trip and an unknown one does not, which is a timing-based enumeration signal (see Dev Notes). Accept it or send fire-and-forget? (2) Mail wording: the suggested texts were used as written. (3) `audit:check` is red from the findings above, Next.js critical ones included. This is separate from this story but worth a dependency-bump story soon.
 
 ### File List
@@ -194,3 +195,4 @@ Claude Opus 5.5 (claude-opus-5-5), via bmad-dev-story.
 - 2026-10-21: Story created (bmad-create-story).
 - 2026-10-21: Implemented (bmad-dev-story). SMTP via nodemailer in production with a startup fail-fast; the reset mail is in the account's language; a send failure is logged without secrets and still answers success; 44 new tests; deployment docs. Status → review. AC8 (server acceptance) pending Tommy.
 - 2026-10-21: Code review (bmad-code-review): 1 decision (fire-and-forget send, Tommy), 6 patches applied — send not awaited, failure log blanks addresses and logs only the kind of a non-Error, real-production-path log test with mocked nodemailer (mutation-checked), raw SMTP_PASS, exact bad-port message, MAIL_FROM docs quotes; DW-403/DW-404 deferred. 223 files / 3582 tests, typecheck clean, touched files lint clean.
+- 2026-10-21: AC8 production acceptance passed (Tommy). Status → done.
