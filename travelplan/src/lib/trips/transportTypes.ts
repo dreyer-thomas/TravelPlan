@@ -53,3 +53,36 @@ export const transportTypeRequiresDistance = (value: TransportType): boolean =>
  */
 export const isTransportType = (value: string): value is TransportType =>
   (TRANSPORT_TYPES as readonly string[]).includes(value);
+
+/**
+ * The dictionary key each transport type is named by, not the name itself (DW-230).
+ *
+ * The keys already existed for the travel-segment dialog and the day view, so this sheet joins them
+ * rather than adding a second spelling of "Car" that could drift out of step with the one on screen for
+ * the same segment. Lives here rather than in `TripDayPrintDocument.tsx` since Story 9.3: the day email
+ * names the same legs from a route handler, and a value imported from a `"use client"` module compiles
+ * there and throws at call time.
+ *
+ * A `transportType` outside `TRANSPORT_TYPES` still prints raw, exactly as before. That branch matters: the
+ * value comes out of a bare `TEXT` column with no CHECK constraint, so a row can carry anything - and
+ * `t()` returns the *key* for a miss, which would put
+ * `trips.travelSegment.transport.hovercraft` on a printed page. Membership is therefore checked before the
+ * lookup rather than leaning on a `??` fallback that a missing dictionary entry never reaches.
+ *
+ * **The narrowing and the key type both come from this module.**
+ * A `Record<string, string>` narrowed by a hand-rolled `hasOwnProperty` is the same guard that module
+ * exports as `isTransportType`, written a second time - and it costs the exhaustiveness its docblock
+ * promises: keyed by `TransportType`, a sixth mode added to `TRANSPORT_TYPES` fails to compile *here*,
+ * which is the whole point of that module existing ("every enum-to-string mapper in the codebase is
+ * exhaustive so the compiler catches the next added mode"). Keyed by `string` it would silently print the
+ * new mode raw on paper while the day view named it properly, and no test would be looking.
+ */
+export const TRANSPORT_LABEL_KEYS: Record<TransportType, string> = {
+  car: "trips.travelSegment.transport.car",
+  ship: "trips.travelSegment.transport.ship",
+  flight: "trips.travelSegment.transport.flight",
+  walking: "trips.travelSegment.transport.walking",
+  cycling: "trips.travelSegment.transport.cycling",
+  train: "trips.travelSegment.transport.train",
+  bus: "trips.travelSegment.transport.bus",
+};

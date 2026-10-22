@@ -870,6 +870,17 @@ const de: Dictionary = {
   // Tickets hat, sucht an der falschen Stelle.
   "trips.documents.packetEmpty": "Dieser Tag hat keine Dokumente für ein Paket.",
   "trips.documents.packetError": "Dokumentenpaket konnte nicht erstellt werden. Bitte erneut versuchen.",
+  "trips.dayEmail.action": "Per E-Mail senden",
+  "trips.dayEmail.pending": "Wird gesendet …",
+  "trips.dayEmail.sent": "Der Tagesplan wurde an {address} gesendet.",
+  "trips.dayEmail.sentWithoutDocuments": "Der Tagesplan wurde an {address} gesendet, ohne die Dokumente: Sie sind zu groß für eine E-Mail. Lade sie auf der Tagesseite herunter.",
+  "trips.dayEmail.failed": "Die E-Mail konnte nicht gesendet werden. Bitte versuche es erneut.",
+  "trips.dayEmail.subject": "Tagesplan: {trip}, {date}",
+  "trips.dayEmail.intro": "Dein Tagesplan zum Offline-Lesen.",
+  "trips.dayEmail.openDay": "Diesen Tag in TravelPlan öffnen",
+  "trips.dayEmail.documentsAttached": "Die Dokumente des Tages hängen als ein PDF an.",
+  "trips.dayEmail.documentsTooLarge": "Die Dokumente des Tages waren zu groß für eine E-Mail. Du kannst sie über den Link auf der Tagesseite herunterladen.",
+  "trips.dayEmail.documentsNone": "Dieser Tag hat keine Dokumente.",
   // DW-230. Die fünf Texte, die *im* Paket-PDF stehen, auf dem Trennblatt vor jedem Dokument. Bisher
   // Literale in `packetPdf.ts` — wer auf Deutsch arbeitete, klickte einen übersetzten Menüeintrag an und
   // bekam ein englisches Paket, und der Ausdruck daneben war ebenfalls englisch. Deshalb werden beide

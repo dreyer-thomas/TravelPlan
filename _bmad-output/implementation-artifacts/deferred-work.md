@@ -3991,3 +3991,46 @@ severity: low
 summary: The app renders plain `<img>` and never imports `next/image`, yet Next serves the Image Optimization endpoint by default — the endpoint behind 8.9's critical and high advisories. `images: { unoptimized: true }` would remove that whole advisory class's attack surface.
 evidence: 8.9 story, Questions §2 (open with Tommy). Hardening, not an update, so it was out of scope.
 status: open
+
+
+## Deferred from: code review of 9-3-the-day-in-my-inbox (2026-10-21)
+
+### DW-412: The day-email route has no rate limit
+
+source_spec: `_bmad-output/implementation-artifacts/9-3-the-day-in-my-inbox.md`
+origin: code review of 9-3-the-day-in-my-inbox, 2026-10-21
+location: `travelplan/src/app/api/trips/[id]/days/[dayId]/email/route.ts`
+severity: medium
+summary: Any member (viewers included) can loop `POST …/email`. The recipient is always themselves, so it is not spam to others, but each call builds the packet, composes the MIME twice (up to ~20 MB) and sends over the one Strato account that password-reset mail also uses — a quota or throttle hit there stops resets for everyone.
+evidence: Story 9.3 lists rate limiting as out of scope ("the recipient is always oneself"). `checkRateLimit` (`src/lib/security/rateLimit.ts`) already exists for login/register; a per-user key (e.g. a handful per 10 minutes) would close it.
+status: open
+
+### DW-413: `APP_BASE_URL` missing in production is not caught at boot
+
+source_spec: `_bmad-output/implementation-artifacts/9-3-the-day-in-my-inbox.md`
+origin: code review of 9-3-the-day-in-my-inbox, 2026-10-21
+location: `travelplan/src/app/api/trips/[id]/days/[dayId]/email/route.ts`; `travelplan/src/app/api/auth/password-reset/request/route.ts`; `travelplan/src/instrumentation.ts`
+severity: low
+summary: Both mail routes fall back to `http://localhost:3000` silently, so a production deploy without the variable sends dead links with no log line. `deploy/travelplan.env.example` sets it, so today's deploy is fine.
+evidence: Fallback prescribed by AC8 to mirror the reset route. Adding `APP_BASE_URL` to the production boot fail-fast next to the SMTP variables would close both routes.
+status: open
+
+### DW-414: Awaited day mail can succeed after the client has given up
+
+source_spec: `_bmad-output/implementation-artifacts/9-3-the-day-in-my-inbox.md`
+origin: code review of 9-3-the-day-in-my-inbox, 2026-10-21
+location: `travelplan/src/app/api/trips/[id]/days/[dayId]/email/route.ts`; `travelplan/src/components/features/trips/TripDayView.tsx` (`handleSendDayEmail`)
+severity: low
+summary: The SMTP timeouts are per phase, so a ~20 MB upload on a slow link has no overall bound. If the reverse proxy cuts the request first, the UI says "could not be sent" while the send completes; the user retries and receives duplicates.
+evidence: Real round trip in 9.3 took ~0.9 s for 930 KB. Worth checking the proxy's read timeout against a near-cap mail before acting; options are a longer proxy timeout for this path or wording the failure as "may not have been sent".
+status: open
+
+### DW-415: Pending day-menu actions leak across a sibling-day navigation
+
+source_spec: `_bmad-output/implementation-artifacts/9-3-the-day-in-my-inbox.md`
+origin: code review of 9-3-the-day-in-my-inbox, 2026-10-21
+location: `travelplan/src/components/features/trips/TripDayView.tsx` (`handleSendDayEmail`, `handleDownloadPacket`)
+severity: low
+summary: The day reset clears notices but not `emailPending`/`packetPending`, so on the new day the item stays disabled ("Sending…") until the old request ends, and `finally`'s `handleDayMenuClose()` closes a menu the user may have opened on the new day.
+evidence: Messages are already gated on `onRequestedDay()`; gating the menu close the same way and keying the pending flag by day would close it for both handlers.
+status: open

@@ -105,3 +105,50 @@ describe("sendEmail in production", () => {
     expect(createTransport).not.toHaveBeenCalled();
   });
 });
+
+describe("sendEmail with an HTML part and attachments (Story 9.3)", () => {
+  const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]);
+  const RICH = {
+    ...MESSAGE,
+    html: "<p>Line one</p>",
+    attachments: [{ filename: "trip-day-1-documents.pdf", contentType: "application/pdf", content: bytes }],
+  };
+
+  it("passes html and attachments through to nodemailer in production", async () => {
+    stub({ NODE_ENV: "production", ...SMTP });
+    await sendEmail(RICH);
+
+    const sent = sendMail.mock.calls[0][0] as {
+      html: string;
+      attachments: { filename: string; contentType: string; content: Buffer }[];
+    };
+    expect(sent.html).toBe("<p>Line one</p>");
+    expect(sent.attachments).toHaveLength(1);
+    expect(sent.attachments[0].filename).toBe("trip-day-1-documents.pdf");
+    expect(sent.attachments[0].contentType).toBe("application/pdf");
+    expect(Buffer.isBuffer(sent.attachments[0].content)).toBe(true);
+    expect([...sent.attachments[0].content]).toEqual([...bytes]);
+  });
+
+  it("passes only the attachment's own bytes when it is a view into a larger buffer", async () => {
+    stub({ NODE_ENV: "production", ...SMTP });
+    const backing = new Uint8Array([9, 9, 1, 2, 3, 9]);
+    const view = backing.subarray(2, 5);
+    await sendEmail({ ...MESSAGE, attachments: [{ filename: "a.pdf", contentType: "application/pdf", content: view }] });
+    const sent = sendMail.mock.calls[0][0] as { attachments: { content: Buffer }[] };
+    expect([...sent.attachments[0].content]).toEqual([1, 2, 3]);
+  });
+
+  it("adds no html or attachments key when the message has none", async () => {
+    stub({ NODE_ENV: "production", ...SMTP });
+    await sendEmail(MESSAGE);
+    expect(sendMail.mock.calls[0][0]).not.toHaveProperty("html");
+    expect(sendMail.mock.calls[0][0]).not.toHaveProperty("attachments");
+  });
+
+  it("keeps html and attachments in the outbox outside production", async () => {
+    stub({ NODE_ENV: "test" });
+    await sendEmail(RICH);
+    expect(getEmailOutbox()).toEqual([RICH]);
+  });
+});

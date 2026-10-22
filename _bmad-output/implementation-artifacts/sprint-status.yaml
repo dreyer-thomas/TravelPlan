@@ -1,5 +1,9 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-10-21 (8-10-alle-flexibel-machen-goes-away review -> done via bmad-code-review: three layers (blind, edge case, acceptance), clean review, 0 patch / 0 defer / 15 dismissed; no code change)
+# last_updated: 2026-10-22 (9-3-the-day-in-my-inbox review -> done via bmad-code-review: three layers (blind, edge case, acceptance), 1 patch applied (cache-control no-store on the early guard responses, tests assert it), 0 decision, 4 deferred (DW-412 rate limit, DW-413 APP_BASE_URL boot check, DW-414 send outlives proxy timeout, DW-415 pending state across day switch), 17 dismissed; 3603 tests, tsc 0; AC18 pending Tommy)
+# previously: 2026-10-21 (9-3-the-day-in-my-inbox in-progress -> review via bmad-dev-story: POST days/[dayId]/email (CSRF, session recipient, lang cookie, measured 20 MB cap, awaited send), buildDayPacket extracted, sendEmail html/attachments, menu entry for all roles; 3603 tests, tsc 0, lint 0/80, build, browser pass under next start with real SMTP round trip; AC18 pending Tommy)
+# previously: 2026-10-21 (9-3-the-day-in-my-inbox ready-for-dev -> in-progress via bmad-dev-story)
+# previously: 2026-10-21 (9-3-the-day-in-my-inbox backlog -> ready-for-dev via bmad-create-story: POST days/[dayId]/email, recipient from session, lang cookie, HTML + text, packet shared via extracted buildDayPacket, 20 MB measured with nodemailer MailComposer, awaited send, describeSendFailure moved; two open questions for Tommy in the story)
+# previously: 2026-10-21 (8-10-alle-flexibel-machen-goes-away review -> done via bmad-code-review: three layers (blind, edge case, acceptance), clean review, 0 patch / 0 defer / 15 dismissed; no code change)
 # previously: 2026-10-21 (8-10-alle-flexibel-machen-goes-away in-progress -> review via bmad-dev-story: feature removed end to end incl. madeFlexible undo path and 10 i18n keys; fixedDurationOf kept, test moved; 3559 tests (-23 accounted), typecheck, lint 0/80, build; next start pass: menu correct for owner/viewer, old route 404, reorder undo ok)
 # previously: 2026-10-21 (8-10-alle-flexibel-machen-goes-away ready-for-dev -> in-progress via bmad-dev-story; baseline aaf4c89: 223 files / 3582 tests, typecheck clean, lint 0/80)
 # previously: 2026-10-21 (8-10-alle-flexibel-machen-goes-away backlog -> ready-for-dev via bmad-create-story: full removal inventory from a fresh grep at aaf4c89, incl. three madeFlexible undo branches in dayPlanChangeRepo.ts, trips.dayChange.madeFlexible* keys, the dayChangeReceipt.test.ts block and dayScheduleAppend.test.ts:57 that the proposal missed; fixedDurationOf kept and its test moved; import min 1 kept.)
@@ -310,7 +314,7 @@ development_status:
   epic-9: in-progress
   9-1-documents-on-stays-and-activities: done
   9-2-documents-in-print-and-an-offline-packet: done
-  9-3-the-day-in-my-inbox: backlog
+  9-3-the-day-in-my-inbox: done
   epic-9-retrospective: optional
 
   epic-10: in-progress

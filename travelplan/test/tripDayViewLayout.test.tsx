@@ -6960,7 +6960,7 @@ describe("TripDayView layout", () => {
     );
   };
 
-  it("gives an owner all four overflow items, planning first, print below a divider (AC1, AC2, AC3)", async () => {
+  it("gives an owner every overflow item, planning first, print below a divider (AC1, AC2, AC3)", async () => {
     navigationMockState.search = "";
     vi.stubGlobal("fetch", buildDayResponse({}, { accessRole: "owner" }));
 
@@ -6981,6 +6981,8 @@ describe("TripDayView layout", () => {
       // Story 9.2, after print: the two are the same gesture at different fidelities, and both sit below
       // the divider because neither changes this day.
       "Download document packet",
+      // Story 9.3, after the packet it carries: the plan and the tickets, to the traveller's own inbox.
+      "Send by email",
     ]);
     // A <ul> may only contain <li>, so the separator has to be one - as a bare <hr> it validates as
     // an error and AT rebuilding the list from valid children can drop it.
@@ -7008,6 +7010,7 @@ describe("TripDayView layout", () => {
       "---",
       "Print day",
       "Download document packet",
+      "Send by email",
     ]);
 
     vi.unstubAllGlobals();
@@ -7025,10 +7028,16 @@ describe("TripDayView layout", () => {
     // in `isOwner` because the day-image item moved in is the regression 6.11 AC6 was written for -
     // and after Story 6.19 it would also strand the viewer, since back-to-trip lives in here too.
     expect(screen.getByTestId("day-hero-overflow")).toBeInTheDocument();
-    // Story 9.2 adds the packet, on the same read-access gate print is on - so a viewer gets three items
-    // and still no divider, because a viewer has no day-changing group for one to mark off.
-    expect(await dayOverflowItemNames()).toEqual(["Back to trip", "Print day", "Download document packet"]);
-    // Three items, no rule between them: the divider marks off the day-changing group, and a viewer has
+    // Story 9.2 adds the packet and Story 9.3 the email, on the same read-access gate print is on - so a
+    // viewer gets four items and still no divider, because a viewer has no day-changing group for one to
+    // mark off.
+    expect(await dayOverflowItemNames()).toEqual([
+      "Back to trip",
+      "Print day",
+      "Download document packet",
+      "Send by email",
+    ]);
+    // Four items, no rule between them: the divider marks off the day-changing group, and a viewer has
     // none. A separator drawn above a viewer's read-only entries would be noise, not structure.
     expect(screen.queryByTestId("day-hero-overflow-divider")).not.toBeInTheDocument();
 

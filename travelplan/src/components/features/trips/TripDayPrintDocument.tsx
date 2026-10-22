@@ -1,15 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import type { TripDayPrintPayload, TripDayPrintTimelineEntry } from "@/lib/repositories/tripRepo";
+import type { TripDayPrintPayload } from "@/lib/repositories/tripRepo";
 import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 import { formatCostOriginal } from "@/lib/trips/convertCost";
 import { formatCost } from "@/lib/trips/formatCost";
 import { formatLongDate } from "@/lib/trips/formatLongDate";
 import { parsePlanText } from "@/lib/trips/planText";
-import { collectTimelineDocuments, getPrintEntryLabel, truncateText } from "@/lib/trips/printDocuments";
-import { isTransportType, transportTypeAllowsDistance, type TransportType } from "@/lib/trips/transportTypes";
+import {
+  collectTimelineDocuments,
+  formatPrintDuration,
+  getEntryDisplayName,
+  getPrintEntryLabel,
+  truncateText,
+} from "@/lib/trips/printDocuments";
+import { TRANSPORT_LABEL_KEYS, isTransportType, transportTypeAllowsDistance } from "@/lib/trips/transportTypes";
 import type { TripDayMapPoint } from "@/lib/trips/dayMapData";
 
 /**
@@ -30,37 +36,6 @@ import type { TripDayMapPoint } from "@/lib/trips/dayMapData";
 const IMAGE_SETTLE_TIMEOUT_PER_IMAGE_MS = 8000;
 const IMAGE_SETTLE_TIMEOUT_CEILING_MS = 40000;
 
-/**
- * The dictionary key each transport type is named by, not the name itself (DW-230).
- *
- * The keys already existed for the travel-segment dialog and the day view, so this sheet joins them
- * rather than adding a second spelling of "Car" that could drift out of step with the one on screen for
- * the same segment.
- *
- * A `transportType` outside `TRANSPORT_TYPES` still prints raw, exactly as before. That branch matters: the
- * value comes out of a bare `TEXT` column with no CHECK constraint, so a row can carry anything - and
- * `t()` returns the *key* for a miss, which would put
- * `trips.travelSegment.transport.hovercraft` on a printed page. Membership is therefore checked before the
- * lookup rather than leaning on a `??` fallback that a missing dictionary entry never reaches.
- *
- * **The narrowing and the key type both come from `transportTypes.ts`, which this file already imports.**
- * A `Record<string, string>` narrowed by a hand-rolled `hasOwnProperty` is the same guard that module
- * exports as `isTransportType`, written a second time - and it costs the exhaustiveness its docblock
- * promises: keyed by `TransportType`, a sixth mode added to `TRANSPORT_TYPES` fails to compile *here*,
- * which is the whole point of that module existing ("every enum-to-string mapper in the codebase is
- * exhaustive so the compiler catches the next added mode"). Keyed by `string` it would silently print the
- * new mode raw on paper while the day view named it properly, and no test would be looking.
- */
-const TRANSPORT_LABEL_KEYS: Record<TransportType, string> = {
-  car: "trips.travelSegment.transport.car",
-  ship: "trips.travelSegment.transport.ship",
-  flight: "trips.travelSegment.transport.flight",
-  walking: "trips.travelSegment.transport.walking",
-  cycling: "trips.travelSegment.transport.cycling",
-  train: "trips.travelSegment.transport.train",
-  bus: "trips.travelSegment.transport.bus",
-};
-
 const GOOGLE_MAPS_MAX_STOPS = 9;
 
 const buildGoogleMapsUrl = (points: TripDayMapPoint[]): string | null => {
@@ -77,14 +52,6 @@ const buildGoogleMapsUrl = (points: TripDayMapPoint[]): string | null => {
   const stops = sampled.map((p) => `${p.position[0].toFixed(6)},${p.position[1].toFixed(6)}`);
   return `https://www.google.com/maps/dir/${stops.join("/")}`;
 };
-
-const getEntryDisplayName = (entry: TripDayPrintTimelineEntry | undefined): string | null => {
-  if (!entry) return null;
-  if (entry.kind === "planItem") return entry.item.title?.trim() || null;
-  if (entry.kind === "previousStay" || entry.kind === "currentStay") return entry.stay.name.trim() || null;
-  return null;
-};
-
 
 type TripDayPrintDocumentProps = {
   payload: TripDayPrintPayload;
@@ -142,23 +109,7 @@ export default function TripDayPrintDocument({ payload, onReady }: TripDayPrintD
     );
   };
 
-  /**
-   * Two keys rather than one, and joined by a space rather than interpolated into a third.
-   *
-   * The halves are independently optional - `1h`, `45m` and `1h 45m` are all reachable - so a single
-   * "{hours}h {minutes}m" key could not express the first two. And the unit is not a suffix in every
-   * language: German writes `1 Std. 45 Min.` with a space before each unit where English writes none, so
-   * the space has to live inside the value.
-   */
-  const formatDuration = (minutes: number) => {
-    if (!Number.isFinite(minutes) || minutes <= 0) return "";
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-    const parts: string[] = [];
-    if (h > 0) parts.push(formatMessage(t("trips.dayPrint.durationHours"), { hours: h }));
-    if (m > 0) parts.push(formatMessage(t("trips.dayPrint.durationMinutes"), { minutes: m }));
-    return parts.join(" ");
-  };
+  const formatDuration = (minutes: number) => formatPrintDuration(minutes, t);
 
   // Memoised because the document traversal below lists it as a dependency: a fresh closure every render
   // would re-run that traversal every render, and leaving it out of the dependency list instead would be a

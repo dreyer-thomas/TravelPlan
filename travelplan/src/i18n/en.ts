@@ -944,6 +944,17 @@ const en: Dictionary = {
   // tickets on it, goes looking in the wrong place.
   "trips.documents.packetEmpty": "This day has no documents to package.",
   "trips.documents.packetError": "Document packet could not be created. Please try again.",
+  "trips.dayEmail.action": "Send by email",
+  "trips.dayEmail.pending": "Sending…",
+  "trips.dayEmail.sent": "The day plan was sent to {address}.",
+  "trips.dayEmail.sentWithoutDocuments": "The day plan was sent to {address}, without the documents: they are too large for email. Download them on the day page.",
+  "trips.dayEmail.failed": "The email could not be sent. Please try again.",
+  "trips.dayEmail.subject": "Day plan: {trip}, {date}",
+  "trips.dayEmail.intro": "Your day plan, to read offline.",
+  "trips.dayEmail.openDay": "Open this day in TravelPlan",
+  "trips.dayEmail.documentsAttached": "The day's documents are attached as one PDF.",
+  "trips.dayEmail.documentsTooLarge": "The day's documents were too large for email. You can download them on the day page via the link.",
+  "trips.dayEmail.documentsNone": "This day has no documents.",
   // DW-230. The five strings drawn *inside* the packet PDF, on the label page that precedes every
   // document. They used to be literals in `packetPdf.ts`, so a German user reached a fully translated menu
   // item and got an English packet — and the printed sheet beside it was English too, which is why the two

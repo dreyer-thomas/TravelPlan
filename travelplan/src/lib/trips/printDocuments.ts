@@ -19,6 +19,7 @@
  * live in, and there is no `"use client"` module anywhere below this one. A single value import from a
  * client module would leave the packet route calling a client reference, which compiles and throws.
  */
+import { formatMessage } from "@/i18n";
 import type { TripDayPrintTimelineEntry } from "@/lib/repositories/tripRepo";
 import { isPdfDocumentUrl } from "@/lib/trips/documentUploads";
 import { parsePlanText } from "@/lib/trips/planText";
@@ -48,9 +49,10 @@ export const truncateText = (text: string) =>
  * **The positional wording is a required parameter, not a literal and not a default (DW-230).** A function
  * rather than a string because the position is interpolated into it, and *required* rather than defaulted
  * so the compiler names every call site: the sheet and the packet have to agree on the wording, and a
- * default is precisely how one of them would silently keep the old one. Keeping the module itself free of
- * `@/i18n` also keeps it a pure traversal that either caller - a `"use client"` component and a Node route
- * handler - can import without inheriting a language.
+ * default is precisely how one of them would silently keep the old one. The module holds no language of its
+ * own - every wording comes in through the caller's `t` or callback - so either caller, a `"use client"`
+ * component and a Node route handler, can import it without inheriting one. (Since Story 9.3 it imports
+ * `formatMessage` from `@/i18n` for `formatPrintDuration`; that is interpolation, not a language.)
  *
  * This paragraph used to add that handing the module a `t` or a `Language` would drag `@/i18n` and its two
  * dictionaries into a client bundle. That cost does not exist and the claim is struck rather than quietly
@@ -81,6 +83,38 @@ export const getPrintEntryLabel = (
     return rawLabel || planItemFallback(index + 1);
   }
   return "";
+};
+
+/**
+ * What a travel leg's `from → to` line names a neighbouring entry: an activity's own title or a stay's
+ * name, and nothing for an untitled activity or a leg. Moved here from `TripDayPrintDocument.tsx`
+ * unchanged (Story 9.3) so the day email names a leg's ends exactly as the printed sheet does.
+ */
+export const getEntryDisplayName = (entry: TripDayPrintTimelineEntry | undefined): string | null => {
+  if (!entry) return null;
+  if (entry.kind === "planItem") return entry.item.title?.trim() || null;
+  if (entry.kind === "previousStay" || entry.kind === "currentStay") return entry.stay.name.trim() || null;
+  return null;
+};
+
+/**
+ * A duration in minutes as the sheet prints it - `1h`, `45m`, `1h 45m` - or `""` for nothing worth
+ * printing. Moved here from `TripDayPrintDocument.tsx` unchanged (Story 9.3) so the day email spells a
+ * duration as the sheet does; `t` is the caller's, so the module still inherits no language.
+ *
+ * Two keys rather than one, and joined by a space rather than interpolated into a third. The halves are
+ * independently optional, so a single "{hours}h {minutes}m" key could not express the first two. And the
+ * unit is not a suffix in every language: German writes `1 Std. 45 Min.` with a space before each unit
+ * where English writes none, so the space has to live inside the value.
+ */
+export const formatPrintDuration = (minutes: number, t: (key: string) => string): string => {
+  if (!Number.isFinite(minutes) || minutes <= 0) return "";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  const parts: string[] = [];
+  if (h > 0) parts.push(formatMessage(t("trips.dayPrint.durationHours"), { hours: h }));
+  if (m > 0) parts.push(formatMessage(t("trips.dayPrint.durationMinutes"), { minutes: m }));
+  return parts.join(" ");
 };
 
 /**

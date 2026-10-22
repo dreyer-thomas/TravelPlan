@@ -6,30 +6,11 @@ import { fail, ok } from "@/lib/http/response";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { createPasswordResetToken } from "@/lib/auth/passwordReset";
 import { checkRateLimit } from "@/lib/security/rateLimit";
-import { sendEmail } from "@/lib/notifications/email";
+import { describeSendFailure, sendEmail } from "@/lib/notifications/email";
 import { dictionaries, formatMessage, translate } from "@/i18n";
 
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX = 10;
-
-/** Anything shaped like a mail address. nodemailer's messages quote the server's reply, recipient included. */
-const ADDRESS_PATTERN = /[^\s<>"',;:()[\]]+@[^\s<>"',;:()[\]]+/g;
-
-/**
- * What an SMTP failure is allowed to put in the journal: nodemailer's error code (`EAUTH`,
- * `ECONNECTION`, `ETIMEDOUT`...), the server's reply code and the message with any address blanked -
- * never the error object, whose `command`, `response` and envelope fields are not ours to vouch for,
- * and never a non-`Error` throw, which could be anything.
- */
-const describeSendFailure = (error: unknown) => {
-  const fields = (typeof error === "object" && error !== null ? error : {}) as Record<string, unknown>;
-  return {
-    code: typeof fields.code === "string" ? fields.code : undefined,
-    responseCode: typeof fields.responseCode === "number" ? fields.responseCode : undefined,
-    message:
-      error instanceof Error ? error.message.replace(ADDRESS_PATTERN, "<address>") : `non-Error thrown (${typeof error})`,
-  };
-};
 
 const getClientIp = (request: NextRequest) => {
   const forwarded = request.headers.get("x-forwarded-for");

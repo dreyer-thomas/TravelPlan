@@ -757,6 +757,20 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
   // Story 9.2. Its own flag rather than a shared "busy": the packet is built server-side out of up to ten
   // files and is the one action on this screen with a wait worth reporting.
   const [packetPending, setPacketPending] = useState(false);
+  // Story 9.3. Its own flag for the same reason as the packet's, and its own notice: the confirmation
+  // names the address the mail went to, and the "sent without documents" case is a warning rather than an
+  // error. Not `ActionNotice` - that is the undo receipt, withheld from viewers, and viewers send mail too.
+  const [emailPending, setEmailPending] = useState(false);
+  const [emailNotice, setEmailNotice] = useState<{ severity: "success" | "warning"; message: string } | null>(
+    null,
+  );
+  // A notice is about the last send; once any action puts an error in the slot, the two would contradict
+  // each other at the top of the page. Reset during render, the pattern the day reset below uses.
+  const [emailNoticeError, setEmailNoticeError] = useState<string | null>(null);
+  if (emailNoticeError !== error) {
+    setEmailNoticeError(error);
+    if (error) setEmailNotice(null);
+  }
   // Reset-on-prop-change during render rather than in an effect, which is React's own prescription
   // and keeps this out of the cascading-render lint. The menu's backdrop swallows clicks but not
   // browser back/forward, so navigating to a sibling day can leave the anchor pointing at the
@@ -783,6 +797,8 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
     setPlanItemMenu(null);
     // Story 11.1 AC7: a receipt is about this day; another day must not offer to undo it.
     setDayChange(null);
+    // Story 9.3: "sent to …" is about the day being left.
+    setEmailNotice(null);
   }
   const planItemsRef = useRef<DayPlanItem[]>([]);
   // Story 8.5. `handleRemoveOrphanSegment`'s rollback snapshot, kept the way `planItemsRef` keeps
@@ -852,16 +868,20 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
   // Story 5.13 moves `dayImage` from `isOwner` to `canEditPlanning`, keeping the mirror true: the route
   // behind it now gates on write-level role, because a day image is content of a day and a contributor
   // already fills that day with stays and activities.
-  const dayMenuItemsVisible: Record<"dayImage" | "transfers" | "print" | "packet", boolean> = {
+  //
+  // Story 9.3 adds `email`, gated `true` for the packet's reason: it sends the day and its tickets to the
+  // signed-in traveller's own mailbox and changes nothing, so it belongs to everyone who can read the day.
+  const dayMenuItemsVisible: Record<"dayImage" | "transfers" | "print" | "packet" | "email", boolean> = {
     dayImage: canEditPlanning,
     transfers: canEditPlanning,
     print: true,
     packet: true,
+    email: true,
   };
   // The divider only earns its place when there is a planning group above it to separate.
   const showDayMenuDivider =
     (dayMenuItemsVisible.dayImage || dayMenuItemsVisible.transfers) &&
-    (dayMenuItemsVisible.print || dayMenuItemsVisible.packet);
+    (dayMenuItemsVisible.print || dayMenuItemsVisible.packet || dayMenuItemsVisible.email);
   // MUI drops MenuItem to 36px at sm and up. The three controls that moved into this menu were all
   // 44px buttons and the codebase enforces that floor deliberately, so it has to be restated here -
   // relocating a control is not a licence to shrink its hit area on a tablet.
@@ -3427,6 +3447,69 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
     }
   };
 
+  /**
+   * Story 9.3. The day plan, and its packet when the mail stays under 20 MB, to the signed-in traveller's
+   * own address. No body: the route takes the recipient from the session and reads nothing else.
+   *
+   * The menu stays open while pending and closes in `finally`, and messages are gated on the day the
+   * request was started on - both for `handleDownloadPacket`'s reasons. A mail that went out after the
+   * traveller moved on still went out; only the notice about it would land on the wrong day.
+   */
+  const handleSendDayEmail = async () => {
+    if (emailPending) return;
+    setError(null);
+    setEmailNotice(null);
+    setEmailPending(true);
+
+    const requestedDayId = dayId;
+    const onRequestedDay = () => currentDayIdRef.current === requestedDayId;
+
+    try {
+      const token = await ensureCsrfToken();
+      const response = await fetch(`/api/trips/${tripId}/days/${dayId}/email`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "x-csrf-token": token },
+      });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{
+        sentTo: string;
+        attachment: "attached" | "tooLarge" | "none";
+      }> | null;
+
+      if (!onRequestedDay()) return;
+
+      if (!response.ok || !body?.data) {
+        switch (body?.error?.code) {
+          case "unauthorized":
+          case "password_change_required":
+            setError(t("errors.unauthorized"));
+            break;
+          case "not_found":
+            setError(t("trips.detail.notFoundBody"));
+            break;
+          case "csrf_invalid":
+            setError(t("errors.csrfInvalid"));
+            break;
+          default:
+            setError(t("trips.dayEmail.failed"));
+        }
+        return;
+      }
+
+      const { sentTo, attachment } = body.data;
+      setEmailNotice(
+        attachment === "tooLarge"
+          ? { severity: "warning", message: formatMessage(t("trips.dayEmail.sentWithoutDocuments"), { address: sentTo }) }
+          : { severity: "success", message: formatMessage(t("trips.dayEmail.sent"), { address: sentTo }) },
+      );
+    } catch {
+      if (onRequestedDay()) setError(t("trips.dayEmail.failed"));
+    } finally {
+      setEmailPending(false);
+      handleDayMenuClose();
+    }
+  };
+
   useEffect(() => {
     const fallbackPolyline = mapData.points.map((point) => point.position);
     setRoutePolyline(fallbackPolyline);
@@ -3536,6 +3619,11 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
   return (
     <Box display="flex" flexDirection="column" gap={2} data-testid="trip-day-view-page">
       {error && <Alert severity="error">{error}</Alert>}
+      {emailNotice && (
+        <Alert severity={emailNotice.severity} data-testid="day-email-notice" onClose={() => setEmailNotice(null)}>
+          {emailNotice.message}
+        </Alert>
+      )}
 
       {detail && day && (
         <>
@@ -3817,6 +3905,20 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                     <Typography>
                       {packetPending ? t("trips.documents.packetPending") : t("trips.documents.packetAction")}
                     </Typography>
+                  </MenuItem>
+                ) : null}
+                {/* Story 9.3, after the packet because it carries the packet: the plan and the tickets,
+                    in the mail app, offline. Same three-part pending state as the packet item, for the
+                    reasons recorded there. */}
+                {dayMenuItemsVisible.email ? (
+                  <MenuItem
+                    data-testid="day-menu-email"
+                    sx={DAY_MENU_ITEM_SX}
+                    disabled={emailPending}
+                    aria-busy={emailPending}
+                    onClick={handleSendDayEmail}
+                  >
+                    <Typography>{emailPending ? t("trips.dayEmail.pending") : t("trips.dayEmail.action")}</Typography>
                   </MenuItem>
                 ) : null}
               </Menu>
