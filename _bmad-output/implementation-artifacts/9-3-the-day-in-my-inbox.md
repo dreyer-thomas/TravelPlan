@@ -207,7 +207,7 @@ Claude Opus 5.5 (claude-opus-5-5)
   - Bad CSRF from the viewer's page with `{to:"evil@…"}` in the body → 403 ✓
   - Mail HTML rendered at 390px: 0 px horizontal overflow, no network request attempted, and the only URL is the day link ✓
   - No page errors. Server and sink stopped by PID, nothing left on 3110/2587, `prisma/dev.db` SHA-1 verified unchanged.
-- **AC18 (production acceptance) is pending Tommy after deploy:** a real day to GMX, reading on the phone, the packet offline, the link after sign-in, and an oversized day.
+- **AC18 (production acceptance): accepted by Tommy on 2026-10-22.** The day mail sent from production arrived at GMX and works. No images in the mail, as scoped.
 - **Open questions (defaults implemented):** Q1, no mail when the packet build fails unexpectedly (500); Q2, no costs in the mail.
 
 ### File List
@@ -239,3 +239,4 @@ Claude Opus 5.5 (claude-opus-5-5)
 
 - 2026-10-21: Implemented Story 9.3. Day ⋯ menu *Send by email* for every role. `POST days/[dayId]/email` sends to the session's own address in the `lang`-cookie language as HTML + text, with the 9.2 packet attached when the measured mail is ≤ 20 MB, otherwise without it and saying so. The send is awaited, with 502 `email_failed` on SMTP failure. `sendEmail` takes `html`/`attachments`. The packet build is extracted to `buildDayPacket`. The print helpers moved out of the client module. 3603 tests, typecheck, lint 0/80, build, browser pass under `next start` with a real SMTP round trip. AC18 is pending Tommy. Status → review.
 - 2026-10-22: Code review (blind, edge case, acceptance). 1 patch applied: `cache-control: no-store` on the early guard responses (CSRF 403, session 401/403, params 400, non-member 404), asserted in `tripDayEmailRoute.test.ts`. 4 deferred (DW-412..DW-415), 17 dismissed. 3603 tests, typecheck clean. Status → done.
+- 2026-10-22: AC18 accepted by Tommy: the mail from production arrives at GMX and works.
