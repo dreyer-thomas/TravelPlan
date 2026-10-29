@@ -180,3 +180,16 @@ export const hasAnyOwnedTrip = async (userId: string) => {
 
   return ownedTrip !== null;
 };
+
+/**
+ * Story 15.1. How many trips the user may plan - owner or contributor, the `canTripAccessRoleWrite` set -
+ * which is exactly the set the connector will expose (Tommy's ruling: view-only trips stay invisible to it).
+ * Counted in the database rather than by deriving each role, but the two `OR` arms are the two ways
+ * `deriveTripAccessRole` answers `owner` or `contributor`.
+ */
+export const countPlannableTripsForUser = async (userId: string) =>
+  prisma.trip.count({
+    where: {
+      OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
+    },
+  });

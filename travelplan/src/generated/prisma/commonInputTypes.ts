@@ -361,6 +361,23 @@ export type EnumAiUsageOutcomeWithAggregatesFilter<$PrismaModel = never> = {
   _max?: Prisma.NestedEnumAiUsageOutcomeFilter<$PrismaModel>
 }
 
+export type EnumOAuthTokenKindFilter<$PrismaModel = never> = {
+  equals?: $Enums.OAuthTokenKind | Prisma.EnumOAuthTokenKindFieldRefInput<$PrismaModel>
+  in?: $Enums.OAuthTokenKind[]
+  notIn?: $Enums.OAuthTokenKind[]
+  not?: Prisma.NestedEnumOAuthTokenKindFilter<$PrismaModel> | $Enums.OAuthTokenKind
+}
+
+export type EnumOAuthTokenKindWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.OAuthTokenKind | Prisma.EnumOAuthTokenKindFieldRefInput<$PrismaModel>
+  in?: $Enums.OAuthTokenKind[]
+  notIn?: $Enums.OAuthTokenKind[]
+  not?: Prisma.NestedEnumOAuthTokenKindWithAggregatesFilter<$PrismaModel> | $Enums.OAuthTokenKind
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumOAuthTokenKindFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumOAuthTokenKindFilter<$PrismaModel>
+}
+
 export type NestedStringFilter<$PrismaModel = never> = {
   equals?: string | Prisma.StringFieldRefInput<$PrismaModel>
   in?: string[]
@@ -712,6 +729,23 @@ export type NestedEnumAiUsageOutcomeWithAggregatesFilter<$PrismaModel = never> =
   _count?: Prisma.NestedIntFilter<$PrismaModel>
   _min?: Prisma.NestedEnumAiUsageOutcomeFilter<$PrismaModel>
   _max?: Prisma.NestedEnumAiUsageOutcomeFilter<$PrismaModel>
+}
+
+export type NestedEnumOAuthTokenKindFilter<$PrismaModel = never> = {
+  equals?: $Enums.OAuthTokenKind | Prisma.EnumOAuthTokenKindFieldRefInput<$PrismaModel>
+  in?: $Enums.OAuthTokenKind[]
+  notIn?: $Enums.OAuthTokenKind[]
+  not?: Prisma.NestedEnumOAuthTokenKindFilter<$PrismaModel> | $Enums.OAuthTokenKind
+}
+
+export type NestedEnumOAuthTokenKindWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.OAuthTokenKind | Prisma.EnumOAuthTokenKindFieldRefInput<$PrismaModel>
+  in?: $Enums.OAuthTokenKind[]
+  notIn?: $Enums.OAuthTokenKind[]
+  not?: Prisma.NestedEnumOAuthTokenKindWithAggregatesFilter<$PrismaModel> | $Enums.OAuthTokenKind
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumOAuthTokenKindFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumOAuthTokenKindFilter<$PrismaModel>
 }
 
 

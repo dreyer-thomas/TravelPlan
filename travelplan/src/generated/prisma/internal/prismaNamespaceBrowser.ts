@@ -64,7 +64,9 @@ export const ModelName = {
   DayPlanItemImage: 'DayPlanItemImage',
   AccommodationDocument: 'AccommodationDocument',
   DayPlanItemDocument: 'DayPlanItemDocument',
-  AiUsageRecord: 'AiUsageRecord'
+  AiUsageRecord: 'AiUsageRecord',
+  OAuthAuthorizationCode: 'OAuthAuthorizationCode',
+  OAuthToken: 'OAuthToken'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -302,6 +304,46 @@ export const AiUsageRecordScalarFieldEnum = {
 } as const
 
 export type AiUsageRecordScalarFieldEnum = (typeof AiUsageRecordScalarFieldEnum)[keyof typeof AiUsageRecordScalarFieldEnum]
+
+
+export const OAuthAuthorizationCodeScalarFieldEnum = {
+  id: 'id',
+  codeHash: 'codeHash',
+  userId: 'userId',
+  clientId: 'clientId',
+  clientName: 'clientName',
+  redirectUri: 'redirectUri',
+  codeChallenge: 'codeChallenge',
+  resource: 'resource',
+  scope: 'scope',
+  expiresAt: 'expiresAt',
+  usedAt: 'usedAt',
+  familyId: 'familyId',
+  createdAt: 'createdAt'
+} as const
+
+export type OAuthAuthorizationCodeScalarFieldEnum = (typeof OAuthAuthorizationCodeScalarFieldEnum)[keyof typeof OAuthAuthorizationCodeScalarFieldEnum]
+
+
+export const OAuthTokenScalarFieldEnum = {
+  id: 'id',
+  tokenHash: 'tokenHash',
+  kind: 'kind',
+  familyId: 'familyId',
+  userId: 'userId',
+  clientId: 'clientId',
+  clientName: 'clientName',
+  scope: 'scope',
+  resource: 'resource',
+  expiresAt: 'expiresAt',
+  familyExpiresAt: 'familyExpiresAt',
+  createdAt: 'createdAt',
+  lastUsedAt: 'lastUsedAt',
+  rotatedAt: 'rotatedAt',
+  revokedAt: 'revokedAt'
+} as const
+
+export type OAuthTokenScalarFieldEnum = (typeof OAuthTokenScalarFieldEnum)[keyof typeof OAuthTokenScalarFieldEnum]
 
 
 export const SortOrder = {

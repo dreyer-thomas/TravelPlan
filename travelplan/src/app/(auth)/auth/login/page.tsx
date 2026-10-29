@@ -9,6 +9,8 @@ import FormField from "@/components/forms/FormField";
 import AuthScreenShell from "@/components/features/auth/AuthScreenShell";
 import AuthTabs from "@/components/features/auth/AuthTabs";
 import { useI18n } from "@/i18n/provider";
+import { assignLocation } from "@/lib/browser/assignLocation";
+import { safeOAuthReturnTo } from "@/lib/oauth/returnTo";
 
 type LoginFormValues = {
   email: string;
@@ -124,7 +126,18 @@ export default function LoginPage() {
 
     setSuccess(true);
     reset({ email: "", password: "" });
-    router.push(body.data?.mustChangePassword ? "/auth/first-login-password" : "/");
+    if (body.data?.mustChangePassword) {
+      router.push("/auth/first-login-password");
+      return;
+    }
+    // Story 15.1: back to the connector's authorize step when the sign-in started there. Read from the
+    // address bar at submit time and accepted only for that one path, so it is never an open redirect.
+    const returnTo = safeOAuthReturnTo(new URLSearchParams(window.location.search).get("returnTo"));
+    if (returnTo) {
+      assignLocation(returnTo);
+      return;
+    }
+    router.push("/");
   };
 
   const emailRules = useMemo(

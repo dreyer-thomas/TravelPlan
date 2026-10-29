@@ -111,3 +111,13 @@ export type DayPlanItemDocument = Prisma.DayPlanItemDocumentModel
  * 
  */
 export type AiUsageRecord = Prisma.AiUsageRecordModel
+/**
+ * Model OAuthAuthorizationCode
+ * 
+ */
+export type OAuthAuthorizationCode = Prisma.OAuthAuthorizationCodeModel
+/**
+ * Model OAuthToken
+ * 
+ */
+export type OAuthToken = Prisma.OAuthTokenModel

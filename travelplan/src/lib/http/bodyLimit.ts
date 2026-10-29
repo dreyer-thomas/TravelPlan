@@ -90,10 +90,16 @@ export type JsonBodyReadResult =
  * a UTF-8 string, because that is what `JSON.parse` needs. Bounded is the improvement here, not
  * streamed - see DW-142.
  */
-export const readJsonBodyWithinLimit = async (
+export type BodyReadResult = { ok: true; bytes: Buffer } | { ok: false; reason: "too_large" | "invalid" };
+
+/**
+ * The counted read behind `readJsonBodyWithinLimit`, for callers that parse something other than JSON
+ * (Story 15.1: form-encoded OAuth requests and the MCP endpoint's JSON-RPC body, which the SDK parses).
+ */
+export const readBodyWithinLimit = async (
   body: ReadableStream<Uint8Array> | null,
   maxBytes: number,
-): Promise<JsonBodyReadResult> => {
+): Promise<BodyReadResult> => {
   if (!body) {
     // No body at all is what `request.json()` rejected on, and it is reported the same way.
     return { ok: false, reason: "invalid" };
@@ -121,8 +127,17 @@ export const readJsonBodyWithinLimit = async (
   } finally {
     await reader.cancel().catch(() => undefined);
   }
+  return { ok: true, bytes: Buffer.concat(chunks) };
+};
+
+export const readJsonBodyWithinLimit = async (
+  body: ReadableStream<Uint8Array> | null,
+  maxBytes: number,
+): Promise<JsonBodyReadResult> => {
+  const read = await readBodyWithinLimit(body, maxBytes);
+  if (!read.ok) return read;
   try {
-    return { ok: true, raw: JSON.parse(Buffer.concat(chunks).toString("utf8")) };
+    return { ok: true, raw: JSON.parse(read.bytes.toString("utf8")) };
   } catch {
     return { ok: false, reason: "invalid" };
   }

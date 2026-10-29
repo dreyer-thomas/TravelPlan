@@ -37,6 +37,25 @@ so.**
 A defect that size survives because nobody can read the script. That is the argument for this
 directory.
 
+## Connector (Epic 15)
+
+TravelPlan can be added to Claude as a custom connector (remote MCP server with its own OAuth sign-in).
+
+- **URL to give users:** `https://plan.dreyer-travels.de/api/mcp`. In claude.ai: *Settings → Connectors →
+  Add custom connector*. In Claude Code: `claude mcp add --transport http travelplan https://plan.dreyer-travels.de/api/mcp`,
+  then `/mcp` to sign in.
+- **Switch:** `MCP_ENABLED=true` in the unit's environment; anything else turns every connector endpoint
+  into a 404. With the switch on, `APP_BASE_URL` must be `https://…` or startup fails (`instrumentation.ts`).
+- **Who may connect:** `MCP_CLIENT_ID_HOSTS` (default `claude.ai`). A refused client logs
+  `oauth/authorize: client_id host not allowed: <host>`; add a host only if it belongs to the assistant
+  you mean to allow.
+- **Nginx:** must pass `/.well-known/*`, `/oauth/*`, `/api/oauth/*` and `/api/mcp` to the app unchanged.
+  All of them answer plain JSON or HTML, so no SSE or buffering settings are needed. Check with
+  `curl -i https://plan.dreyer-travels.de/.well-known/oauth-authorization-server`: it must return JSON
+  from the app, not an Nginx 404.
+- **State:** codes and tokens live in the database (`oauth_authorization_codes`, `oauth_tokens`, hashed),
+  so connections survive restarts and deploys.
+
 ## Known open items
 
 Tracked in `_bmad-output/implementation-artifacts/deferred-work.md`, not fixed in the committed copy,

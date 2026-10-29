@@ -1179,7 +1179,25 @@ const en: Dictionary = {
   "common.discard.title": "Discard changes?",
   "common.discard.body": "Your changes will be discarded.",
   "common.discard.confirm": "Discard changes",
-  "common.discard.keep": "Keep editing"
+  "common.discard.keep": "Keep editing",
+  "oauth.consent.heroTitle": "Plan with your assistant.",
+  "oauth.consent.heroSubtitle": "Your assistant reads and edits your trips for you, without ever seeing your password.",
+  "oauth.consent.title": "Connect {client}?",
+  "oauth.consent.subtitle": "Signed in as {email}",
+  "oauth.consent.clientHost": "Client identity: {host}",
+  "oauth.consent.redirectHost": "After you confirm, you continue to: {host}",
+  "oauth.consent.permissionIntro": "This connection may:",
+  "oauth.consent.permission": "Read and edit the trips you may plan",
+  "oauth.consent.loopbackWarning": "This client only returns to a program on this computer. Allow it only if you just started the connection yourself, for example in Claude Code.",
+  "oauth.consent.allow": "Allow",
+  "oauth.consent.deny": "Deny",
+  "oauth.consent.failed": "Your decision could not be sent. Please try again.",
+  "oauth.error.title": "Connection not possible",
+  "oauth.error.subtitle": "This connection request is invalid. Start the connection again from your assistant.",
+  "oauth.error.invalid_client": "The requesting client could not be identified.",
+  "oauth.error.client_not_allowed": "This client is not allowed to connect to TravelPlan.",
+  "oauth.error.client_unavailable": "The client's details could not be loaded.",
+  "oauth.error.invalid_redirect_uri": "The return address of this request is not registered for the client."
 };
 
 export default en;

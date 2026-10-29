@@ -84,6 +84,8 @@ model User {
   memberships        TripMember[]
   trips        Trip[]
   aiUsageRecords AiUsageRecord[]
+  oauthAuthorizationCodes OAuthAuthorizationCode[]
+  oauthTokens OAuthToken[]
 
   @@map("users")
 }
@@ -371,4 +373,62 @@ model AiUsageRecord {
   @@index([createdAt], map: "ai_usage_records_created_at_idx")
   @@index([userId], map: "ai_usage_records_user_id_idx")
   @@map("ai_usage_records")
+}
+
+// Story 15.1. The connector's OAuth state: authorization codes and opaque access/refresh tokens, stored only
+// as SHA-256 hashes. A "family" is one connection, created by one consent: every token issued from it,
+// rotated refresh tokens included, carries its `familyId`, and revocation marks the whole family. Rows are
+// marked revoked rather than deleted so reuse of a rotated refresh token is still recognised; expired rows
+// are deleted a day after expiry. Clients are identified by their metadata-document URL (`clientId`), so
+// there is no client table. Deleting a user deletes all of it.
+enum OAuthTokenKind {
+  ACCESS
+  REFRESH
+}
+
+model OAuthAuthorizationCode {
+  id            String    @id @default(cuid()) @map("id")
+  codeHash      String    @unique @map("code_hash")
+  userId        String    @map("user_id")
+  clientId      String    @map("client_id")
+  clientName    String    @map("client_name")
+  redirectUri   String    @map("redirect_uri")
+  codeChallenge String    @map("code_challenge")
+  resource      String    @map("resource")
+  scope         String    @map("scope")
+  expiresAt     DateTime  @map("expires_at")
+  usedAt        DateTime? @map("used_at")
+  familyId      String?   @map("family_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt], map: "idx_oauth_authorization_codes_expires_at")
+  @@index([userId], map: "idx_oauth_authorization_codes_user_id")
+  @@map("oauth_authorization_codes")
+}
+
+model OAuthToken {
+  id              String         @id @default(cuid()) @map("id")
+  tokenHash       String         @unique @map("token_hash")
+  kind            OAuthTokenKind @map("kind")
+  familyId        String         @map("family_id")
+  userId          String         @map("user_id")
+  clientId        String         @map("client_id")
+  clientName      String         @map("client_name")
+  scope           String         @map("scope")
+  resource        String         @map("resource")
+  expiresAt       DateTime       @map("expires_at")
+  familyExpiresAt DateTime       @map("family_expires_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  lastUsedAt      DateTime?      @map("last_used_at")
+  rotatedAt       DateTime?      @map("rotated_at")
+  revokedAt       DateTime?      @map("revoked_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([familyId], map: "idx_oauth_tokens_family_id")
+  @@index([userId], map: "idx_oauth_tokens_user_id")
+  @@index([expiresAt], map: "idx_oauth_tokens_expires_at")
+  @@map("oauth_tokens")
 }

@@ -13,8 +13,10 @@ const globalForPrisma = globalThis as unknown as {
  * for *fields*, and a new enum member adds none. A dev server holding a client generated before the
  * member exists rejects `role: "ADMIN"` in its own validation layer, before any SQL is sent - so the
  * tag is what forces the rebuild here, not the field probe.
+ *
+ * Bumped again by Story 15.1 for the connector tables (new models; the field probe covers them too).
  */
-const PRISMA_SCHEMA_TAG = "2026-08-04-user-role-admin";
+const PRISMA_SCHEMA_TAG = "2026-10-29-oauth-connector";
 
 const getDatabaseUrl = () => {
   const url = process.env.DATABASE_URL;
@@ -48,11 +50,14 @@ const cachedClientMatchesCurrentSchema = (client: PrismaClient | undefined) => {
   const costPaymentFields = runtimeModel?.models?.CostPayment?.fields ?? [];
   const userFields = runtimeModel?.models?.User?.fields ?? [];
   const tripMemberFields = runtimeModel?.models?.TripMember?.fields ?? [];
+  // Story 15.1: a client generated before the connector tables has no `OAuthToken` model at all.
+  const oauthTokenFields = runtimeModel?.models?.OAuthToken?.fields ?? [];
 
   return (
     costPaymentFields.some((field) => field.name === "sortOrder") &&
     userFields.some((field) => field.name === "mustChangePassword") &&
-    tripMemberFields.some((field) => field.name === "role")
+    tripMemberFields.some((field) => field.name === "role") &&
+    oauthTokenFields.some((field) => field.name === "familyId")
   );
 };
 

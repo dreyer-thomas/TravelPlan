@@ -1,5 +1,7 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-10-29 (15-1-add-travelplan-to-claude -> ready-for-dev via bmad-create-story; epic-15 in-progress)
+# last_updated: 2026-10-29 (15-1-add-travelplan-to-claude -> review via bmad-dev-story: OAuth AS + /api/mcp + whoami; tsc clean, lint 0/80, build ok, migrations ok, 3631 passed / 8 failed (all 8 environmental on Windows, identical on baseline); production acceptance pending Tommy)
+# previously: 2026-10-29 (15-1-add-travelplan-to-claude -> in-progress via bmad-dev-story)
+# previously: 2026-10-29 (15-1-add-travelplan-to-claude -> ready-for-dev via bmad-create-story; epic-15 in-progress)
 # previously: 2026-10-29 (correct course: Epic 15 Plan with Claude - the TravelPlan Connector added with stories 15-1..15-7 in backlog; see sprint-change-proposal-2026-10-29-mcp.md)
 # previously: 2026-10-22 (9-3-the-day-in-my-inbox AC18 production acceptance confirmed by Tommy: day mail from prod arrives at GMX; story stays done)
 # previously: 2026-10-22 (9-3-the-day-in-my-inbox review -> done via bmad-code-review: three layers (blind, edge case, acceptance), 1 patch applied (cache-control no-store on the early guard responses, tests assert it), 0 decision, 4 deferred (DW-412 rate limit, DW-413 APP_BASE_URL boot check, DW-414 send outlives proxy timeout, DW-415 pending state across day switch), 17 dismissed; 3603 tests, tsc 0; AC18 pending Tommy)
@@ -355,7 +357,7 @@ development_status:
   epic-14-retrospective: optional
 
   epic-15: in-progress
-  15-1-add-travelplan-to-claude: ready-for-dev
+  15-1-add-travelplan-to-claude: review
   15-2-claude-knows-the-trip: backlog
   15-3-connected-apps: backlog
   15-4-claude-plans-activities-marked-and-undoable: backlog

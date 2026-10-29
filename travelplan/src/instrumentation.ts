@@ -36,4 +36,7 @@ export const register = async () => {
   assertMediaRootConfigured();
   const { assertSmtpConfigured } = await import("@/lib/notifications/smtpConfig");
   assertSmtpConfigured();
+  // Story 15.1: with the connector on, a wrong APP_BASE_URL yields an issuer Claude silently cannot use.
+  const { assertMcpConfigured } = await import("@/lib/oauth/config");
+  assertMcpConfigured();
 };

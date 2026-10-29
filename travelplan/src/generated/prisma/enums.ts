@@ -77,3 +77,11 @@ export const TravelTransportType = {
 } as const
 
 export type TravelTransportType = (typeof TravelTransportType)[keyof typeof TravelTransportType]
+
+
+export const OAuthTokenKind = {
+  ACCESS: 'ACCESS',
+  REFRESH: 'REFRESH'
+} as const
+
+export type OAuthTokenKind = (typeof OAuthTokenKind)[keyof typeof OAuthTokenKind]

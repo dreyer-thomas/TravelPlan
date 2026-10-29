@@ -410,7 +410,9 @@ export const ModelName = {
   DayPlanItemImage: 'DayPlanItemImage',
   AccommodationDocument: 'AccommodationDocument',
   DayPlanItemDocument: 'DayPlanItemDocument',
-  AiUsageRecord: 'AiUsageRecord'
+  AiUsageRecord: 'AiUsageRecord',
+  OAuthAuthorizationCode: 'OAuthAuthorizationCode',
+  OAuthToken: 'OAuthToken'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -426,7 +428,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "passwordResetToken" | "trip" | "tripMember" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "costPayment" | "accommodationImage" | "dayPlanItemImage" | "accommodationDocument" | "dayPlanItemDocument" | "aiUsageRecord"
+    modelProps: "user" | "passwordResetToken" | "trip" | "tripMember" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "costPayment" | "accommodationImage" | "dayPlanItemImage" | "accommodationDocument" | "dayPlanItemDocument" | "aiUsageRecord" | "oAuthAuthorizationCode" | "oAuthToken"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1466,6 +1468,154 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    OAuthAuthorizationCode: {
+      payload: Prisma.$OAuthAuthorizationCodePayload<ExtArgs>
+      fields: Prisma.OAuthAuthorizationCodeFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.OAuthAuthorizationCodeFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthAuthorizationCodePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.OAuthAuthorizationCodeFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthAuthorizationCodePayload>
+        }
+        findFirst: {
+          args: Prisma.OAuthAuthorizationCodeFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthAuthorizationCodePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.OAuthAuthorizationCodeFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthAuthorizationCodePayload>
+        }
+        findMany: {
+          args: Prisma.OAuthAuthorizationCodeFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthAuthorizationCodePayload>[]
+        }
+        create: {
+          args: Prisma.OAuthAuthorizationCodeCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthAuthorizationCodePayload>
+        }
+        createMany: {
+          args: Prisma.OAuthAuthorizationCodeCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.OAuthAuthorizationCodeCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthAuthorizationCodePayload>[]
+        }
+        delete: {
+          args: Prisma.OAuthAuthorizationCodeDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthAuthorizationCodePayload>
+        }
+        update: {
+          args: Prisma.OAuthAuthorizationCodeUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthAuthorizationCodePayload>
+        }
+        deleteMany: {
+          args: Prisma.OAuthAuthorizationCodeDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.OAuthAuthorizationCodeUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.OAuthAuthorizationCodeUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthAuthorizationCodePayload>[]
+        }
+        upsert: {
+          args: Prisma.OAuthAuthorizationCodeUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthAuthorizationCodePayload>
+        }
+        aggregate: {
+          args: Prisma.OAuthAuthorizationCodeAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateOAuthAuthorizationCode>
+        }
+        groupBy: {
+          args: Prisma.OAuthAuthorizationCodeGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.OAuthAuthorizationCodeGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.OAuthAuthorizationCodeCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.OAuthAuthorizationCodeCountAggregateOutputType> | number
+        }
+      }
+    }
+    OAuthToken: {
+      payload: Prisma.$OAuthTokenPayload<ExtArgs>
+      fields: Prisma.OAuthTokenFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.OAuthTokenFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthTokenPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.OAuthTokenFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthTokenPayload>
+        }
+        findFirst: {
+          args: Prisma.OAuthTokenFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthTokenPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.OAuthTokenFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthTokenPayload>
+        }
+        findMany: {
+          args: Prisma.OAuthTokenFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthTokenPayload>[]
+        }
+        create: {
+          args: Prisma.OAuthTokenCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthTokenPayload>
+        }
+        createMany: {
+          args: Prisma.OAuthTokenCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.OAuthTokenCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthTokenPayload>[]
+        }
+        delete: {
+          args: Prisma.OAuthTokenDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthTokenPayload>
+        }
+        update: {
+          args: Prisma.OAuthTokenUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthTokenPayload>
+        }
+        deleteMany: {
+          args: Prisma.OAuthTokenDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.OAuthTokenUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.OAuthTokenUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthTokenPayload>[]
+        }
+        upsert: {
+          args: Prisma.OAuthTokenUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$OAuthTokenPayload>
+        }
+        aggregate: {
+          args: Prisma.OAuthTokenAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateOAuthToken>
+        }
+        groupBy: {
+          args: Prisma.OAuthTokenGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.OAuthTokenGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.OAuthTokenCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.OAuthTokenCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -1726,6 +1876,46 @@ export const AiUsageRecordScalarFieldEnum = {
 export type AiUsageRecordScalarFieldEnum = (typeof AiUsageRecordScalarFieldEnum)[keyof typeof AiUsageRecordScalarFieldEnum]
 
 
+export const OAuthAuthorizationCodeScalarFieldEnum = {
+  id: 'id',
+  codeHash: 'codeHash',
+  userId: 'userId',
+  clientId: 'clientId',
+  clientName: 'clientName',
+  redirectUri: 'redirectUri',
+  codeChallenge: 'codeChallenge',
+  resource: 'resource',
+  scope: 'scope',
+  expiresAt: 'expiresAt',
+  usedAt: 'usedAt',
+  familyId: 'familyId',
+  createdAt: 'createdAt'
+} as const
+
+export type OAuthAuthorizationCodeScalarFieldEnum = (typeof OAuthAuthorizationCodeScalarFieldEnum)[keyof typeof OAuthAuthorizationCodeScalarFieldEnum]
+
+
+export const OAuthTokenScalarFieldEnum = {
+  id: 'id',
+  tokenHash: 'tokenHash',
+  kind: 'kind',
+  familyId: 'familyId',
+  userId: 'userId',
+  clientId: 'clientId',
+  clientName: 'clientName',
+  scope: 'scope',
+  resource: 'resource',
+  expiresAt: 'expiresAt',
+  familyExpiresAt: 'familyExpiresAt',
+  createdAt: 'createdAt',
+  lastUsedAt: 'lastUsedAt',
+  rotatedAt: 'rotatedAt',
+  revokedAt: 'revokedAt'
+} as const
+
+export type OAuthTokenScalarFieldEnum = (typeof OAuthTokenScalarFieldEnum)[keyof typeof OAuthTokenScalarFieldEnum]
+
+
 export const SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -1836,6 +2026,13 @@ export type EnumDayPlanItemScheduleModeFieldRefInput<$PrismaModel> = FieldRefInp
  * Reference to a field of type 'AiUsageOutcome'
  */
 export type EnumAiUsageOutcomeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'AiUsageOutcome'>
+    
+
+
+/**
+ * Reference to a field of type 'OAuthTokenKind'
+ */
+export type EnumOAuthTokenKindFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'OAuthTokenKind'>
     
 
 /**
@@ -2003,6 +2200,8 @@ export type GlobalOmitConfig = {
   accommodationDocument?: Prisma.AccommodationDocumentOmit
   dayPlanItemDocument?: Prisma.DayPlanItemDocumentOmit
   aiUsageRecord?: Prisma.AiUsageRecordOmit
+  oAuthAuthorizationCode?: Prisma.OAuthAuthorizationCodeOmit
+  oAuthToken?: Prisma.OAuthTokenOmit
 }
 
 /* Types for Logging */

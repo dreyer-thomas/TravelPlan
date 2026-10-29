@@ -1054,7 +1054,25 @@ const de: Dictionary = {
   "common.discard.title": "Änderungen verwerfen?",
   "common.discard.body": "Deine Änderungen werden verworfen.",
   "common.discard.confirm": "Änderungen verwerfen",
-  "common.discard.keep": "Weiter bearbeiten"
+  "common.discard.keep": "Weiter bearbeiten",
+  "oauth.consent.heroTitle": "Mit deinem Assistenten planen.",
+  "oauth.consent.heroSubtitle": "Dein Assistent liest und bearbeitet deine Reisen für dich, ohne je dein Passwort zu sehen.",
+  "oauth.consent.title": "{client} verbinden?",
+  "oauth.consent.subtitle": "Angemeldet als {email}",
+  "oauth.consent.clientHost": "Identität des Clients: {host}",
+  "oauth.consent.redirectHost": "Nach der Bestätigung geht es weiter zu: {host}",
+  "oauth.consent.permissionIntro": "Diese Verbindung darf:",
+  "oauth.consent.permission": "Reisen lesen und bearbeiten, auf denen du planen darfst",
+  "oauth.consent.loopbackWarning": "Dieser Client kehrt nur zu einem Programm auf diesem Computer zurück. Erlaube das nur, wenn du die Verbindung gerade selbst gestartet hast, zum Beispiel in Claude Code.",
+  "oauth.consent.allow": "Erlauben",
+  "oauth.consent.deny": "Ablehnen",
+  "oauth.consent.failed": "Deine Entscheidung konnte nicht gesendet werden. Bitte versuche es erneut.",
+  "oauth.error.title": "Verbindung nicht möglich",
+  "oauth.error.subtitle": "Diese Verbindungsanfrage ist ungültig. Starte die Verbindung erneut aus deinem Assistenten.",
+  "oauth.error.invalid_client": "Der anfragende Client konnte nicht erkannt werden.",
+  "oauth.error.client_not_allowed": "Dieser Client darf sich nicht mit TravelPlan verbinden.",
+  "oauth.error.client_unavailable": "Die Angaben des Clients konnten nicht geladen werden.",
+  "oauth.error.invalid_redirect_uri": "Die Rücksprungadresse dieser Anfrage ist für den Client nicht registriert."
 };
 
 export default de;
