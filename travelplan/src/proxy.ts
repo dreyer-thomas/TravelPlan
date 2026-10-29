@@ -19,8 +19,17 @@ import { getRequestSession } from "@/lib/auth/sessionGuard";
  * role, and every `/api/admin/*` route calls `requireAdmin`. What this layer answers is "is anybody
  * signed in", which is what it is able to answer.
  */
+/*
+ * Story 15.3 adds `/account` the same way, and for the same reason it needs nothing more: the page only
+ * needs "somebody is signed in and not on a temporary password", and its connection API self-guards with
+ * `requireSession` like the rest of `/api/users/*`.
+ */
 const isProtectedPath = (pathname: string) =>
-  pathname.startsWith("/trips") || pathname.startsWith("/users") || pathname.startsWith("/admin");
+  pathname.startsWith("/trips") ||
+  pathname.startsWith("/users") ||
+  pathname.startsWith("/admin") ||
+  pathname === "/account" ||
+  pathname.startsWith("/account/");
 /**
  * Only the page predicate above was widened for `/users`; this one stays `/api/trips`-scoped.
  *
@@ -122,6 +131,8 @@ export const config = {
     // Story 5.10, same spelling and for the same reason: `/admin` today redirects to `/admin/users`,
     // and both need the signed-out redirect.
     "/admin/:path*",
+    // Story 15.3: the account page. `/api/users/me/connections` stays out, as `/api/users` does.
+    "/account/:path*",
     "/api/trips",
     "/api/trips/:path((?!import/?$).*)",
     "/auth/first-login-password",

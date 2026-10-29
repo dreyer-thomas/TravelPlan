@@ -418,6 +418,9 @@ model OAuthToken {
   clientName      String         @map("client_name")
   scope           String         @map("scope")
   resource        String         @map("resource")
+  // Story 15.3. The redirect URI of the consent that created the family, for the host shown under
+  // Connected apps. Null for families issued before the column existed.
+  redirectUri     String?        @map("redirect_uri")
   expiresAt       DateTime       @map("expires_at")
   familyExpiresAt DateTime       @map("family_expires_at")
   createdAt       DateTime       @default(now()) @map("created_at")

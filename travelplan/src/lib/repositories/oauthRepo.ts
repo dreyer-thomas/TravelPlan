@@ -39,6 +39,8 @@ type FamilyFields = {
   clientName: string;
   scope: string;
   resource: string;
+  /** Story 15.3. Copied from the code at consent and carried by rotation; null only on pre-15.3 families. */
+  redirectUri: string | null;
   familyExpiresAt: Date;
 };
 
@@ -141,6 +143,7 @@ export const exchangeAuthorizationCode = async (input: {
         clientName: row.clientName,
         scope: row.scope,
         resource: row.resource,
+        redirectUri: row.redirectUri,
         familyExpiresAt: new Date(now.getTime() + REFRESH_TOKEN_TTL_MS),
       },
       now,
@@ -195,6 +198,7 @@ export const rotateRefreshToken = async (input: {
         clientName: row.clientName,
         scope: row.scope,
         resource: row.resource,
+        redirectUri: row.redirectUri,
         familyExpiresAt: row.familyExpiresAt,
       },
       now,
@@ -263,6 +267,119 @@ export const revokeFamilyByToken = async (token: string, clientId: string | null
     if (!row || (clientId !== null && clientId !== row.clientId)) return;
     await revokeFamily(tx, row.familyId, now);
   });
+
+export type ConnectionSummary = {
+  /** The family id: one connection, one consent. */
+  id: string;
+  clientName: string;
+  /** Host of the consent's redirect URI; null for families issued before Story 15.3 stored it. */
+  redirectHost: string | null;
+  connectedAt: Date;
+  lastUsedAt: Date | null;
+};
+
+const hostOf = (redirectUri: string | null) => {
+  if (!redirectUri) return null;
+  try {
+    return new URL(redirectUri).host || null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Story 15.3. The user's active connections for *Connected apps*, newest first, one entry per family.
+ *
+ * A family is active while one of its rows is unrevoked and the family itself has not reached its 30-day
+ * end. Revocation always marks every row of a family at once, so "one unrevoked row" is the same as "the
+ * family is not revoked"; the per-row `expiresAt` is deliberately not consulted, because an access token
+ * that ran out after an hour does not end a connection whose refresh token is still good.
+ *
+ * *Connected since* is derived from `familyExpiresAt` rather than the oldest `createdAt`: housekeeping
+ * deletes expired rows a day after expiry, so a family's first pair is gone within about a day of
+ * rotating, while `familyExpiresAt` is fixed at consent and rotation never moves it. *Last used* is the
+ * newest `lastUsedAt` over all of the family's rows - every access token of it writes its own.
+ */
+export const listConnectionsForUser = async (userId: string, now: Date = new Date()): Promise<ConnectionSummary[]> => {
+  const rows = await prisma.oAuthToken.findMany({
+    where: { userId, revokedAt: null, familyExpiresAt: { gt: now } },
+    select: {
+      familyId: true,
+      clientName: true,
+      redirectUri: true,
+      familyExpiresAt: true,
+      lastUsedAt: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const families = new Map<string, ConnectionSummary>();
+  for (const row of rows) {
+    const existing = families.get(row.familyId);
+    if (!existing) {
+      // Rows arrive newest first, so the first row seen carries the family's latest client name and host.
+      families.set(row.familyId, {
+        id: row.familyId,
+        clientName: row.clientName,
+        redirectHost: hostOf(row.redirectUri),
+        connectedAt: new Date(row.familyExpiresAt.getTime() - REFRESH_TOKEN_TTL_MS),
+        lastUsedAt: row.lastUsedAt,
+      });
+      continue;
+    }
+    if (row.lastUsedAt && (!existing.lastUsedAt || row.lastUsedAt > existing.lastUsedAt)) {
+      existing.lastUsedAt = row.lastUsedAt;
+    }
+    if (!existing.redirectHost) existing.redirectHost = hostOf(row.redirectUri);
+  }
+
+  return [...families.values()].sort(
+    (a, b) => b.connectedAt.getTime() - a.connectedAt.getTime() || a.id.localeCompare(b.id),
+  );
+};
+
+/**
+ * Story 15.3. *Disconnect*: marks every unrevoked row of the family revoked, scoped to the owner, in one
+ * transaction like `revokeFamilyByToken` so it cannot interleave with a rotation creating the next pair.
+ * Rows are marked, never deleted, so a refresh token presented afterwards is still recognised.
+ *
+ * Returns `false` for a family that is unknown, already revoked or another user's - the route answers all
+ * of them with the same 404, so whether someone else's connection exists never leaks. The owner is part of
+ * the `where`, not a check before it, so there is no read-then-write window for a foreign id to slip through.
+ */
+export const revokeConnectionForUser = async (userId: string, familyId: string, now: Date = new Date()) =>
+  prisma.$transaction(async (tx) => {
+    const revoked = await tx.oAuthToken.updateMany({
+      where: { familyId, userId, revokedAt: null },
+      data: { revokedAt: now },
+    });
+    return revoked.count > 0;
+  });
+
+type OAuthTokenWriter = Pick<TransactionClient, "oAuthToken">;
+
+/**
+ * Story 15.3 (NFR14). Every connector token of the user revoked, for the two password writes. Takes the
+ * caller's transaction client so the revocation commits or rolls back with the password itself: a failed
+ * password write must not leave the user disconnected, and a successful one must not leave a connection
+ * alive that was authorised under the old password. Also accepts the root client, which is what the
+ * array-form `$transaction` in the reset route passes - the returned `PrismaPromise` is then one entry of
+ * that batch rather than a write of its own.
+ */
+export const revokeAllTokensForUser = (client: OAuthTokenWriter, userId: string, now: Date = new Date()) =>
+  client.oAuthToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now } });
+
+type OAuthCodeWriter = Pick<TransactionClient, "oAuthAuthorizationCode">;
+
+/**
+ * Story 15.3 review. The other half of the password-write revocation: an authorization code consented to
+ * under the old password but not yet exchanged (it lives 60 s) would otherwise mint a fresh family right
+ * after the tokens above were revoked. Marking it used makes the exchange answer `invalid_grant`; no family
+ * exists for it yet, so nothing else is revoked. Same client contract as `revokeAllTokensForUser`.
+ */
+export const invalidateUnusedCodesForUser = (client: OAuthCodeWriter, userId: string, now: Date = new Date()) =>
+  client.oAuthAuthorizationCode.updateMany({ where: { userId, usedAt: null }, data: { usedAt: now } });
 
 let lastHousekeepingAt = 0;
 const HOUSEKEEPING_INTERVAL_MS = 10 * 60 * 1000;

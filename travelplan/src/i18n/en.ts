@@ -9,6 +9,8 @@ const en: Dictionary = {
   // and "Sign out", where a leading arrow points at nothing, and it is a destination rather than a
   // way back - so it is named for where it goes.
   "header.trips": "All trips",
+  // Story 15.3. The account page, where *Connected apps* lives.
+  "header.account": "Account",
   // Story 5.10, AC2. Names the surface rather than the role - "Administration" alone would not say what
   // this administers, and the row is only ever shown to somebody who already is one.
   "header.userAdmin": "User administration",
@@ -1197,7 +1199,27 @@ const en: Dictionary = {
   "oauth.error.invalid_client": "The requesting client could not be identified.",
   "oauth.error.client_not_allowed": "This client is not allowed to connect to TravelPlan.",
   "oauth.error.client_unavailable": "The client's details could not be loaded.",
-  "oauth.error.invalid_redirect_uri": "The return address of this request is not registered for the client."
+  "oauth.error.invalid_redirect_uri": "The return address of this request is not registered for the client.",
+  // Story 15.3. The account page and its *Connected apps* section.
+  "account.title": "Account",
+  "account.signedInAs": "Signed in as {email}",
+  "account.connections.title": "Connected apps",
+  "account.connections.subtitle": "Assistants that may read and edit your trips for you. Disconnecting one ends its access at once.",
+  "account.connections.loadError": "Connected apps could not be loaded.",
+  "account.connections.redirectHost": "Returns to: {host}",
+  "account.connections.connectedAt": "Connected since {date}",
+  "account.connections.lastUsed": "Last used: {date}",
+  "account.connections.never": "Never",
+  "account.connections.disconnect": "Disconnect",
+  "account.connections.empty": "No apps are connected.",
+  "account.connections.howTo": "To plan with Claude, add TravelPlan as a custom connector in Claude and use this URL:",
+  "account.connections.copy": "Copy URL",
+  "account.connections.copied": "Copied",
+  "account.connections.confirm.title": "Disconnect {client}?",
+  "account.connections.confirm.body": "{client} loses access to your trips immediately. To use it again, connect it anew from the assistant.",
+  "account.connections.confirm.keep": "Cancel",
+  "account.connections.confirm.confirm": "Disconnect",
+  "account.connections.disconnectError": "The connection could not be disconnected. Please try again."
 };
 
 export default en;

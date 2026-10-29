@@ -1905,6 +1905,7 @@ export const OAuthTokenScalarFieldEnum = {
   clientName: 'clientName',
   scope: 'scope',
   resource: 'resource',
+  redirectUri: 'redirectUri',
   expiresAt: 'expiresAt',
   familyExpiresAt: 'familyExpiresAt',
   createdAt: 'createdAt',

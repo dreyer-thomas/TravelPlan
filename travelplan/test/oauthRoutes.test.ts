@@ -7,65 +7,28 @@ import { POST as postDecision } from "@/app/api/oauth/authorize/decision/route";
 import { POST as postToken } from "@/app/api/oauth/token/route";
 import { POST as postRevoke } from "@/app/api/oauth/revoke/route";
 import { prisma } from "@/lib/db/prisma";
-import { createAuthorizationCode, findActiveAccessToken } from "@/lib/repositories/oauthRepo";
+import { findActiveAccessToken } from "@/lib/repositories/oauthRepo";
 import { hashOpaqueToken } from "@/lib/oauth/secrets";
 import {
   authorizeQuery,
   cleanOAuthTables,
+  codeGrant,
   createUser,
+  exchange,
   formRequest,
   HOSTED_CLIENT_ID,
   HOSTED_REDIRECT,
   ISSUER,
   MCP_RESOURCE,
-  PKCE_CHALLENGE,
-  PKCE_VERIFIER,
+  issueCode,
+  refreshGrant,
   sessionCookieFor,
   setupConnectorEnvironment,
+  TOKEN_URL,
+  type TokenBody,
 } from "./helpers/oauthFixtures";
 
 setupConnectorEnvironment();
-
-const TOKEN_URL = `${ISSUER}/api/oauth/token`;
-
-const issueCode = async (userId: string, now?: Date) =>
-  createAuthorizationCode({
-    userId,
-    clientId: HOSTED_CLIENT_ID,
-    clientName: "Claude",
-    redirectUri: HOSTED_REDIRECT,
-    codeChallenge: PKCE_CHALLENGE,
-    resource: MCP_RESOURCE,
-    scope: "trips",
-    now,
-  });
-
-const codeGrant = (code: string, overrides: Record<string, string> = {}) =>
-  formRequest(TOKEN_URL, {
-    grant_type: "authorization_code",
-    code,
-    client_id: HOSTED_CLIENT_ID,
-    redirect_uri: HOSTED_REDIRECT,
-    code_verifier: PKCE_VERIFIER,
-    resource: MCP_RESOURCE,
-    ...overrides,
-  });
-
-const refreshGrant = (refreshToken: string, overrides: Record<string, string> = {}) =>
-  formRequest(TOKEN_URL, {
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-    client_id: HOSTED_CLIENT_ID,
-    ...overrides,
-  });
-
-type TokenBody = { access_token: string; refresh_token: string; token_type: string; expires_in: number; scope: string; error?: string };
-
-const exchange = async (userId: string) => {
-  const code = await issueCode(userId);
-  const response = await postToken(codeGrant(code));
-  return (await response.json()) as TokenBody;
-};
 
 beforeEach(async () => {
   await cleanOAuthTables();

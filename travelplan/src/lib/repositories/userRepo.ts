@@ -71,7 +71,7 @@ export const listRegisteredUsers = async (): Promise<RegisteredUser[]> =>
     orderBy: { email: "asc" },
   });
 
-/** Story 15.2. The account's email by id, for the connector's `whoami`; `null` for an unknown id. */
+/** Story 15.2. The account's email by id, for the connector's `whoami` and (Story 15.3) the account page; `null` for an unknown id. */
 export const getUserEmailById = async (userId: string): Promise<string | null> => {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
   return user?.email ?? null;

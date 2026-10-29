@@ -7,6 +7,7 @@ import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { getPasswordResetToken } from "@/lib/auth/passwordReset";
 import { checkRateLimit } from "@/lib/security/rateLimit";
 import { buildPasswordUpdateData } from "@/lib/auth/passwordUpdate";
+import { invalidateUnusedCodesForUser, revokeAllTokensForUser } from "@/lib/repositories/oauthRepo";
 
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX = 10;
@@ -66,6 +67,10 @@ export const POST = async (request: NextRequest) => {
         where: { userId: resetToken.userId, used: false },
         data: { used: true, usedAt: now },
       }),
+      // Story 15.3 (NFR14): a reset ends every connector connection, in the same batch as the password
+      // write so both commit or neither does. Scoped to this user; nobody else's tokens are touched.
+      revokeAllTokensForUser(prisma, resetToken.userId, now),
+      invalidateUnusedCodesForUser(prisma, resetToken.userId, now),
     ]);
     if (userUpdate.count === 0) {
       return fail(apiError("token_invalid", "Reset token is invalid"), 400);

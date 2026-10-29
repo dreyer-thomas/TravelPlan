@@ -26,7 +26,7 @@
 export type AuthMenuItem =
   | {
       kind: "destination";
-      key: "trips" | "admin" | "aiUsage" | "login" | "register";
+      key: "trips" | "account" | "admin" | "aiUsage" | "login" | "register";
       labelKey: string;
       href: string;
     }
@@ -77,13 +77,18 @@ export const getAuthMenuItems = ({ isAuthenticated, isAdmin }: AuthMenuState): A
     // never passed in here.
     return [
       { kind: "destination", key: "trips", labelKey: "header.trips", href: "/trips" },
+      // Story 15.3. The account page, home of *Connected apps*. Every signed-in user has an account, so
+      // the row is ungated and sits directly after `trips`: the same kind of constant destination, and the
+      // admin rows below stay grouped together above the exit. Shown even with the connector switched off -
+      // the page still shows who is signed in, and only its connections section depends on the switch.
+      { kind: "destination", key: "account", labelKey: "header.account", href: "/account" },
       // Story 5.10, AC2. It sits here because it is the same shape as `trips`: a destination that needs no
       // trip context, which is precisely the line stories 6.19 and 6.20 drew for what may live in the
       // global menu - `/admin/users` is a constant, not a `/trips/${tripId}`.
       //
       // Additionally gated, and gated *here* rather than by the menu component, so that "who sees this
       // row" is one expression in the file that decides what the menu is. Everyone who is not an admin
-      // gets the identical two-row list they had before this story.
+      // gets the identical list they had before this story (two rows then; three since Story 15.3).
       //
       // Hiding the row is presentation only. The page re-reads the role and every `/api/admin/*` route
       // calls `requireAdmin` - a menu that merely omits an option is not a guard.

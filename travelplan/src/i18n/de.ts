@@ -6,6 +6,8 @@ const de: Dictionary = {
   // Story 6.20 - see the note on this key in `en.ts`. No leading "←": in the menu the label names a
   // destination, not a way back.
   "header.trips": "Alle Reisen",
+  // Story 15.3. The account page, where *Connected apps* lives.
+  "header.account": "Konto",
   // Story 5.10, AC2 - siehe en.ts. Tommys eigenes Wort für die Funktion, aus der Anfrage zur Story.
   "header.userAdmin": "Nutzerverwaltung",
   "header.aiUsage": "KI-Nutzung",
@@ -1072,7 +1074,27 @@ const de: Dictionary = {
   "oauth.error.invalid_client": "Der anfragende Client konnte nicht erkannt werden.",
   "oauth.error.client_not_allowed": "Dieser Client darf sich nicht mit TravelPlan verbinden.",
   "oauth.error.client_unavailable": "Die Angaben des Clients konnten nicht geladen werden.",
-  "oauth.error.invalid_redirect_uri": "Die Rücksprungadresse dieser Anfrage ist für den Client nicht registriert."
+  "oauth.error.invalid_redirect_uri": "Die Rücksprungadresse dieser Anfrage ist für den Client nicht registriert.",
+  // Story 15.3. The account page and its *Connected apps* section.
+  "account.title": "Konto",
+  "account.signedInAs": "Angemeldet als {email}",
+  "account.connections.title": "Verbundene Apps",
+  "account.connections.subtitle": "Assistenten, die deine Reisen für dich lesen und bearbeiten dürfen. Trennen beendet ihren Zugriff sofort.",
+  "account.connections.loadError": "Verbundene Apps konnten nicht geladen werden.",
+  "account.connections.redirectHost": "Kehrt zurück zu: {host}",
+  "account.connections.connectedAt": "Verbunden seit {date}",
+  "account.connections.lastUsed": "Zuletzt verwendet: {date}",
+  "account.connections.never": "Noch nie",
+  "account.connections.disconnect": "Trennen",
+  "account.connections.empty": "Keine Apps verbunden.",
+  "account.connections.howTo": "Um mit Claude zu planen, füge TravelPlan in Claude als eigenen Connector hinzu und verwende diese URL:",
+  "account.connections.copy": "URL kopieren",
+  "account.connections.copied": "Kopiert",
+  "account.connections.confirm.title": "{client} trennen?",
+  "account.connections.confirm.body": "{client} verliert sofort den Zugriff auf deine Reisen. Um es wieder zu nutzen, verbinde es erneut aus dem Assistenten.",
+  "account.connections.confirm.keep": "Abbrechen",
+  "account.connections.confirm.confirm": "Trennen",
+  "account.connections.disconnectError": "Die Verbindung konnte nicht getrennt werden. Bitte versuche es erneut."
 };
 
 export default de;

@@ -34,6 +34,7 @@ export type OAuthTokenMinAggregateOutputType = {
   clientName: string | null
   scope: string | null
   resource: string | null
+  redirectUri: string | null
   expiresAt: Date | null
   familyExpiresAt: Date | null
   createdAt: Date | null
@@ -52,6 +53,7 @@ export type OAuthTokenMaxAggregateOutputType = {
   clientName: string | null
   scope: string | null
   resource: string | null
+  redirectUri: string | null
   expiresAt: Date | null
   familyExpiresAt: Date | null
   createdAt: Date | null
@@ -70,6 +72,7 @@ export type OAuthTokenCountAggregateOutputType = {
   clientName: number
   scope: number
   resource: number
+  redirectUri: number
   expiresAt: number
   familyExpiresAt: number
   createdAt: number
@@ -90,6 +93,7 @@ export type OAuthTokenMinAggregateInputType = {
   clientName?: true
   scope?: true
   resource?: true
+  redirectUri?: true
   expiresAt?: true
   familyExpiresAt?: true
   createdAt?: true
@@ -108,6 +112,7 @@ export type OAuthTokenMaxAggregateInputType = {
   clientName?: true
   scope?: true
   resource?: true
+  redirectUri?: true
   expiresAt?: true
   familyExpiresAt?: true
   createdAt?: true
@@ -126,6 +131,7 @@ export type OAuthTokenCountAggregateInputType = {
   clientName?: true
   scope?: true
   resource?: true
+  redirectUri?: true
   expiresAt?: true
   familyExpiresAt?: true
   createdAt?: true
@@ -217,6 +223,7 @@ export type OAuthTokenGroupByOutputType = {
   clientName: string
   scope: string
   resource: string
+  redirectUri: string | null
   expiresAt: Date
   familyExpiresAt: Date
   createdAt: Date
@@ -256,6 +263,7 @@ export type OAuthTokenWhereInput = {
   clientName?: Prisma.StringFilter<"OAuthToken"> | string
   scope?: Prisma.StringFilter<"OAuthToken"> | string
   resource?: Prisma.StringFilter<"OAuthToken"> | string
+  redirectUri?: Prisma.StringNullableFilter<"OAuthToken"> | string | null
   expiresAt?: Prisma.DateTimeFilter<"OAuthToken"> | Date | string
   familyExpiresAt?: Prisma.DateTimeFilter<"OAuthToken"> | Date | string
   createdAt?: Prisma.DateTimeFilter<"OAuthToken"> | Date | string
@@ -275,6 +283,7 @@ export type OAuthTokenOrderByWithRelationInput = {
   clientName?: Prisma.SortOrder
   scope?: Prisma.SortOrder
   resource?: Prisma.SortOrder
+  redirectUri?: Prisma.SortOrderInput | Prisma.SortOrder
   expiresAt?: Prisma.SortOrder
   familyExpiresAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -297,6 +306,7 @@ export type OAuthTokenWhereUniqueInput = Prisma.AtLeast<{
   clientName?: Prisma.StringFilter<"OAuthToken"> | string
   scope?: Prisma.StringFilter<"OAuthToken"> | string
   resource?: Prisma.StringFilter<"OAuthToken"> | string
+  redirectUri?: Prisma.StringNullableFilter<"OAuthToken"> | string | null
   expiresAt?: Prisma.DateTimeFilter<"OAuthToken"> | Date | string
   familyExpiresAt?: Prisma.DateTimeFilter<"OAuthToken"> | Date | string
   createdAt?: Prisma.DateTimeFilter<"OAuthToken"> | Date | string
@@ -316,6 +326,7 @@ export type OAuthTokenOrderByWithAggregationInput = {
   clientName?: Prisma.SortOrder
   scope?: Prisma.SortOrder
   resource?: Prisma.SortOrder
+  redirectUri?: Prisma.SortOrderInput | Prisma.SortOrder
   expiresAt?: Prisma.SortOrder
   familyExpiresAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -340,6 +351,7 @@ export type OAuthTokenScalarWhereWithAggregatesInput = {
   clientName?: Prisma.StringWithAggregatesFilter<"OAuthToken"> | string
   scope?: Prisma.StringWithAggregatesFilter<"OAuthToken"> | string
   resource?: Prisma.StringWithAggregatesFilter<"OAuthToken"> | string
+  redirectUri?: Prisma.StringNullableWithAggregatesFilter<"OAuthToken"> | string | null
   expiresAt?: Prisma.DateTimeWithAggregatesFilter<"OAuthToken"> | Date | string
   familyExpiresAt?: Prisma.DateTimeWithAggregatesFilter<"OAuthToken"> | Date | string
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"OAuthToken"> | Date | string
@@ -357,6 +369,7 @@ export type OAuthTokenCreateInput = {
   clientName: string
   scope: string
   resource: string
+  redirectUri?: string | null
   expiresAt: Date | string
   familyExpiresAt: Date | string
   createdAt?: Date | string
@@ -376,6 +389,7 @@ export type OAuthTokenUncheckedCreateInput = {
   clientName: string
   scope: string
   resource: string
+  redirectUri?: string | null
   expiresAt: Date | string
   familyExpiresAt: Date | string
   createdAt?: Date | string
@@ -393,6 +407,7 @@ export type OAuthTokenUpdateInput = {
   clientName?: Prisma.StringFieldUpdateOperationsInput | string
   scope?: Prisma.StringFieldUpdateOperationsInput | string
   resource?: Prisma.StringFieldUpdateOperationsInput | string
+  redirectUri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   expiresAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   familyExpiresAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -412,6 +427,7 @@ export type OAuthTokenUncheckedUpdateInput = {
   clientName?: Prisma.StringFieldUpdateOperationsInput | string
   scope?: Prisma.StringFieldUpdateOperationsInput | string
   resource?: Prisma.StringFieldUpdateOperationsInput | string
+  redirectUri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   expiresAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   familyExpiresAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -430,6 +446,7 @@ export type OAuthTokenCreateManyInput = {
   clientName: string
   scope: string
   resource: string
+  redirectUri?: string | null
   expiresAt: Date | string
   familyExpiresAt: Date | string
   createdAt?: Date | string
@@ -447,6 +464,7 @@ export type OAuthTokenUpdateManyMutationInput = {
   clientName?: Prisma.StringFieldUpdateOperationsInput | string
   scope?: Prisma.StringFieldUpdateOperationsInput | string
   resource?: Prisma.StringFieldUpdateOperationsInput | string
+  redirectUri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   expiresAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   familyExpiresAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -465,6 +483,7 @@ export type OAuthTokenUncheckedUpdateManyInput = {
   clientName?: Prisma.StringFieldUpdateOperationsInput | string
   scope?: Prisma.StringFieldUpdateOperationsInput | string
   resource?: Prisma.StringFieldUpdateOperationsInput | string
+  redirectUri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   expiresAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   familyExpiresAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -493,6 +512,7 @@ export type OAuthTokenCountOrderByAggregateInput = {
   clientName?: Prisma.SortOrder
   scope?: Prisma.SortOrder
   resource?: Prisma.SortOrder
+  redirectUri?: Prisma.SortOrder
   expiresAt?: Prisma.SortOrder
   familyExpiresAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -511,6 +531,7 @@ export type OAuthTokenMaxOrderByAggregateInput = {
   clientName?: Prisma.SortOrder
   scope?: Prisma.SortOrder
   resource?: Prisma.SortOrder
+  redirectUri?: Prisma.SortOrder
   expiresAt?: Prisma.SortOrder
   familyExpiresAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -529,6 +550,7 @@ export type OAuthTokenMinOrderByAggregateInput = {
   clientName?: Prisma.SortOrder
   scope?: Prisma.SortOrder
   resource?: Prisma.SortOrder
+  redirectUri?: Prisma.SortOrder
   expiresAt?: Prisma.SortOrder
   familyExpiresAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -592,6 +614,7 @@ export type OAuthTokenCreateWithoutUserInput = {
   clientName: string
   scope: string
   resource: string
+  redirectUri?: string | null
   expiresAt: Date | string
   familyExpiresAt: Date | string
   createdAt?: Date | string
@@ -609,6 +632,7 @@ export type OAuthTokenUncheckedCreateWithoutUserInput = {
   clientName: string
   scope: string
   resource: string
+  redirectUri?: string | null
   expiresAt: Date | string
   familyExpiresAt: Date | string
   createdAt?: Date | string
@@ -655,6 +679,7 @@ export type OAuthTokenScalarWhereInput = {
   clientName?: Prisma.StringFilter<"OAuthToken"> | string
   scope?: Prisma.StringFilter<"OAuthToken"> | string
   resource?: Prisma.StringFilter<"OAuthToken"> | string
+  redirectUri?: Prisma.StringNullableFilter<"OAuthToken"> | string | null
   expiresAt?: Prisma.DateTimeFilter<"OAuthToken"> | Date | string
   familyExpiresAt?: Prisma.DateTimeFilter<"OAuthToken"> | Date | string
   createdAt?: Prisma.DateTimeFilter<"OAuthToken"> | Date | string
@@ -672,6 +697,7 @@ export type OAuthTokenCreateManyUserInput = {
   clientName: string
   scope: string
   resource: string
+  redirectUri?: string | null
   expiresAt: Date | string
   familyExpiresAt: Date | string
   createdAt?: Date | string
@@ -689,6 +715,7 @@ export type OAuthTokenUpdateWithoutUserInput = {
   clientName?: Prisma.StringFieldUpdateOperationsInput | string
   scope?: Prisma.StringFieldUpdateOperationsInput | string
   resource?: Prisma.StringFieldUpdateOperationsInput | string
+  redirectUri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   expiresAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   familyExpiresAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -706,6 +733,7 @@ export type OAuthTokenUncheckedUpdateWithoutUserInput = {
   clientName?: Prisma.StringFieldUpdateOperationsInput | string
   scope?: Prisma.StringFieldUpdateOperationsInput | string
   resource?: Prisma.StringFieldUpdateOperationsInput | string
+  redirectUri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   expiresAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   familyExpiresAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -723,6 +751,7 @@ export type OAuthTokenUncheckedUpdateManyWithoutUserInput = {
   clientName?: Prisma.StringFieldUpdateOperationsInput | string
   scope?: Prisma.StringFieldUpdateOperationsInput | string
   resource?: Prisma.StringFieldUpdateOperationsInput | string
+  redirectUri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   expiresAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   familyExpiresAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -743,6 +772,7 @@ export type OAuthTokenSelect<ExtArgs extends runtime.Types.Extensions.InternalAr
   clientName?: boolean
   scope?: boolean
   resource?: boolean
+  redirectUri?: boolean
   expiresAt?: boolean
   familyExpiresAt?: boolean
   createdAt?: boolean
@@ -762,6 +792,7 @@ export type OAuthTokenSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Ex
   clientName?: boolean
   scope?: boolean
   resource?: boolean
+  redirectUri?: boolean
   expiresAt?: boolean
   familyExpiresAt?: boolean
   createdAt?: boolean
@@ -781,6 +812,7 @@ export type OAuthTokenSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Ex
   clientName?: boolean
   scope?: boolean
   resource?: boolean
+  redirectUri?: boolean
   expiresAt?: boolean
   familyExpiresAt?: boolean
   createdAt?: boolean
@@ -800,6 +832,7 @@ export type OAuthTokenSelectScalar = {
   clientName?: boolean
   scope?: boolean
   resource?: boolean
+  redirectUri?: boolean
   expiresAt?: boolean
   familyExpiresAt?: boolean
   createdAt?: boolean
@@ -808,7 +841,7 @@ export type OAuthTokenSelectScalar = {
   revokedAt?: boolean
 }
 
-export type OAuthTokenOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tokenHash" | "kind" | "familyId" | "userId" | "clientId" | "clientName" | "scope" | "resource" | "expiresAt" | "familyExpiresAt" | "createdAt" | "lastUsedAt" | "rotatedAt" | "revokedAt", ExtArgs["result"]["oAuthToken"]>
+export type OAuthTokenOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tokenHash" | "kind" | "familyId" | "userId" | "clientId" | "clientName" | "scope" | "resource" | "redirectUri" | "expiresAt" | "familyExpiresAt" | "createdAt" | "lastUsedAt" | "rotatedAt" | "revokedAt", ExtArgs["result"]["oAuthToken"]>
 export type OAuthTokenInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
 }
@@ -834,6 +867,7 @@ export type $OAuthTokenPayload<ExtArgs extends runtime.Types.Extensions.Internal
     clientName: string
     scope: string
     resource: string
+    redirectUri: string | null
     expiresAt: Date
     familyExpiresAt: Date
     createdAt: Date
@@ -1273,6 +1307,7 @@ export interface OAuthTokenFieldRefs {
   readonly clientName: Prisma.FieldRef<"OAuthToken", 'String'>
   readonly scope: Prisma.FieldRef<"OAuthToken", 'String'>
   readonly resource: Prisma.FieldRef<"OAuthToken", 'String'>
+  readonly redirectUri: Prisma.FieldRef<"OAuthToken", 'String'>
   readonly expiresAt: Prisma.FieldRef<"OAuthToken", 'DateTime'>
   readonly familyExpiresAt: Prisma.FieldRef<"OAuthToken", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"OAuthToken", 'DateTime'>

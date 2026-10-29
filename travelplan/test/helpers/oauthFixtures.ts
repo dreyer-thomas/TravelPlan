@@ -1,7 +1,8 @@
 import { afterEach, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
+import { POST as postToken } from "@/app/api/oauth/token/route";
 import { createSessionJwt } from "@/lib/auth/jwt";
-import { resetOAuthHousekeepingForTests } from "@/lib/repositories/oauthRepo";
+import { createAuthorizationCode, resetOAuthHousekeepingForTests } from "@/lib/repositories/oauthRepo";
 import { prisma } from "@/lib/db/prisma";
 import type { GuardedFetchResult } from "@/lib/http/guardedFetch";
 import {
@@ -122,3 +123,45 @@ export const formRequest = (url: string, values: Record<string, string>, content
     headers: { "content-type": contentType, "x-forwarded-for": `10.9.${userCounter % 250}.${Math.floor(Math.random() * 250)}` },
     body: new URLSearchParams(values).toString(),
   });
+
+export const TOKEN_URL = `${ISSUER}/api/oauth/token`;
+
+export const issueCode = async (userId: string, now?: Date) =>
+  createAuthorizationCode({
+    userId,
+    clientId: HOSTED_CLIENT_ID,
+    clientName: "Claude",
+    redirectUri: HOSTED_REDIRECT,
+    codeChallenge: PKCE_CHALLENGE,
+    resource: MCP_RESOURCE,
+    scope: "trips",
+    now,
+  });
+
+export const codeGrant = (code: string, overrides: Record<string, string> = {}) =>
+  formRequest(TOKEN_URL, {
+    grant_type: "authorization_code",
+    code,
+    client_id: HOSTED_CLIENT_ID,
+    redirect_uri: HOSTED_REDIRECT,
+    code_verifier: PKCE_VERIFIER,
+    resource: MCP_RESOURCE,
+    ...overrides,
+  });
+
+export const refreshGrant = (refreshToken: string, overrides: Record<string, string> = {}) =>
+  formRequest(TOKEN_URL, {
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    client_id: HOSTED_CLIENT_ID,
+    ...overrides,
+  });
+
+export type TokenBody = { access_token: string; refresh_token: string; token_type: string; expires_in: number; scope: string; error?: string };
+
+/** A full code exchange through the token route: a fresh connection (token family) for the user. */
+export const exchange = async (userId: string) => {
+  const code = await issueCode(userId);
+  const response = await postToken(codeGrant(code));
+  return (await response.json()) as TokenBody;
+};

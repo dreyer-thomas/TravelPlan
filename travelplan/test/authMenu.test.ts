@@ -16,7 +16,21 @@ describe("getAuthMenuItems", () => {
   it("returns the trips destination and then sign out when signed in", () => {
     const items = getAuthMenuItems({ isAuthenticated: true, isAdmin: false });
 
-    expect(items.map((item) => item.key)).toEqual(["trips", "logout"]);
+    // Story 15.3 put the account row directly after trips.
+    expect(items.map((item) => item.key)).toEqual(["trips", "account", "logout"]);
+  });
+
+  /** Story 15.3: the account page, home of Connected apps, for every signed-in user. */
+  it("points the account row at the account page", () => {
+    const account = getAuthMenuItems({ isAuthenticated: true, isAdmin: false }).find((item) => item.key === "account");
+
+    expect(account).toEqual({ kind: "destination", key: "account", labelKey: "header.account", href: "/account" });
+  });
+
+  it("omits the account row when signed out", () => {
+    expect(getAuthMenuItems({ isAuthenticated: false, isAdmin: false }).some((item) => item.key === "account")).toBe(
+      false,
+    );
   });
 
   it("gives the trips entry an href so the menu renders it as a link", () => {
@@ -64,7 +78,7 @@ describe("getAuthMenuItems", () => {
       const items = getAuthMenuItems({ isAuthenticated: true, isAdmin: true });
 
       // Story 8.7 added the AI usage row directly after it.
-      expect(items.map((item) => item.key)).toEqual(["trips", "admin", "aiUsage", "logout"]);
+      expect(items.map((item) => item.key)).toEqual(["trips", "account", "admin", "aiUsage", "logout"]);
     });
 
     it("points the AI usage row at its page (Story 8.7)", () => {
@@ -82,6 +96,7 @@ describe("getAuthMenuItems", () => {
     it("leaves a signed-in non-admin's menu exactly as it was", () => {
       expect(getAuthMenuItems({ isAuthenticated: true, isAdmin: false }).map((item) => item.key)).toEqual([
         "trips",
+        "account",
         "logout",
       ]);
     });

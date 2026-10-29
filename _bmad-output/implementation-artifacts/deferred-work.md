@@ -4099,3 +4099,23 @@ severity: low
 summary: `listTripsForUser` returns at most 200 rows, view-only trips included. The tool then drops the view-only ones and ignores `totalCount`, so an account over the cap silently loses writable trips, and Claude cannot tell the list was cut.
 evidence: Not reachable at today's trip counts. The fix is a writer-only query arm, or a `truncated` flag in the tool output.
 status: open
+
+### DW-422: Session cookies survive a password reset or change
+
+source_spec: `_bmad-output/implementation-artifacts/spec-15-3-connected-apps.md`
+origin: code review of 15-3-connected-apps (bmad-dev-auto), 2026-10-29
+location: `travelplan/src/lib/auth/jwt.ts`, `travelplan/src/app/api/auth/password-reset/confirm/route.ts`
+severity: medium
+summary: Sessions are stateless 7-day JWTs with no version claim, so a session stolen before a reset stays valid and can re-consent a new connector family right after 15.3 revoked the old ones.
+evidence: `createSessionJwt` carries only sub/role/mustChangePassword. Nothing checks it against a password-change timestamp. 15.3 now revokes connector tokens and unused codes on a password write, but session invalidation was never in scope and was already missing before it.
+status: open
+
+### DW-423: Revocation can race a grace-window sibling refresh
+
+source_spec: `_bmad-output/implementation-artifacts/spec-15-3-connected-apps.md`
+origin: code review of 15-3-connected-apps (bmad-dev-auto), 2026-10-29
+location: `travelplan/src/lib/repositories/oauthRepo.ts` (`rotateRefreshToken` sibling path vs `revokeFamily*`/`revokeConnectionForUser`)
+severity: low
+summary: In the 30 s grace path, `rotateRefreshToken` reads the family's revoked count before any write, so it holds no write lock at that point. A revoke committing between that read and `issueTokenPair` could leave a fresh unrevoked pair in a family the user just disconnected.
+evidence: Pre-existing 15.1 design shared by RFC 7009 revoke. SQLite's single writer and WAL snapshot upgrade (SQLITE_BUSY_SNAPSHOT) probably prevent it, but no test proves that. A fix would write first (for example touch the family) before counting.
+status: open

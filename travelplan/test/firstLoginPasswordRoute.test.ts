@@ -4,6 +4,7 @@ import { POST } from "@/app/api/auth/first-login-password/route";
 import { prisma } from "@/lib/db/prisma";
 import { createSessionJwt, verifySessionJwt } from "@/lib/auth/jwt";
 import { hashPassword, verifyPassword } from "@/lib/auth/bcrypt";
+import { issueAccessToken } from "./helpers/mcpClient";
 
 type ApiEnvelope<T> = {
   data: T | null;
@@ -144,5 +145,30 @@ describe("POST /api/auth/first-login-password", () => {
     const updatedSession = setCookie?.match(/session=([^;]+)/)?.[1];
     const sessionPayload = await verifySessionJwt(updatedSession ?? "");
     expect(sessionPayload.mustChangePassword).toBe(false);
+  });
+
+  /** Story 15.3 (NFR14): the forced password change ends every connector connection of the user. */
+  it("revokes all of the user's connector tokens and nobody else's", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "tokens-first-login@example.com",
+        passwordHash: await hashPassword("oldpassword"),
+        role: "VIEWER",
+        mustChangePassword: true,
+      },
+    });
+    const other = await prisma.user.create({
+      data: { email: "tokens-first-login-other@example.com", passwordHash: await hashPassword("oldpassword"), role: "VIEWER" },
+    });
+    await issueAccessToken(user.id);
+    await issueAccessToken(user.id);
+    await issueAccessToken(other.id);
+
+    const session = await createSessionJwt({ sub: user.id, role: user.role, mustChangePassword: true });
+    const response = await POST(buildRequest({ password: "newpassword" }, { session }));
+
+    expect(response.status).toBe(200);
+    expect(await prisma.oAuthToken.count({ where: { userId: user.id, revokedAt: null } })).toBe(0);
+    expect(await prisma.oAuthToken.count({ where: { userId: other.id, revokedAt: null } })).toBe(2);
   });
 });

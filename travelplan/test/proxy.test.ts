@@ -142,6 +142,24 @@ describe("proxy auth guard", () => {
     expect(response.status).toBe(200);
   });
 
+  /** Story 15.3. The account page is guarded like the other page trees: signed in, no temporary password. */
+  it("guards the account page like the other pages", async () => {
+    const signedOut = await proxy(new NextRequest("http://localhost/account"));
+    expect(signedOut.status).toBe(307);
+    expect(signedOut.headers.get("location")).toBe("http://localhost/auth/login");
+
+    const flagged = await createSessionJwt({ sub: "user-1", role: "OWNER", mustChangePassword: true });
+    const flaggedResponse = await proxy(
+      new NextRequest("http://localhost/account", { headers: { cookie: `session=${flagged}` } }),
+    );
+    expect(flaggedResponse.status).toBe(307);
+    expect(flaggedResponse.headers.get("location")).toBe("http://localhost/auth/first-login-password");
+
+    const token = await createSessionJwt({ sub: "user-1", role: "OWNER" });
+    const response = await proxy(new NextRequest("http://localhost/account", { headers: { cookie: `session=${token}` } }));
+    expect(response.status).toBe(200);
+  });
+
   it("returns 403 json for flagged users hitting trip apis", async () => {
     const token = await createSessionJwt({ sub: "user-1", role: "owner", mustChangePassword: true });
     const request = new NextRequest("http://localhost/api/trips/trip-1", {
@@ -229,6 +247,16 @@ describe("proxy matcher", () => {
   it("covers the administration page and any subpath of it", async () => {
     for (const pathname of ["/admin", "/admin/users"]) {
       expect(await matches(pathname), pathname).toBe(true);
+    }
+  });
+
+  /** Story 15.3: the account page joins the page guard; its connection api stays out like `/api/users`. */
+  it("covers the account page but not its connection api", async () => {
+    for (const pathname of ["/account", "/account/anything"]) {
+      expect(await matches(pathname), pathname).toBe(true);
+    }
+    for (const pathname of ["/api/users/me/connections", "/api/users/me/connections/family-1"]) {
+      expect(await matches(pathname), pathname).toBe(false);
     }
   });
 

@@ -10,6 +10,7 @@ import { buildPasswordUpdateData } from "@/lib/auth/passwordUpdate";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { setSessionCookie } from "@/lib/auth/session";
 import { verifyPassword } from "@/lib/auth/bcrypt";
+import { invalidateUnusedCodesForUser, revokeAllTokensForUser } from "@/lib/repositories/oauthRepo";
 
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX = 10;
@@ -78,9 +79,16 @@ export const POST = async (request: NextRequest) => {
     }
 
     const passwordUpdateData = await buildPasswordUpdateData({ password: parsed.data.password });
-    await prisma.user.update({
-      where: { id: auth.session.sub },
-      data: passwordUpdateData,
+    // Story 15.3 (NFR14): the password write and the revocation of every connector token are one
+    // transaction, so a failed write leaves the connections alone and a successful one leaves none behind.
+    // The hash is built before it, outside the lock - bcrypt is the slow part.
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: auth.session.sub },
+        data: passwordUpdateData,
+      });
+      await revokeAllTokensForUser(tx, auth.session.sub);
+      await invalidateUnusedCodesForUser(tx, auth.session.sub);
     });
 
     const token = await createSessionJwt({
