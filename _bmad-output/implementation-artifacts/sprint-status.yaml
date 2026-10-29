@@ -1,5 +1,6 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-10-29 (15-1-add-travelplan-to-claude review -> done via bmad-code-review: three layers (blind, edge case, acceptance); decisions D1 host+path allowlist, D2 sibling pair in refresh grace, D3 code consumed only on success; 23 patches applied; DW-416..DW-419 deferred; 7 dismissed; AC25 production acceptance pending Tommy)
+# last_updated: 2026-10-29 (15-2-claude-knows-the-trip -> ready-for-dev via bmad-create-story: read tools list_trips, get_trip, get_day, get_bucket_list; new connectorReadRepo day reader with updatedAt + media names; tiptapDocToPlainText; shared tool runtime with 120/min rate limit; budget and KI/AI marker recorded as deviations, questions to Tommy)
+# previously: 2026-10-29 (15-1-add-travelplan-to-claude review -> done via bmad-code-review: three layers (blind, edge case, acceptance); decisions D1 host+path allowlist, D2 sibling pair in refresh grace, D3 code consumed only on success; 23 patches applied; DW-416..DW-419 deferred; 7 dismissed; AC25 production acceptance pending Tommy)
 # previously: 2026-10-29 (15-1-add-travelplan-to-claude -> review via bmad-dev-story: OAuth AS + /api/mcp + whoami; tsc clean, lint 0/80, build ok, migrations ok, 3631 passed / 8 failed (all 8 environmental on Windows, identical on baseline); production acceptance pending Tommy)
 # previously: 2026-10-29 (15-1-add-travelplan-to-claude -> in-progress via bmad-dev-story)
 # previously: 2026-10-29 (15-1-add-travelplan-to-claude -> ready-for-dev via bmad-create-story; epic-15 in-progress)
@@ -359,7 +360,7 @@ development_status:
 
   epic-15: in-progress
   15-1-add-travelplan-to-claude: done
-  15-2-claude-knows-the-trip: backlog
+  15-2-claude-knows-the-trip: ready-for-dev
   15-3-connected-apps: backlog
   15-4-claude-plans-activities-marked-and-undoable: backlog
   15-5-take-over-the-day-plan: backlog
