@@ -4,7 +4,7 @@
 **Raised by:** Tommy
 **Facilitated by:** John (PM) via `bmad-correct-course`
 **Mode:** Batch
-**Status:** Approved by Tommy 2026-10-29, including all points marked **[default]**. Edits 4.1–4.3, 4.6 and 4.7 applied; 4.5 (architecture) goes to Winston for review and is applied by him; 4.8 (deploy files) ships with Story 15.1.
+**Status:** Approved by Tommy 2026-10-29, including all points marked **[default]**. Edits 4.1–4.3, 4.6 and 4.7 applied; 4.5 reviewed by Winston and applied to `architecture.md` in its reviewed form (see section 6); 4.8 (deploy files) ships with Story 15.1.
 **Scope classification:** Major (new subsystem: an OAuth authorization server, a public MCP endpoint and server-held AI change history). It is purely additive: no existing behaviour changes for people using the app. Architect review (Winston) is needed before Stories 15.1 and 15.4 are contexted.
 
 ---
@@ -557,3 +557,21 @@ README: a short section *Connector* covering the connector URL to give users (`<
 | 5 | Tommy | Deploy and accept in production: 15.1 (connector in claude.ai and Claude Code), 15.5 (a day planned in Claude lands in the app, undo works), 15.7 (ticket by URL lands in the packet). |
 
 **Success criteria:** Tommy adds TravelPlan as a connector in claude.ai, signs in once, plans tomorrow in conversation, and Claude writes the day into TravelPlan: activities with durations, places, legs, the stay, costs and a ticket. Each entry shows *KI*. The app's day view offers *Rückgängig* for Claude's change. Konni, a viewer on another trip, cannot see that trip through her connector. Disconnecting in *Verbundene Apps* stops Claude at its next call.
+
+---
+
+## 6. Architect Review (Winston, 2026-10-29)
+
+Section 4.5 was reviewed against the code (receipt signing, undo route, repositories) and against MCP authorization spec 2026-07-28 and Claude's connector documentation. It is applied to `architecture.md` in its reviewed form; Stories 15.1, 15.4, 15.5, 15.6 and 15.7 in `epics.md` are amended to match. Changes from 4.5:
+
+1. **Client ID Metadata Documents only, no Dynamic Client Registration** (deprecated in spec 2026-07-28; Claude uses CIMD when the server advertises it). `client_id` hosts are allowlisted through `MCP_CLIENT_ID_HOSTS`, default `claude.ai` (**Tommy: Claude only for now**). DCR is a contingency behind its own switch.
+2. Claude-specific details: exact `resource`, `offline_access` in `scopes_supported`, form-encoded `/token`, `invalid_grant`, < 10 s, port-agnostic loopback redirects, loopback warning on consent, Nginx passing `/.well-known/*`.
+3. Refresh-token reuse detection with a 30 s grace window against Claude's own proactive-refresh race.
+4. Stored receipts are trusted and unsigned; new route `POST /api/trips/{id}/ai-changes/{changeId}/undo` (any trip writer) on an undo core extracted from the existing route; the `ai_changes` row is written in the write's transaction.
+5. Undo coverage (**Tommy: OK**): new receipt kinds `dayPlanApplied`, `stayCreated`/`stayUpdated`/`stayDeleted`, `fileAttached`/`fileDeleted`; parked-activity edits keep parity with the app (no undo, listed without *Rückgängig*).
+6. Provenance through a required `origin: "user" | "ai"` parameter on repository writes instead of "every UI write clears it"; the marker covers targeted rows only; `aiChangedAt` is part of receipt snapshots.
+7. `updatedAt` checks inside the transaction.
+8. `/api/mcp`: `GET` 405, 2 MB body limit, SDK pinned to a version negotiating 2026-07-28.
+9. Guarded fetcher (`guardedFetch.ts`) pulled forward to 15.1 and hardened: port 443, IPv6 special ranges, pinned IP against DNS rebinding, magic-byte type check.
+
+**Deployment addition to 4.8:** `MCP_CLIENT_ID_HOSTS=claude.ai` in `deploy/travelplan.env.example`.

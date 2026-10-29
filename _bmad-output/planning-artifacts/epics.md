@@ -4674,50 +4674,55 @@ So that Claude can act for me in TravelPlan without ever seeing my password.
 
 **FRs covered:** FR52 (connect), NFR14
 
-**Depends on:** Architect review of the *Connector (MCP + OAuth)* architecture section. **Origin:** Tommy with John (PM), 2026-10-29.
+**Depends on:** Architect review of the *Connector (MCP + OAuth)* architecture section (done 2026-10-29, Winston). **Origin:** Tommy with John (PM), 2026-10-29.
 
 **Context:** TravelPlan has only cookie sessions. This story builds the OAuth 2.1 authorization server, the protected MCP endpoint and one tool, and proves the whole loop in claude.ai before any trip data is exposed.
 
 **Acceptance Criteria:**
 
 **Given** `MCP_ENABLED` is not `true`
-**Then** every connector endpoint (metadata, register, authorize, token, revoke, `/api/mcp`) answers 404
+**Then** every connector endpoint (metadata, authorize, consent, token, revoke, `/api/mcp`) answers 404
 
 **Given** an unauthenticated request to `POST /api/mcp`
 **Then** it answers 401 with `WWW-Authenticate: Bearer resource_metadata="<APP_BASE_URL>/.well-known/oauth-protected-resource"`
-**And** the protected-resource metadata (RFC 9728) names `<APP_BASE_URL>/api/mcp` as the resource and TravelPlan as its authorization server
-**And** the authorization-server metadata (RFC 8414) lists the authorize, token, registration and revocation endpoints, `code` as the only response type, `authorization_code` and `refresh_token` as grant types, and `S256` as the only PKCE method
+**And** the protected-resource metadata (RFC 9728) names exactly `<APP_BASE_URL>/api/mcp` as the resource (the URL as the user enters it in Claude), TravelPlan as its only authorization server, and `scopes_supported` with the one trip scope and `offline_access`
+**And** the authorization-server metadata (RFC 8414) lists the authorize, token and revocation endpoints, `code` as the only response type, `authorization_code` and `refresh_token` as grant types, `S256` as the only PKCE method, `client_id_metadata_document_supported: true`, `token_endpoint_auth_methods_supported: ["none"]`, and **no** `registration_endpoint`
 
-**Given** a client registers
-**Then** dynamic client registration (RFC 7591) and client ID metadata documents are both supported (Winston confirms against the MCP authorization spec revision current at story time)
-**And** redirect URIs must be `https://`, or `http://localhost` / `http://127.0.0.1` with any port (Claude Code); anything else is refused
-**And** registration is rate-limited per IP
+**Given** a client identifies itself (MCP authorization spec 2026-07-28: Client ID Metadata Documents; Dynamic Client Registration is deprecated there and not offered)
+**Then** its `client_id` must be an `https` URL whose host is in `MCP_CLIENT_ID_HOSTS` (default `claude.ai`, which covers the hosted Claude apps and Claude Code; Tommy, 2026-10-29: Claude only for now); any other client is refused before anything is fetched
+**And** the metadata document is fetched through the guarded fetcher (https only, public addresses only, pinned IP, 15 s, 64 KB), validated (its `client_id` equals its URL, `redirect_uris` present), and cached for at most 24 h
+**And** the authorize request's `redirect_uri` must be one the document lists; loopback URIs (`http://localhost`, `http://127.0.0.1`) match with the port ignored, as Claude Code uses an ephemeral port
+**And** if the 15.1 production acceptance shows that a Claude surface does not use CIMD, Dynamic Client Registration is added behind its own switch, not by default
 
-**Given** the authorize request from a registered client with PKCE S256 and a `resource` equal to the MCP resource (RFC 8707)
+**Given** the authorize request from an allowed client with PKCE S256 and a `resource` equal to the MCP resource (RFC 8707)
 **When** I am not signed in
 **Then** I see TravelPlan's normal sign-in page and, after signing in, return to the authorization step
 **When** I am signed in
 **Then** I see a consent screen in my UI language naming the client, the host its redirect goes to, and what it may do ("Reisen lesen und bearbeiten, auf denen du planen darfst"), with *Erlauben* and *Ablehnen*
+**And** when the client's only redirect URIs are loopback addresses, the screen adds a warning that a program on this computer will receive access
 **And** consent is CSRF-protected and a fresh consent is required for every new authorization (no silent re-grant)
 
 **Given** the code exchange
 **Then** codes are single-use, expire after 60 s, are bound to client, redirect URI, PKCE challenge and resource, and a reused code revokes the tokens issued from it
-**And** the access token lives 1 h and the refresh token 30 days, rotating on every use with reuse detection
+**And** the access token lives 1 h and the refresh token 30 days, rotating on every use; the new refresh token is returned in the response that invalidates the old one
+**And** a just-rotated refresh token presented again within 30 s answers `invalid_grant` without revoking anything (Claude refreshes proactively and can race itself); presented later, it revokes the whole token family
+**And** `/token` accepts `application/x-www-form-urlencoded`, answers every invalid or expired grant with `invalid_grant`, and answers well within Claude's 10 s limit
 **And** tokens are opaque random strings, stored only as SHA-256 hashes with user id, client id, scope, resource, expiry and last-used time
 
 **Given** a valid bearer token
 **Then** `/api/mcp` serves the MCP Streamable HTTP transport, stateless, with JSON responses, and accepts the token only if its audience is the MCP resource
+**And** `GET /api/mcp` answers 405, and request bodies are limited to 2 MB through `bodyLimit.ts`
 **And** the session cookie is never accepted on `/api/mcp`, and a bearer token is never accepted on any other route
 
 **Given** the tool `whoami`
 **Then** it returns my email and the number of trips I may plan, and nothing else
 
 **Given** the test suite
-**Then** it covers metadata, registration with good and bad redirect URIs, PKCE mismatch, code reuse, wrong resource, expired and revoked tokens, refresh rotation and reuse, cookie refused on `/api/mcp`, bearer refused on a REST route, and `MCP_ENABLED` off
+**Then** it covers metadata (incl. no registration endpoint), a client ID from a host outside the allowlist refused without a fetch, a metadata document with a bad redirect, loopback redirects on any port, PKCE mismatch, code reuse, wrong resource, expired and revoked tokens, refresh rotation, a parallel refresh inside the grace window, reuse after it revoking the family, cookie refused on `/api/mcp`, bearer refused on a REST route, and `MCP_ENABLED` off
 
 **Given** the production server
 **When** the story is deployed (Tommy, manual)
-**Then** TravelPlan added as a custom connector in claude.ai (web) and in Claude Code signs in, shows the consent screen, and `whoami` answers correctly in both
+**Then** Nginx passes `/.well-known/*` to the app, and TravelPlan added as a custom connector in claude.ai (web) and in Claude Code signs in, shows the consent screen, and `whoami` answers correctly in both
 
 **Out of scope:** any trip data (15.2); the connections page (15.3); scopes finer than one.
 
@@ -4792,34 +4797,36 @@ So that I can let it work and still trust my plan.
 
 **FRs covered:** FR54 (activities), FR57
 
-**Depends on:** Stories 15.2, 15.3; Architect review of *provenance* and *stored AI changes*.
+**Depends on:** Stories 15.2, 15.3; Architect review of *provenance* and *stored AI changes* (done 2026-10-29, Winston).
 
 **Context:** receipts are client-held today, so an edit made through the connector would have no undo. This story stores the receipt of every connector write on the server and shows it on the day. It also adds the KI/AI provenance marker.
 
 **Acceptance Criteria:**
 
 **Given** the migration
-**Then** activities, stays, travel legs, documents and images gain a nullable `aiChangedAt`, and a table `ai_changes` stores per connector write: id, trip, day (nullable), user, client, time, a one-line summary, the v3 receipt, and `undoneAt`
+**Then** activities, stays, travel legs, documents and images gain a nullable `aiChangedAt`, and a table `ai_changes` stores per connector write: id, trip, day (nullable), user, client, time, a one-line summary, the v3 receipt (nullable: a write the app cannot undo either, such as editing a parked activity, has none), and `undoneAt`
+**And** `aiChangedAt` is part of the row snapshots in receipts, so undo restores the marker too; receipts issued to browsers before the deploy fail the strict parse and show "undo unavailable", as after Epic 14
 
 **Given** the tools `create_activity`, `update_activity`, `delete_activity`, `move_activity` (earlier/later or to a position), `move_activity_to_day`, `park_activity`, `schedule_activity`
 **Then** each calls the same repository function as the matching UI route, so the day is recomputed under FR42 exactly as in the app
 **And** each takes plain text or simple Markdown for the description and stores it as the same rich-text JSON the editor writes
 **And** a place given by name only is geocoded through the existing geocoder; coordinates given are used as they are
-**And** `update_*` and `delete_*` accept the `updatedAt` read in 15.2 and refuse with "changed since you read it" on a mismatch
-**And** each sets `aiChangedAt` on every row it creates or changes, and records one `ai_changes` entry with its receipt
+**And** `update_*` and `delete_*` accept the `updatedAt` read in 15.2 and refuse with "changed since you read it" on a mismatch, compared inside the write's transaction
+**And** each sets `aiChangedAt` on the rows it targets (created or edited), not on activities only shifted by the recompute, and records one `ai_changes` entry with its receipt in the same transaction
 **And** each returns the changed activity, the day's new order and times, the warnings, and the `ai_changes` id
 
-**Given** any UI write that changes a row
-**Then** it clears that row's `aiChangedAt` (R4)
+**Given** the repository write functions
+**Then** each takes a required `origin: "user" | "ai"` parameter with no default, so the compiler finds every caller; `"ai"` sets `aiChangedAt` on the targeted rows, `"user"` clears it (R4)
 
 **Given** an entry with `aiChangedAt`
 **Then** the day timeline, the bucket list and the dialogs show a small *KI* (de) / *AI* (en) badge on it
 
 **Given** a day with connector changes not yet undone (from the last 14 days)
 **Then** the day view shows a notice "KI hat diesen Tag geändert" / "AI changed this day", with each change's summary and time, newest first, and *Rückgängig* / *Undo* on each
-**When** I choose *Rückgängig*
-**Then** the stored receipt is applied through the existing undo path; on a stale receipt (409) the notice says that the day has changed since and the change can no longer be undone
+**When** I choose *Rückgängig* (any owner or contributor of the trip may, not only the connected user)
+**Then** `POST /api/trips/{id}/ai-changes/{changeId}/undo` applies the stored receipt through the undo core extracted from `day-plan-changes/undo` (stored receipts are trusted and carry no signature; client-held receipts keep theirs); on a stale receipt (409) the notice says that the day has changed since and the change can no longer be undone
 **And** an undone change is marked `undoneAt` and leaves the notice
+**And** a change without a receipt is listed without *Rückgängig*
 
 **Given** the tools `list_ai_changes(tripId)` and `undo_ai_change(changeId)`
 **Then** the assistant can see and undo its own changes under the same stale rule
@@ -4848,7 +4855,7 @@ So that the plan we agreed on is in the app in seconds and can be taken back in 
 **Then** each activity carries title, description, flexible duration or fixed start with end or duration, place, link and cost; legs carry a transport mode from the app's `TravelTransportType` between consecutive activities
 **And** in `append` the activities follow the day's last activity; in `replace` the day's existing activities and their legs are deleted first, in the same transaction
 **And** missing leg durations and distances are computed as the app computes them (route preview), falling back to no duration if routing fails
-**And** the day is recomputed once under FR42; the whole call is one `ai_changes` entry, undone in one step
+**And** the day is recomputed once under FR42; the whole call is one `ai_changes` entry with a new receipt kind `dayPlanApplied` (the created activities and legs, plus in `replace` the deleted activities and legs as full snapshots), undone in one step
 **And** every created row carries the KI/AI marker
 
 **Given** a plan that does not fit (fixed overlaps, past midnight)
@@ -4885,6 +4892,7 @@ So that a planned day is complete and the budget is right.
 
 **Given** every write here
 **Then** it follows the 15.4 rules: KI/AI marker, one `ai_changes` entry, undo, `updatedAt` check, not found for non-writable trips
+**And** stay writes use new receipt kinds `stayCreated`, `stayUpdated` (full previous row with payments) and `stayDeleted` (with its images and documents); legs and costs use the existing kinds
 
 **Given** the test suite
 **Then** it covers each tool, the next-day recompute on check-out change with undo, foreign currency conversion and an ECB failure answering with a clear error and writing nothing
@@ -4915,12 +4923,13 @@ So that the documents end up where the day packet and the day email find them.
 **And** images are attached as activity or stay images, with the same processing as UI uploads
 
 **Given** a URL download
-**Then** only `https` is fetched, and the resolved address must not be loopback, private, link-local or otherwise non-public (checked after DNS resolution and on every redirect, at most 3 redirects)
+**Then** the guarded fetcher from 15.1 is used: only `https` on port 443, and the resolved address must not be loopback, private, link-local, unique-local, IPv4-mapped IPv6 or otherwise non-public, checked after DNS resolution and on every redirect (at most 3), with the checked IP pinned for the connection so DNS rebinding cannot redirect it
 **And** the download stops at the size limit and after 15 s; cookies and credentials are never sent
 **And** failures answer with a short reason and write nothing
 
 **Given** `delete_file`
-**Then** it removes the document or image as the dialog does; the delete is undoable via `ai_changes` while the file is kept for undo (DW-187 rule)
+**Then** it removes the document or image row as the dialog does; the file stays on disk while its `ai_changes` entry (receipt kind `fileDeleted`) can be undone and is removed when the entry expires
+**And** an attach is recorded as `fileAttached`; its undo deletes the row and the file
 
 **Given** every write here
 **Then** it follows the 15.4 rules (marker, `ai_changes`, not found for non-writable trips)
