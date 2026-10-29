@@ -2,6 +2,12 @@ import { prisma } from "@/lib/db/prisma";
 import { parkedDayPlanItemsWhere } from "@/lib/repositories/dayPlanItemRepo";
 import { type PaymentDetail, toPaymentDetails } from "@/lib/repositories/paymentDetail";
 import { DEFAULT_ACTIVITY_DURATION_MINUTES } from "@/lib/trips/legacySchedule";
+import {
+  aiChangedAtFor,
+  ChangedSinceReadError,
+  type InTransactionHook,
+  type WriteOrigin,
+} from "@/lib/trips/writeOrigin";
 
 /**
  * Story 14.1 (FR30, FR31). The bucket list is the trip's parked activities: `DayPlanItem` rows with
@@ -35,6 +41,8 @@ export type ParkedDayPlanItemDetail = {
   firstImageUrl: string | null;
   createdAt: Date;
   updatedAt: Date;
+  /** Story 15.4. When the connector last wrote the row; `null` once a person has edited it. */
+  aiChangedAt: Date | null;
 };
 
 export type ParkedDayPlanItemMutationParams = {
@@ -51,6 +59,13 @@ export type ParkedDayPlanItemMutationParams = {
   payments?: PaymentInput[] | null;
   linkUrl?: string | null;
   location?: { lat: number; lng: number; label?: string | null } | null;
+  /** Story 15.4. `"ai"` marks the row, `"user"` clears the mark. */
+  origin: WriteOrigin;
+  /**
+   * Story 15.4. Runs last inside the write's transaction, with a `null` receipt: the app cannot undo a
+   * parked write.
+   */
+  inTransaction?: InTransactionHook;
 };
 
 export type ParkedDayPlanItemUpdateResult =
@@ -103,6 +118,7 @@ type ParkedRow = {
   locationLabel: string | null;
   createdAt: Date;
   updatedAt: Date;
+  aiChangedAt: Date | null;
   payments: { amountCents: number; dueDate: string; amountOriginal: number | null }[];
   images: { imageUrl: string }[];
 };
@@ -127,10 +143,14 @@ const toDetail = (row: ParkedRow): ParkedDayPlanItemDetail => ({
   firstImageUrl: row.images[0]?.imageUrl ?? null,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
+  aiChangedAt: row.aiChangedAt,
 });
 
-/** The columns a create or an edit writes; the schedule fields are the parked constants, never input. */
-const contentColumns = (params: ParkedDayPlanItemMutationParams) => ({
+/**
+ * The columns a create or an edit writes; the schedule fields are the parked constants, never input.
+ * Story 15.4: and the marker, from `origin`.
+ */
+const contentColumns = (params: ParkedDayPlanItemMutationParams, now: Date) => ({
   title: params.title.trim(),
   contentJson: params.contentJson,
   durationMinutes: params.durationMinutes ?? DEFAULT_ACTIVITY_DURATION_MINUTES,
@@ -143,6 +163,7 @@ const contentColumns = (params: ParkedDayPlanItemMutationParams) => ({
   locationLat: params.location?.lat ?? null,
   locationLng: params.location?.lng ?? null,
   locationLabel: params.location?.label?.trim() || null,
+  aiChangedAt: aiChangedAtFor(params.origin, now),
 });
 
 type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
@@ -212,10 +233,11 @@ export const createParkedDayPlanItem = async (
         fromTime: null,
         toTime: null,
         sortOrder: 0,
-        ...contentColumns(params),
+        ...contentColumns(params, new Date()),
       },
     });
     await replacePayments(tx, created.id, params.costCents, params.payments);
+    if (params.inTransaction) await params.inTransaction(tx, { receipt: null, itemId: created.id });
     return toDetail(await tx.dayPlanItem.findUniqueOrThrow({ where: { id: created.id }, include: detailInclude }));
   });
 };
@@ -224,9 +246,12 @@ export const createParkedDayPlanItem = async (
  * Conditional on the item still being parked on this trip (`{ id, tripId, tripDayId: null }`): an idea
  * scheduled meanwhile in another tab is a day activity now and answers `missing`, never an edit that
  * would pull it off its day. Never touches the mode, the times or the order.
+ *
+ * Story 15.4: `expectedUpdatedAt`, when given, is the stamp the caller read; a parked row that no longer
+ * carries it throws `ChangedSinceReadError` inside the transaction, so nothing is written.
  */
 export const updateParkedDayPlanItem = async (
-  params: ParkedDayPlanItemMutationParams & { itemId: string },
+  params: ParkedDayPlanItemMutationParams & { itemId: string; expectedUpdatedAt?: Date },
 ): Promise<ParkedDayPlanItemUpdateResult> => {
   const trip = await findTripForTripWriter(params.userId, params.tripId);
   if (!trip) {
@@ -234,12 +259,22 @@ export const updateParkedDayPlanItem = async (
   }
 
   const item = await prisma.$transaction(async (tx) => {
+    const where = { id: params.itemId, ...parkedDayPlanItemsWhere(params.tripId) };
+    if (params.expectedUpdatedAt) {
+      const existing = await tx.dayPlanItem.findFirst({ where, select: { updatedAt: true } });
+      if (!existing) return null;
+      if (existing.updatedAt.getTime() !== params.expectedUpdatedAt.getTime()) throw new ChangedSinceReadError();
+    }
     const written = await tx.dayPlanItem.updateMany({
-      where: { id: params.itemId, ...parkedDayPlanItemsWhere(params.tripId) },
-      data: contentColumns(params),
+      where: params.expectedUpdatedAt ? { ...where, updatedAt: params.expectedUpdatedAt } : where,
+      data: contentColumns(params, new Date()),
     });
-    if (written.count !== 1) return null;
+    if (written.count !== 1) {
+      if (params.expectedUpdatedAt) throw new ChangedSinceReadError();
+      return null;
+    }
     await replacePayments(tx, params.itemId, params.costCents, params.payments);
+    if (params.inTransaction) await params.inTransaction(tx, { receipt: null, itemId: params.itemId });
     return toDetail(await tx.dayPlanItem.findUniqueOrThrow({ where: { id: params.itemId }, include: detailInclude }));
   });
 
@@ -251,11 +286,15 @@ export const updateParkedDayPlanItem = async (
  * documents and payments. The files are the route's to remove after the commit (Story 14.1 §15), from
  * the URLs returned here - a day activity's delete keeps its files (DW-187); a parked idea's does not,
  * because no undo can bring it back.
+ *
+ * Story 15.4: a pure delete, so no origin; `expectedUpdatedAt` and the hook as for the update.
  */
 export const deleteParkedDayPlanItem = async (params: {
   userId: string;
   tripId: string;
   itemId: string;
+  expectedUpdatedAt?: Date;
+  inTransaction?: InTransactionHook;
 }): Promise<ParkedDayPlanItemDeleteResult> => {
   const trip = await findTripForTripWriter(params.userId, params.tripId);
   if (!trip) {
@@ -266,11 +305,19 @@ export const deleteParkedDayPlanItem = async (params: {
     const where = { id: params.itemId, ...parkedDayPlanItemsWhere(params.tripId) };
     const existing = await tx.dayPlanItem.findFirst({
       where,
-      select: { images: { select: { imageUrl: true } }, documents: { select: { documentUrl: true } } },
+      select: {
+        updatedAt: true,
+        images: { select: { imageUrl: true } },
+        documents: { select: { documentUrl: true } },
+      },
     });
     if (!existing) return null;
+    if (params.expectedUpdatedAt && existing.updatedAt.getTime() !== params.expectedUpdatedAt.getTime()) {
+      throw new ChangedSinceReadError();
+    }
     const deleted = await tx.dayPlanItem.deleteMany({ where });
     if (deleted.count !== 1) return null;
+    if (params.inTransaction) await params.inTransaction(tx, { receipt: null, itemId: params.itemId });
     return {
       imageUrls: existing.images.map((image) => image.imageUrl),
       documentUrls: existing.documents.map((document) => document.documentUrl),

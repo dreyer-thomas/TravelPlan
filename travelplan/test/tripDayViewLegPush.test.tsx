@@ -223,6 +223,8 @@ const stubDay = (
         return mockFetchResponse({ data: { undone: true }, error: null });
       }
       if (url.includes("/bucket-list-items")) return mockFetchResponse({ data: { items: [] }, error: null });
+      // Story 15.4: the AI notice's list is not the trip detail.
+      if (url.includes("/ai-changes")) return mockFetchResponse({ data: { changes: [] }, error: null });
       if (url.includes("/api/auth/csrf")) return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
       if (url.includes("/images")) return mockFetchResponse({ data: { images: [] }, error: null });
       if (url.includes("/documents")) return mockFetchResponse({ data: { documents: [] }, error: null });

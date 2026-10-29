@@ -25,6 +25,7 @@ import MoneyField from "@/components/forms/MoneyField";
 import { useEntryCurrency } from "@/components/forms/useEntryCurrency";
 import FormNotice from "@/components/forms/FormNotice";
 import PhotoUploadField from "@/components/forms/PhotoUploadField";
+import AiBadge from "@/components/ui/AiBadge";
 import DialogShell from "@/components/ui/DialogShell";
 import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 import FullscreenPhotoViewer from "@/components/ui/FullscreenPhotoViewer";
@@ -73,6 +74,8 @@ type TripDay = {
     checkInTime: string | null;
     checkOutTime: string | null;
     location?: { lat: number; lng: number; label?: string | null } | null;
+    /** Story 15.4. ISO time the connector last created or changed the stay; shows the KI/AI badge. */
+    aiChangedAt?: string | null;
   } | null;
 };
 
@@ -2042,6 +2045,7 @@ export default function TripAccommodationDialog({
       onClose={stayGuard.requestClose}
       closeLabel={t("common.close")}
       title={title}
+      titleAdornment={day?.accommodation?.aiChangedAt ? <AiBadge /> : undefined}
       subtitle={daySubtitle ?? undefined}
       // Screen G's `.dialog.w-520`. This dialog carries the payment rows, whose minWidth floors are
       // preserved rather than compressed — see the browser check in the story record.

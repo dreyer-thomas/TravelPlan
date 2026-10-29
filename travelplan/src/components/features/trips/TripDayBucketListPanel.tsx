@@ -2,6 +2,7 @@
 
 import { Alert, Box, IconButton, Typography, useTheme } from "@mui/material";
 import { useI18n } from "@/i18n/provider";
+import AiBadge from "@/components/ui/AiBadge";
 import BucketItemThumbnail from "@/components/features/trips/BucketItemThumbnail";
 import { PencilIcon, PlusIcon } from "@/components/features/trips/TripIcons";
 import { bucketItemMetaLine } from "@/lib/trips/activityDuration";
@@ -14,6 +15,8 @@ type BucketListItem = {
   durationMinutes: number;
   location: { lat: number; lng: number; label: string | null } | null;
   firstImageUrl: string | null;
+  /** Story 15.4. Set when the connector created or changed the idea; shows the KI/AI badge. */
+  aiChangedAt?: string | null;
 };
 
 type TripDayBucketListPanelProps<T extends BucketListItem> = {
@@ -136,6 +139,7 @@ export default function TripDayBucketListPanel<T extends BucketListItem>({
                 <Box sx={{ minWidth: 0, flex: 1 }}>
                   <Typography variant="body1" sx={{ fontWeight: 600, color: tokens.ink, overflowWrap: "anywhere" }}>
                     {item.title}
+                    {item.aiChangedAt ? <AiBadge sx={{ ml: 1 }} /> : null}
                   </Typography>
                   <Typography variant="body2" sx={{ color: tokens.inkSoft, mt: "1px", overflowWrap: "anywhere" }}>
                     {metaLine}

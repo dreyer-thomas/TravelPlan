@@ -114,6 +114,11 @@ export type DialogShellProps = {
    * resolve breakpoints. Off by default, so every other consumer renders exactly as before.
    */
   fullScreenOnPhone?: boolean;
+  /**
+   * Story 15.4. Rendered on the title's line, beside the `h2` and never inside it (the KI/AI badge), so
+   * neither the heading's text nor the dialog's accessible name (`aria-labelledby` → the `h2`) changes.
+   */
+  titleAdornment?: ReactNode;
 };
 
 export default function DialogShell({
@@ -128,6 +133,7 @@ export default function DialogShell({
   disableDismiss = false,
   closeLabel,
   fullScreenOnPhone = false,
+  titleAdornment,
 }: DialogShellProps) {
   const theme = useTheme();
   const { tokens } = theme.palette;
@@ -148,22 +154,36 @@ export default function DialogShell({
    * the conditional is gone — the same fix travels with the glyph in `DialogTitleWithClose`, for the
    * dialogs that do not use this shell.
    */
+  const heading = (
+    <Box
+      id={titleId}
+      component="h2"
+      sx={{
+        fontSize: 17,
+        fontWeight: 900,
+        letterSpacing: "-0.2px",
+        color: tokens.ink,
+        // A real `h2` brings the browser's own margin with it; the design's spacing is the head's.
+        m: 0,
+        // Beside a `titleAdornment` the heading is a flex child: a long unbroken title wraps rather than
+        // pushing the adornment off a phone's screen.
+        minWidth: 0,
+        overflowWrap: "anywhere",
+      }}
+    >
+      {title}
+    </Box>
+  );
   const titleBlock = (
     <>
-      <Box
-        id={titleId}
-        component="h2"
-        sx={{
-          fontSize: 17,
-          fontWeight: 900,
-          letterSpacing: "-0.2px",
-          color: tokens.ink,
-          // A real `h2` brings the browser's own margin with it; the design's spacing is the head's.
-          m: 0,
-        }}
-      >
-        {title}
-      </Box>
+      {titleAdornment ? (
+        <Box sx={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+          {heading}
+          {titleAdornment}
+        </Box>
+      ) : (
+        heading
+      )}
       {subtitle ? (
         <Box sx={{ mt: "4px", fontSize: 12.5, fontWeight: 600, color: tokens.inkSoft }}>{subtitle}</Box>
       ) : null}

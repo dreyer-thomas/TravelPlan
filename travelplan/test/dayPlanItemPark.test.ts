@@ -97,7 +97,7 @@ const seedDay = async (email: string) => {
 };
 
 const park = async (userId: string, tripId: string, tripDayId: string, itemId: string) => {
-  const result = await parkDayPlanItemForTripDay({ userId, tripId, tripDayId, itemId });
+  const result = await parkDayPlanItemForTripDay({ origin: "user", userId, tripId, tripDayId, itemId });
   expect(result.status).toBe("parked");
   if (result.status !== "parked") throw new Error("not parked");
   return result;
@@ -166,6 +166,7 @@ describe("parkDayPlanItemForTripDay (Story 14.2 AC1)", () => {
         fromTime: "10:25",
         toTime: "11:25",
         updatedAt: PAST,
+        previousAiChangedAt: null,
       },
     });
     expect(parked.receipt.removedTravelSegments.map((leg) => leg.id).sort()).toEqual([ab.id, bc.id].sort());
@@ -297,7 +298,7 @@ describe("parkDayPlanItemForTripDay refusals (Story 14.2 AC8)", () => {
     const before = await state();
 
     for (const itemId of [elsewhere.id, alreadyParked.id, "unknown"]) {
-      expect(await parkDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId })).toEqual({
+      expect(await parkDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: day.id, itemId })).toEqual({
         status: "missing",
       });
     }
@@ -312,7 +313,7 @@ describe("parkDayPlanItemForTripDay refusals (Story 14.2 AC8)", () => {
     const before = await state();
 
     for (const userId of [viewer.id, outsider.id]) {
-      expect(await parkDayPlanItemForTripDay({ userId, tripId: trip.id, tripDayId: day.id, itemId: b.id })).toEqual({
+      expect(await parkDayPlanItemForTripDay({ origin: "user", userId, tripId: trip.id, tripDayId: day.id, itemId: b.id })).toEqual({
         status: "not_found",
       });
     }
@@ -377,7 +378,7 @@ describe("a parked activity scheduled onto another day comes back whole (Story 1
     const childrenBefore = await children();
 
     await park(user.id, trip.id, firstDay.id, source.id);
-    const scheduled = await scheduleParkedDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: source.id });
+    const scheduled = await scheduleParkedDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: source.id });
     expect(scheduled.status).toBe("scheduled");
 
     const after = await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: source.id } });

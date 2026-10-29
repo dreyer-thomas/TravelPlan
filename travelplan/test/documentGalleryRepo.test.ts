@@ -66,6 +66,7 @@ describe("document gallery repositories", () => {
     });
 
     const first = await createAccommodationDocument({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -74,6 +75,7 @@ describe("document gallery repositories", () => {
       fileName: "Booking.pdf",
     });
     const second = await createAccommodationDocument({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -89,6 +91,7 @@ describe("document gallery repositories", () => {
     expect(first.status === "created" && first.document.fileName).toBe("Booking.pdf");
 
     const unauthorizedCreate = await createAccommodationDocument({
+      origin: "user",
       userId: other.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -163,6 +166,7 @@ describe("document gallery repositories", () => {
     });
 
     await createAccommodationDocument({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -180,6 +184,7 @@ describe("document gallery repositories", () => {
     expect(contributorRead?.map((entry) => entry.fileName)).toEqual(["Shared.pdf"]);
 
     const contributorWrite = await createAccommodationDocument({
+      origin: "user",
       userId: contributor.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -204,6 +209,7 @@ describe("document gallery repositories", () => {
     expect(viewerRead?.map((entry) => entry.fileName)).toEqual(["Shared.pdf", "Contributor.pdf"]);
 
     const viewerWrite = await createAccommodationDocument({
+      origin: "user",
       userId: viewer.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -228,6 +234,7 @@ describe("document gallery repositories", () => {
 
     for (let index = 0; index < MAX_DOCUMENTS_PER_ENTRY; index += 1) {
       const created = await createAccommodationDocument({
+        origin: "user",
         userId: owner.id,
         tripId: trip.id,
         tripDayId: day.id,
@@ -239,6 +246,7 @@ describe("document gallery repositories", () => {
     }
 
     const eleventh = await createAccommodationDocument({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -257,6 +265,7 @@ describe("document gallery repositories", () => {
       data: { tripDayId: secondDay.id, name: "Empty Stay" },
     });
     const onOther = await createAccommodationDocument({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: secondDay.id,
@@ -283,6 +292,7 @@ describe("document gallery repositories", () => {
       documentId: rows![0].id,
     });
     const afterDelete = await createAccommodationDocument({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -311,6 +321,7 @@ describe("document gallery repositories", () => {
     });
 
     const first = await createDayPlanItemDocument({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -319,6 +330,7 @@ describe("document gallery repositories", () => {
       fileName: "Museum ticket.pdf",
     });
     const second = await createDayPlanItemDocument({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -392,6 +404,7 @@ describe("document gallery repositories", () => {
     });
 
     const contributorWrite = await createDayPlanItemDocument({
+      origin: "user",
       userId: contributor.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -412,6 +425,7 @@ describe("document gallery repositories", () => {
     expect(viewerRead?.map((entry) => entry.fileName)).toEqual(["Contributor.pdf"]);
 
     const viewerWrite = await createDayPlanItemDocument({
+      origin: "user",
       userId: viewer.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -471,6 +485,7 @@ describe("document gallery repositories", () => {
       [otherItem, otherDay.id, "Other.pdf"],
     ] as const) {
       await createDayPlanItemDocument({
+        origin: "user",
         userId: owner.id,
         tripId: trip.id,
         tripDayId,
@@ -521,6 +536,7 @@ describe("document gallery repositories", () => {
     });
 
     await createAccommodationDocument({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -529,6 +545,7 @@ describe("document gallery repositories", () => {
       fileName: "Stay.pdf",
     });
     await createDayPlanItemDocument({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -550,6 +567,7 @@ describe("document gallery repositories", () => {
       data: { tripDayId: day.id, name: "Also Doomed" },
     });
     await createAccommodationDocument({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: day.id,

@@ -59,6 +59,7 @@ const seed = async () => {
 
 const create = async (userId: string, tripId: string, tripDayId: string, title: string) => {
   const result = await createDayPlanItemForTripDay({
+    origin: "user",
     userId,
     tripId,
     tripDayId,
@@ -95,15 +96,15 @@ describe("every write path keeps DayPlanItem.tripId equal to its day's trip (Sto
     expect(a.item).toMatchObject({ tripDayId: days[0].id });
     await expectConsistent(trip.id);
 
-    expect(await parkDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: days[0].id, itemId: a.item.id })).toMatchObject({ status: "parked" });
+    expect(await parkDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: days[0].id, itemId: a.item.id })).toMatchObject({ status: "parked" });
     await expectConsistent(trip.id);
-    expect(await scheduleParkedDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: days[2].id, itemId: a.item.id })).toMatchObject({ status: "scheduled" });
-    await expectConsistent(trip.id);
-
-    await swapDayPlanItemsBetweenTripDays({ userId: user.id, tripId: trip.id, firstTripDayId: days[1].id, secondTripDayId: days[2].id });
+    expect(await scheduleParkedDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: days[2].id, itemId: a.item.id })).toMatchObject({ status: "scheduled" });
     await expectConsistent(trip.id);
 
-    await moveDayPlanItemsBetweenTripDays({ userId: user.id, tripId: trip.id, sourceTripDayId: days[1].id, targetTripDayId: days[0].id });
+    await swapDayPlanItemsBetweenTripDays({ origin: "user", userId: user.id, tripId: trip.id, firstTripDayId: days[1].id, secondTripDayId: days[2].id });
+    await expectConsistent(trip.id);
+
+    await moveDayPlanItemsBetweenTripDays({ origin: "user", userId: user.id, tripId: trip.id, sourceTripDayId: days[1].id, targetTripDayId: days[0].id });
     await expectConsistent(trip.id);
   });
 
@@ -123,7 +124,7 @@ describe("every write path keeps DayPlanItem.tripId equal to its day's trip (Sto
     const idea = await prisma.dayPlanItem.create({
       data: { tripId: trip.id, tripDayId: null, scheduleMode: "FLEXIBLE", title: "Idea", contentJson: doc("Idea") },
     });
-    const scheduled = await scheduleParkedDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: days[1].id, itemId: idea.id });
+    const scheduled = await scheduleParkedDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: days[1].id, itemId: idea.id });
     expect(scheduled.status).toBe("scheduled");
     await expectConsistent(trip.id);
   });
@@ -136,6 +137,7 @@ describe("every write path keeps DayPlanItem.tripId equal to its day's trip (Sto
     if (!state) throw new Error("no state");
     const plan = planSuggestionAppend(state, [suggestionDurationMinutes(suggestion().durationMinutes)], [null]);
     const receipt = await applySuggestionsForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: days[0].id,

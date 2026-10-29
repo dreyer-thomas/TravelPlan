@@ -155,6 +155,7 @@ const seedDayWithUntimed = async (email: string) => {
 /** Times U at 13:30, between B and C: A, B, U, C. Un-draws B→C and C→U; C has slack, so nothing moves. */
 const timeUBetweenBAndC = (userId: string, tripId: string, tripDayId: string, itemId: string) =>
   updateDayPlanItemForTripDay({
+    origin: "user",
     ...mutation(userId, tripId, tripDayId),
     itemId,
     title: "U timed",
@@ -187,6 +188,7 @@ describe("undoDayPlanChangeForTrip restores the whole change (Story 11.1)", () =
     const before = await databaseState();
 
     const created = await createDayPlanItemExpectingSuccess({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       title: "M",
       fromTime: "10:30",
@@ -303,7 +305,7 @@ describe("undo of a scheduled bucket-list idea (Story 14.1 AC8)", () => {
   };
 
   const schedule = async (userId: string, tripId: string, tripDayId: string, itemId: string) => {
-    const result = await scheduleParkedDayPlanItemForTripDay({ userId, tripId, tripDayId, itemId });
+    const result = await scheduleParkedDayPlanItemForTripDay({ origin: "user", userId, tripId, tripDayId, itemId });
     expect(result.status).toBe("scheduled");
     if (result.status !== "scheduled") throw new Error("not scheduled");
     return result;
@@ -321,6 +323,7 @@ describe("undo of a scheduled bucket-list idea (Story 14.1 AC8)", () => {
       itemId: idea.id,
       updatedAt: expect.any(Date),
       previousUpdatedAt: PAST,
+      previousAiChangedAt: null,
     });
     // Same id, so nothing was copied: the pictures, the document and the payments are the same rows.
     const during = await databaseState();
@@ -340,6 +343,7 @@ describe("undo of a scheduled bucket-list idea (Story 14.1 AC8)", () => {
     const idea = await seedParked(trip.id);
     const scheduled = await schedule(user.id, trip.id, day.id, idea.id);
     const edited = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       itemId: idea.id,
       title: "Idea, renamed",
@@ -469,7 +473,7 @@ describe("undo of a parked activity (Story 14.2 AC4)", () => {
   beforeEach(resetDatabase);
 
   const park = async (userId: string, tripId: string, tripDayId: string, itemId: string) => {
-    const result = await parkDayPlanItemForTripDay({ userId, tripId, tripDayId, itemId });
+    const result = await parkDayPlanItemForTripDay({ origin: "user", userId, tripId, tripDayId, itemId });
     expect(result.status).toBe("parked");
     if (result.status !== "parked") throw new Error("not parked");
     return result;
@@ -537,7 +541,7 @@ describe("undo of a parked activity (Story 14.2 AC4)", () => {
     });
     const parked = await park(user.id, trip.id, day.id, b.id);
     await tick();
-    const scheduled = await scheduleParkedDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: otherDay.id, itemId: b.id });
+    const scheduled = await scheduleParkedDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: otherDay.id, itemId: b.id });
     expect(scheduled.status).toBe("scheduled");
 
     await expectStale(user.id, trip.id, parked.receipt);
@@ -634,6 +638,7 @@ describe("undoDayPlanChangeForTrip refuses when the day has moved on (Story 11.1
     if (updated.status !== "updated") throw new Error("setup");
     await tick();
     await updateDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       itemId: u.id,
       title: "U edited later",
@@ -648,6 +653,7 @@ describe("undoDayPlanChangeForTrip refuses when the day has moved on (Story 11.1
   it("refuses when the created item has gained an image since", async () => {
     const { user, trip, day } = await seedDay("stale-image@example.com");
     const created = await createDayPlanItemExpectingSuccess({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       title: "M",
       fromTime: "10:30",
@@ -714,6 +720,7 @@ describe("undoDayPlanChangeForTrip refuses when the day has moved on (Story 11.1
   it("refuses a leg between two endpoints that are not consecutive, even when both are on the day", async () => {
     const { user, trip, day, a, c } = await seedDay("stale-non-adjacent@example.com");
     const created = await createDayPlanItemExpectingSuccess({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       title: "Late",
       fromTime: "18:00",
@@ -738,6 +745,7 @@ describe("undoDayPlanChangeForTrip refuses when the day has moved on (Story 11.1
           linkUrl: null,
           createdAt: PAST,
           updatedAt: PAST,
+          aiChangedAt: null,
         },
       ],
     };
@@ -776,6 +784,7 @@ describe("undo takes back what the push moved (Story 11.2 AC10)", () => {
 
     // M 10:00–12:30 sits between A and B: A→B is swept, and B is pushed to 12:30. 13.1: C follows B.
     const created = await createDayPlanItemExpectingSuccess({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       title: "M",
       fromTime: "10:00",
@@ -799,6 +808,7 @@ describe("undo takes back what the push moved (Story 11.2 AC10)", () => {
 
     // A to 09:00–12:30: B must start at 12:30 + the 25-minute A→B leg = 12:55.
     const updated = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       itemId: a.id,
       title: "A longer",
@@ -823,6 +833,7 @@ describe("undo takes back what the push moved (Story 11.2 AC10)", () => {
   it("refuses when a moved activity has been edited since, and writes nothing", async () => {
     const { user, trip, day, a, b } = await seedFlexibleDay("undo-push-stale@example.com");
     const updated = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       itemId: a.id,
       title: "A",
@@ -833,6 +844,7 @@ describe("undo takes back what the push moved (Story 11.2 AC10)", () => {
     if (updated.status !== "updated") throw new Error("setup");
     await tick();
     await updateDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       itemId: b.id,
       title: "B renamed",
@@ -864,7 +876,7 @@ const seedReordered = async (email: string) => {
   await createLeg(day.id, b.id, c.id);
   await settleSeededDay(day.id, { flexible: [a.id, b.id, c.id] });
   const before = await databaseState();
-  const reordered = await reorderDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id, direction: "up" });
+  const reordered = await reorderDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id, direction: "up" });
   if (reordered.status !== "reordered") throw new Error("setup");
   return { user, trip, day, a, b, c, before, receipt: reordered.receipt };
 };
@@ -885,6 +897,7 @@ describe("undo takes back a reorder (Story 11.3 AC10)", () => {
     const { user, trip, day, a, receipt } = await seedReordered("undo-reorder-stale-pair@example.com");
     await tick();
     await updateDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       itemId: a.id,
       title: "A renamed",
@@ -902,6 +915,7 @@ describe("undo takes back a reorder (Story 11.3 AC10)", () => {
     const { user, trip, day, c, receipt } = await seedReordered("undo-reorder-stale-pushed@example.com");
     await tick();
     await updateDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       itemId: c.id,
       title: "C renamed",
@@ -1122,6 +1136,7 @@ describe("POST /api/trips/[id]/day-plan-changes/undo (Story 11.1)", () => {
                 sortOrder: 1,
                 createdAt: PAST.toISOString(),
                 updatedAt: PAST.toISOString(),
+                aiChangedAt: null,
               },
             ],
           },
@@ -1269,6 +1284,7 @@ describe("undo takes back a leg or check-out push (Story 11.4)", () => {
   };
 
   const legParams = (seeded: Awaited<ReturnType<typeof seedLegDay>>, durationMinutes: number) => ({
+    origin: "user" as const,
     userId: seeded.user.id,
     tripId: seeded.trip.id,
     tripDayId: seeded.day.id,
@@ -1300,6 +1316,7 @@ describe("undo takes back a leg or check-out push (Story 11.4)", () => {
   /** A check-out-only PATCH: the stay's other columns are written back as they were. */
   const laterCheckOut = async (seeded: Awaited<ReturnType<typeof seedLegDay>>, name = "Glenfern") => {
     const result = await updateAccommodationForTripDay({
+      origin: "user",
       userId: seeded.user.id,
       tripId: seeded.trip.id,
       tripDayId: seeded.stayDay.id,
@@ -1477,6 +1494,7 @@ describe("undo takes back a leg or check-out push (Story 11.4)", () => {
       linkUrl: null,
       createdAt: PAST.toISOString(),
       updatedAt: PAST.toISOString(),
+      aiChangedAt: null,
     });
     const forgedIdea = (tripId: string) => ({
       id: "idea-forged",
@@ -1552,6 +1570,7 @@ describe("undo restores a recomputed day exactly (Story 13.1 AC12)", () => {
 
     // A becomes flexible for 30 minutes: it starts at 09:00 still, and B and C come forward.
     const updated = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       itemId: a.id,
       title: "A",
@@ -1580,6 +1599,7 @@ describe("undo restores a recomputed day exactly (Story 13.1 AC12)", () => {
 
     // C fixed at 08:00 goes first; A→B and B→C are no longer drawn and are swept.
     const updated = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       itemId: c.id,
       title: "C",
@@ -1645,6 +1665,7 @@ describe("undo restores a recomputed day exactly (Story 13.1 AC12)", () => {
     const before = await fullState();
 
     const result = await updateAccommodationForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: stayDay.id,
@@ -1663,6 +1684,7 @@ describe("undo restores a recomputed day exactly (Story 13.1 AC12)", () => {
     const { user, trip, day, a, c } = await seedFlexibleDay("undo-13-1-renumbered-stale@example.com");
     // C fixed at 08:00 goes first: A keeps its fixed times and is only renumbered, 0 → 1.
     const updated = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       itemId: c.id,
       title: "C",

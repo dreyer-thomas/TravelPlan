@@ -42,6 +42,7 @@ export type AccommodationDocumentMinAggregateOutputType = {
   sortOrder: number | null
   createdAt: Date | null
   updatedAt: Date | null
+  aiChangedAt: Date | null
 }
 
 export type AccommodationDocumentMaxAggregateOutputType = {
@@ -52,6 +53,7 @@ export type AccommodationDocumentMaxAggregateOutputType = {
   sortOrder: number | null
   createdAt: Date | null
   updatedAt: Date | null
+  aiChangedAt: Date | null
 }
 
 export type AccommodationDocumentCountAggregateOutputType = {
@@ -62,6 +64,7 @@ export type AccommodationDocumentCountAggregateOutputType = {
   sortOrder: number
   createdAt: number
   updatedAt: number
+  aiChangedAt: number
   _all: number
 }
 
@@ -82,6 +85,7 @@ export type AccommodationDocumentMinAggregateInputType = {
   sortOrder?: true
   createdAt?: true
   updatedAt?: true
+  aiChangedAt?: true
 }
 
 export type AccommodationDocumentMaxAggregateInputType = {
@@ -92,6 +96,7 @@ export type AccommodationDocumentMaxAggregateInputType = {
   sortOrder?: true
   createdAt?: true
   updatedAt?: true
+  aiChangedAt?: true
 }
 
 export type AccommodationDocumentCountAggregateInputType = {
@@ -102,6 +107,7 @@ export type AccommodationDocumentCountAggregateInputType = {
   sortOrder?: true
   createdAt?: true
   updatedAt?: true
+  aiChangedAt?: true
   _all?: true
 }
 
@@ -199,6 +205,7 @@ export type AccommodationDocumentGroupByOutputType = {
   sortOrder: number
   createdAt: Date
   updatedAt: Date
+  aiChangedAt: Date | null
   _count: AccommodationDocumentCountAggregateOutputType | null
   _avg: AccommodationDocumentAvgAggregateOutputType | null
   _sum: AccommodationDocumentSumAggregateOutputType | null
@@ -232,6 +239,7 @@ export type AccommodationDocumentWhereInput = {
   sortOrder?: Prisma.IntFilter<"AccommodationDocument"> | number
   createdAt?: Prisma.DateTimeFilter<"AccommodationDocument"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"AccommodationDocument"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableFilter<"AccommodationDocument"> | Date | string | null
   accommodation?: Prisma.XOR<Prisma.AccommodationScalarRelationFilter, Prisma.AccommodationWhereInput>
 }
 
@@ -243,6 +251,7 @@ export type AccommodationDocumentOrderByWithRelationInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   accommodation?: Prisma.AccommodationOrderByWithRelationInput
 }
 
@@ -258,6 +267,7 @@ export type AccommodationDocumentWhereUniqueInput = Prisma.AtLeast<{
   sortOrder?: Prisma.IntFilter<"AccommodationDocument"> | number
   createdAt?: Prisma.DateTimeFilter<"AccommodationDocument"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"AccommodationDocument"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableFilter<"AccommodationDocument"> | Date | string | null
   accommodation?: Prisma.XOR<Prisma.AccommodationScalarRelationFilter, Prisma.AccommodationWhereInput>
 }, "id" | "accommodationId_sortOrder">
 
@@ -269,6 +279,7 @@ export type AccommodationDocumentOrderByWithAggregationInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.AccommodationDocumentCountOrderByAggregateInput
   _avg?: Prisma.AccommodationDocumentAvgOrderByAggregateInput
   _max?: Prisma.AccommodationDocumentMaxOrderByAggregateInput
@@ -287,6 +298,7 @@ export type AccommodationDocumentScalarWhereWithAggregatesInput = {
   sortOrder?: Prisma.IntWithAggregatesFilter<"AccommodationDocument"> | number
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"AccommodationDocument"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"AccommodationDocument"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"AccommodationDocument"> | Date | string | null
 }
 
 export type AccommodationDocumentCreateInput = {
@@ -296,6 +308,7 @@ export type AccommodationDocumentCreateInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
   accommodation: Prisma.AccommodationCreateNestedOneWithoutDocumentsInput
 }
 
@@ -307,6 +320,7 @@ export type AccommodationDocumentUncheckedCreateInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type AccommodationDocumentUpdateInput = {
@@ -316,6 +330,7 @@ export type AccommodationDocumentUpdateInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   accommodation?: Prisma.AccommodationUpdateOneRequiredWithoutDocumentsNestedInput
 }
 
@@ -327,6 +342,7 @@ export type AccommodationDocumentUncheckedUpdateInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AccommodationDocumentCreateManyInput = {
@@ -337,6 +353,7 @@ export type AccommodationDocumentCreateManyInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type AccommodationDocumentUpdateManyMutationInput = {
@@ -346,6 +363,7 @@ export type AccommodationDocumentUpdateManyMutationInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AccommodationDocumentUncheckedUpdateManyInput = {
@@ -356,6 +374,7 @@ export type AccommodationDocumentUncheckedUpdateManyInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AccommodationDocumentListRelationFilter = {
@@ -381,6 +400,7 @@ export type AccommodationDocumentCountOrderByAggregateInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrder
 }
 
 export type AccommodationDocumentAvgOrderByAggregateInput = {
@@ -395,6 +415,7 @@ export type AccommodationDocumentMaxOrderByAggregateInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrder
 }
 
 export type AccommodationDocumentMinOrderByAggregateInput = {
@@ -405,6 +426,7 @@ export type AccommodationDocumentMinOrderByAggregateInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrder
 }
 
 export type AccommodationDocumentSumOrderByAggregateInput = {
@@ -460,6 +482,7 @@ export type AccommodationDocumentCreateWithoutAccommodationInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type AccommodationDocumentUncheckedCreateWithoutAccommodationInput = {
@@ -469,6 +492,7 @@ export type AccommodationDocumentUncheckedCreateWithoutAccommodationInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type AccommodationDocumentCreateOrConnectWithoutAccommodationInput = {
@@ -507,6 +531,7 @@ export type AccommodationDocumentScalarWhereInput = {
   sortOrder?: Prisma.IntFilter<"AccommodationDocument"> | number
   createdAt?: Prisma.DateTimeFilter<"AccommodationDocument"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"AccommodationDocument"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableFilter<"AccommodationDocument"> | Date | string | null
 }
 
 export type AccommodationDocumentCreateManyAccommodationInput = {
@@ -516,6 +541,7 @@ export type AccommodationDocumentCreateManyAccommodationInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type AccommodationDocumentUpdateWithoutAccommodationInput = {
@@ -525,6 +551,7 @@ export type AccommodationDocumentUpdateWithoutAccommodationInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AccommodationDocumentUncheckedUpdateWithoutAccommodationInput = {
@@ -534,6 +561,7 @@ export type AccommodationDocumentUncheckedUpdateWithoutAccommodationInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AccommodationDocumentUncheckedUpdateManyWithoutAccommodationInput = {
@@ -543,6 +571,7 @@ export type AccommodationDocumentUncheckedUpdateManyWithoutAccommodationInput = 
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 
@@ -555,6 +584,7 @@ export type AccommodationDocumentSelect<ExtArgs extends runtime.Types.Extensions
   sortOrder?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
   accommodation?: boolean | Prisma.AccommodationDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["accommodationDocument"]>
 
@@ -566,6 +596,7 @@ export type AccommodationDocumentSelectCreateManyAndReturn<ExtArgs extends runti
   sortOrder?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
   accommodation?: boolean | Prisma.AccommodationDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["accommodationDocument"]>
 
@@ -577,6 +608,7 @@ export type AccommodationDocumentSelectUpdateManyAndReturn<ExtArgs extends runti
   sortOrder?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
   accommodation?: boolean | Prisma.AccommodationDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["accommodationDocument"]>
 
@@ -588,9 +620,10 @@ export type AccommodationDocumentSelectScalar = {
   sortOrder?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
 }
 
-export type AccommodationDocumentOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "accommodationId" | "documentUrl" | "fileName" | "sortOrder" | "createdAt" | "updatedAt", ExtArgs["result"]["accommodationDocument"]>
+export type AccommodationDocumentOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "accommodationId" | "documentUrl" | "fileName" | "sortOrder" | "createdAt" | "updatedAt" | "aiChangedAt", ExtArgs["result"]["accommodationDocument"]>
 export type AccommodationDocumentInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   accommodation?: boolean | Prisma.AccommodationDefaultArgs<ExtArgs>
 }
@@ -614,6 +647,7 @@ export type $AccommodationDocumentPayload<ExtArgs extends runtime.Types.Extensio
     sortOrder: number
     createdAt: Date
     updatedAt: Date
+    aiChangedAt: Date | null
   }, ExtArgs["result"]["accommodationDocument"]>
   composites: {}
 }
@@ -1045,6 +1079,7 @@ export interface AccommodationDocumentFieldRefs {
   readonly sortOrder: Prisma.FieldRef<"AccommodationDocument", 'Int'>
   readonly createdAt: Prisma.FieldRef<"AccommodationDocument", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"AccommodationDocument", 'DateTime'>
+  readonly aiChangedAt: Prisma.FieldRef<"AccommodationDocument", 'DateTime'>
 }
     
 

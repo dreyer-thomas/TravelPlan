@@ -138,6 +138,7 @@ describe("day-plan writes push the rest of the day (Story 11.2)", () => {
     expect((await times(day.id)).B).toBe("10:10–11:10");
 
     const result = await createDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       title: "M",
       fromTime: "10:00",
@@ -175,6 +176,7 @@ describe("day-plan writes push the rest of the day (Story 11.2)", () => {
     const { user, trip, day, a, b, c } = await seedWorkedDay("push-update@example.com");
 
     const extended = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       itemId: a.id,
       title: "A",
@@ -191,6 +193,7 @@ describe("day-plan writes push the rest of the day (Story 11.2)", () => {
 
     const before = await times(day.id);
     const shortened = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       itemId: a.id,
       title: "A",
@@ -214,6 +217,7 @@ describe("day-plan writes push the rest of the day (Story 11.2)", () => {
     const before = await times(day.id);
 
     const result = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       itemId: a.id,
       title: "A renamed",
@@ -247,6 +251,7 @@ describe("day-plan writes push the rest of the day (Story 11.2)", () => {
     const u = await createItem(day.id, "U", null, null);
 
     const result = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       itemId: u.id,
       title: "U",
@@ -283,6 +288,7 @@ describe("the push rule's refusals write nothing (Story 11.2 AC5, AC8)", () => {
     const { user, trip, day, a, b, c, d } = await seedWorkedDay("refuse-predecessor@example.com");
 
     const result = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       itemId: c.id,
       title: "C",
@@ -308,6 +314,7 @@ describe("the push rule's refusals write nothing (Story 11.2 AC5, AC8)", () => {
     await settleSeededDay(day.id, { flexible: [late.id] });
 
     const result = await createDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       title: "Dinner",
       fromTime: "21:00",
@@ -341,6 +348,7 @@ describe("a row that already does not fit never blocks a save (Story 13.1 §7)",
     await prisma.dayPlanItem.update({ where: { id: late.id }, data: { durationMinutes: 60 } });
 
     const result = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       itemId: a.id,
       title: "A renamed",
@@ -362,6 +370,7 @@ describe("a row that already does not fit never blocks a save (Story 13.1 §7)",
     await settleSeededDay(day.id, { flexible: [fits.id] });
 
     const pushed = await createDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       title: "Dinner",
       fromTime: "21:30",
@@ -517,6 +526,7 @@ describe("the check-in warning is gone (Story 13.2 AC8)", () => {
 
     // A to 16:45 pushes B to 16:45–17:45, after the 17:30 check-in: 11.2 warned here.
     const result = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...mutation(user.id, trip.id, day.id),
       itemId: a.id,
       title: "A",

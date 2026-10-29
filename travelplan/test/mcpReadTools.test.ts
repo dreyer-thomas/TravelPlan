@@ -195,6 +195,7 @@ describe("get_day", () => {
         documents: [],
         images: [],
         updatedAt: iso,
+        aiChangedAt: null,
       },
       {
         id: seed.dinner.id,
@@ -211,6 +212,7 @@ describe("get_day", () => {
         documents: [{ id: expect.any(String), fileName: "menu.pdf" }],
         images: [{ id: expect.any(String), fileName: "table.webp" }],
         updatedAt: iso,
+        aiChangedAt: null,
       },
       expect.objectContaining({ id: seed.nightWalk.id, title: null, mode: "flexible", startTime: null, endTime: null }),
     ]);
@@ -224,6 +226,7 @@ describe("get_day", () => {
         distanceKm: 1.2,
         link: null,
         updatedAt: iso,
+        aiChangedAt: null,
       },
       {
         id: seed.driveLeg.id,
@@ -234,6 +237,7 @@ describe("get_day", () => {
         distanceKm: 12.5,
         link: "https://maps.example/route",
         updatedAt: iso,
+        aiChangedAt: null,
       },
     ]);
     expect(day.stay).toEqual({
@@ -253,6 +257,7 @@ describe("get_day", () => {
       documents: [{ id: expect.any(String), fileName: "booking.pdf" }],
       images: [{ id: expect.any(String), fileName: "front.jpg" }],
       updatedAt: iso,
+      aiChangedAt: null,
     });
     expect(JSON.stringify(body)).not.toContain("/uploads/");
   });
@@ -309,6 +314,7 @@ describe("get_bucket_list", () => {
         documents: [{ id: expect.any(String), fileName: "ticket.pdf" }],
         images: [{ id: expect.any(String), fileName: "view.jpg" }],
         updatedAt: expect.any(String),
+        aiChangedAt: null,
       },
       expect.objectContaining({ id: seed.zoo.id, title: "Zoo", documents: [], images: [] }),
     ]);
@@ -389,12 +395,14 @@ describe("shared tool rules", () => {
     expect(body.result?.structuredContent).toMatchObject({ id: seed.trip.id, name: "Prague" });
   });
 
-  it("advertises read-only annotations on every tool", async () => {
+  it("advertises read-only annotations on every read tool", async () => {
     const user = await createUser();
     const token = await issueAccessToken(user.id);
     const response = await POST(rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, { authorization: `Bearer ${token}` }));
     const body = (await response.json()) as { result: { tools: { name: string; annotations: unknown }[] } };
-    for (const tool of body.result.tools) {
+    // Story 15.4 added the write tools, which carry their own annotations (test/mcpActivityWriteTools.test.ts).
+    const readTools = new Set(["whoami", "list_trips", "get_trip", "get_day", "get_bucket_list", "list_ai_changes"]);
+    for (const tool of body.result.tools.filter((entry) => readTools.has(entry.name))) {
       expect(tool.annotations).toEqual({ readOnlyHint: true, idempotentHint: true, openWorldHint: false });
     }
   });

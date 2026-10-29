@@ -193,6 +193,8 @@ export type TripDaySummary = {
     checkInTime: string | null;
     checkOutTime: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
+    /** Story 15.4. When the connector last created or changed the stay; `null` once a person edits it. */
+    aiChangedAt: Date | null;
   } | null;
   dayPlanItems: {
     id: string;
@@ -219,6 +221,8 @@ export type TripDaySummary = {
     payments: PaymentDetail[];
     linkUrl: string | null;
     location: { lat: number; lng: number; label: string | null } | null;
+    /** Story 15.4. When the connector last created or changed the activity; drives the KI/AI badge. */
+    aiChangedAt: Date | null;
   }[];
   travelSegments: {
     id: string;
@@ -1143,6 +1147,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
               locationLat: true,
               locationLng: true,
               locationLabel: true,
+              aiChangedAt: true,
             },
           },
           dayPlanItems: {
@@ -1170,6 +1175,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
               locationLat: true,
               locationLng: true,
               locationLabel: true,
+              aiChangedAt: true,
             },
           },
           travelSegments: {
@@ -1305,6 +1311,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
                       label: day.accommodation!.locationLabel,
                     }
                   : null,
+              aiChangedAt: day.accommodation!.aiChangedAt,
             }
           : null,
         dayPlanItems: orderedItems.map((item) => ({
@@ -1337,6 +1344,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
                   label: item.locationLabel,
                 }
               : null,
+          aiChangedAt: item.aiChangedAt,
         })),
         travelSegments: day.travelSegments.map((segment) => ({
           id: segment.id,

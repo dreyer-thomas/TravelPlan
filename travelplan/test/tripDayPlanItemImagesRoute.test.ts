@@ -607,6 +607,7 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
     // Through the repository rather than the park and schedule routes, so the test pins the *data* shape
     // the cleanup has to cope with rather than one HTTP surface's spelling of it.
     const park = await parkDayPlanItemForTripDay({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: uploadDay.id,
@@ -614,6 +615,7 @@ describe("/api/trips/[id]/day-plan-items/images", () => {
     });
     expect(park.status).toBe("parked");
     const schedule = await scheduleParkedDayPlanItemForTripDay({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: laterDay.id,

@@ -131,6 +131,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     const attempt = await withPushConflict(() => createTravelSegmentForTripDay({
       userId,
       tripId,
+      origin: "user",
       tripDayId: parsed.data.tripDayId,
       fromItemType: parsed.data.fromItemType,
       fromItemId: parsed.data.fromItemId,
@@ -219,6 +220,7 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     const attempt = await withPushConflict(() => updateTravelSegmentForTripDay({
       userId,
       tripId,
+      origin: "user",
       tripDayId: parsed.data.tripDayId,
       segmentId: parsed.data.segmentId,
       fromItemType: parsed.data.fromItemType,

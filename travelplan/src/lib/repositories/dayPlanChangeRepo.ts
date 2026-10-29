@@ -87,6 +87,13 @@ import {
  * legs as for every kind. No renumber: `movedItems` carries every renumbered row's previous `sortOrder`
  * and the activity gets its own back, so the order is restored exactly.
  *
+ * Story 15.4 restores the connector's marker. `updated` and `deleted` write `aiChangedAt` back with the
+ * other snapshot columns (legs and media rows carry it too); `scheduled`, `parked` and `reordered` put the
+ * targeted activity's `previousAiChangedAt` back. A row only moved or renumbered never had its marker
+ * changed, so the moved-items restore leaves it alone. An optional `inTransaction` hook runs after the
+ * reverse writes and the post-condition, inside the same transaction (the connector marks its stored
+ * change undone there); a throw rolls the undo back.
+ *
  * Any failure throws `UndoStaleError`, which rolls the transaction back and maps to `stale`. A `P2002`
  * while recreating a row maps there too: someone drew a new leg for the same pair, or reused the id.
  *
@@ -317,6 +324,7 @@ const undoInTransaction = async (
   tx: TransactionClient,
   tripId: string,
   receipt: DayChangeReceipt,
+  inTransaction?: (tx: TransactionClient) => Promise<void>,
 ): Promise<UndoneImageFile[]> => {
   const { tripDayId, edited } = receipt;
 
@@ -519,6 +527,7 @@ const undoInTransaction = async (
           toTime: null,
           sortOrder: 0,
           updatedAt: edited.previousUpdatedAt,
+          aiChangedAt: edited.previousAiChangedAt,
         },
       });
       if (parked.count !== 1) throw new UndoStaleError("scheduled item changed");
@@ -539,6 +548,7 @@ const undoInTransaction = async (
           fromTime: previous.fromTime,
           toTime: previous.toTime,
           updatedAt: previous.updatedAt,
+          aiChangedAt: previous.previousAiChangedAt,
         },
       });
       if (restored.count !== 1) throw new UndoStaleError("parked item changed");
@@ -577,7 +587,9 @@ const undoInTransaction = async (
 
   // Story 11.2: each moved activity back where it was, conditional on the stamp phase 1 just checked.
   // Story 13.1: its place in the order too, which a renumbering may be all that changed.
+  // Story 15.4: a reorder's moved activity also gets its previous marker back; every other row kept its own.
   for (const moved of receipt.movedItems) {
+    const restoresMarker = edited.kind === "reordered" && moved.itemId === edited.itemId;
     const restored = await tx.dayPlanItem.updateMany({
       where: { id: moved.itemId, tripDayId, updatedAt: moved.updatedAt },
       data: {
@@ -585,6 +597,7 @@ const undoInTransaction = async (
         toTime: moved.previousToTime,
         sortOrder: moved.previousSortOrder,
         updatedAt: moved.previousUpdatedAt,
+        ...(restoresMarker ? { aiChangedAt: edited.previousAiChangedAt } : {}),
       },
     });
     if (restored.count !== 1) throw new UndoStaleError("moved item changed");
@@ -623,6 +636,9 @@ const undoInTransaction = async (
     }
   }
 
+  // Story 15.4: the caller's own write, committed with the undo or not at all.
+  if (inTransaction) await inTransaction(tx);
+
   return removedImageFiles;
 };
 
@@ -630,8 +646,10 @@ export const undoDayPlanChangeForTrip = async (params: {
   userId: string;
   tripId: string;
   receipt: DayChangeReceipt;
+  /** Story 15.4. Runs after the reverse writes, inside the undo's transaction. */
+  inTransaction?: (tx: TransactionClient) => Promise<void>;
 }): Promise<DayPlanChangeUndoResult> => {
-  const { userId, tripId, receipt } = params;
+  const { userId, tripId, receipt, inTransaction } = params;
 
   // A day of another trip is a forged receipt (AC12: 400), not a missing day. The route has already
   // passed the trip-level gate, so this is the receipt lying about where it came from.
@@ -646,7 +664,7 @@ export const undoDayPlanChangeForTrip = async (params: {
 
   let removedImageFiles: UndoneImageFile[];
   try {
-    removedImageFiles = await prisma.$transaction((tx) => undoInTransaction(tx, tripId, receipt));
+    removedImageFiles = await prisma.$transaction((tx) => undoInTransaction(tx, tripId, receipt, inTransaction));
   } catch (error) {
     if (error instanceof UndoStaleError) return { status: "stale" };
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return { status: "stale" };

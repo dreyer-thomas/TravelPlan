@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parsePlanText, tiptapDocToPlainText } from "@/lib/trips/planText";
+import { markdownToTiptapDoc, parsePlanText, tiptapDocToPlainText } from "@/lib/trips/planText";
+import { contentJsonSchema } from "@/lib/validation/dayPlanItemSchemas";
 
 const doc = (...content: unknown[]) => JSON.stringify({ type: "doc", content });
 const text = (value: string, marks?: unknown[]) => ({ type: "text", text: value, ...(marks ? { marks } : {}) });
@@ -88,5 +89,103 @@ describe("tiptapDocToPlainText", () => {
 
   it("leaves parsePlanText as it was", () => {
     expect(parsePlanText(doc(paragraph(text("Morning")), paragraph(text("Afternoon"))))).toBe("Morning Afternoon");
+  });
+});
+
+describe("markdownToTiptapDoc (Story 15.4)", () => {
+  const parsed = (value: string) => JSON.parse(markdownToTiptapDoc(value));
+
+  it("makes one paragraph per non-empty line, as plainTextToTiptapDoc", () => {
+    expect(parsed("Morning\n\n  Afternoon  ")).toEqual(
+      JSON.parse(doc(paragraph(text("Morning")), paragraph(text("Afternoon")))),
+    );
+  });
+
+  it("converts bold, italic and http(s) links with the editor's mark names", () => {
+    expect(parsed("Book **early** and *relax* at [the museum](https://museum.example/a)")).toEqual(
+      JSON.parse(
+        doc(
+          paragraph(
+            text("Book "),
+            text("early", [{ type: "bold" }]),
+            text(" and "),
+            text("relax", [{ type: "italic" }]),
+            text(" at "),
+            text("the museum", [{ type: "link", attrs: { href: "https://museum.example/a" } }]),
+          ),
+        ),
+      ),
+    );
+    expect(parsed("**see [map](https://map.example)**")).toEqual(
+      JSON.parse(
+        doc(
+          paragraph(
+            text("see ", [{ type: "bold" }]),
+            text("map", [{ type: "bold" }, { type: "link", attrs: { href: "https://map.example" } }]),
+          ),
+        ),
+      ),
+    );
+  });
+
+  it("builds bullet and ordered lists, the ordered one started by 1. and continued by any number", () => {
+    expect(parsed("Pack:\n- passport\n* tickets\n1. first\n3. second")).toEqual(
+      JSON.parse(
+        doc(
+          paragraph(text("Pack:")),
+          { type: "bulletList", content: [item(paragraph(text("passport"))), item(paragraph(text("tickets")))] },
+          {
+            type: "orderedList",
+            attrs: { start: 1 },
+            content: [item(paragraph(text("first"))), item(paragraph(text("second")))],
+          },
+        ),
+      ),
+    );
+  });
+
+  it("keeps everything else literal: headings, unclosed marks, links to other schemes", () => {
+    expect(parsed("# Title")).toEqual(JSON.parse(doc(paragraph(text("# Title")))));
+    expect(parsed("2 * 3 = 6 and **open")).toEqual(JSON.parse(doc(paragraph(text("2 * 3 = 6 and **open")))));
+    expect(parsed("[x](javascript:alert(1))")).toEqual(JSON.parse(doc(paragraph(text("[x](javascript:alert(1))")))));
+  });
+
+  it("does not start an ordered list on a number other than 1", () => {
+    expect(parsed("2026. Ein Jahr\n3. Mal")).toEqual(
+      JSON.parse(doc(paragraph(text("2026. Ein Jahr")), paragraph(text("3. Mal")))),
+    );
+  });
+
+  it("allows one level of balanced parentheses in a link target", () => {
+    expect(parsed("[Foo](https://en.wikipedia.org/wiki/Foo_(bar)) and more")).toEqual(
+      JSON.parse(
+        doc(
+          paragraph(
+            text("Foo", [{ type: "link", attrs: { href: "https://en.wikipedia.org/wiki/Foo_(bar)" } }]),
+            text(" and more"),
+          ),
+        ),
+      ),
+    );
+    expect(parsed("[x](https://a.example/((b)))")).toEqual(JSON.parse(doc(paragraph(text("[x](https://a.example/((b)))")))));
+  });
+
+  it("parses a long line of unclosed delimiters quickly and keeps it literal", () => {
+    const line = "*a **b [c](d ".repeat(20_000);
+    const started = performance.now();
+    const result = parsed(line);
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(result).toEqual(JSON.parse(doc(paragraph(text(line.trim())))));
+  });
+
+  it("passes contentJsonSchema for text and fails it for blank text", () => {
+    expect(contentJsonSchema.safeParse(markdownToTiptapDoc("- one\n**two**")).success).toBe(true);
+    expect(contentJsonSchema.safeParse(markdownToTiptapDoc("  \n ")).success).toBe(false);
+  });
+
+  it("reads back through tiptapDocToPlainText", () => {
+    expect(tiptapDocToPlainText(markdownToTiptapDoc("Intro\n- a\n- b\n1. c\nSee [site](https://x.example)"))).toBe(
+      "Intro\n- a\n- b\n1. c\nSee site (https://x.example)",
+    );
   });
 });

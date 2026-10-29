@@ -18,6 +18,7 @@ import {
 } from "@mui/material";
 import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
+import AiBadge from "@/components/ui/AiBadge";
 import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
 import { useOpenInstanceKey } from "@/components/ui/DialogShell";
 import BucketItemThumbnail, { BUCKET_ITEM_THUMBNAIL_PX } from "@/components/features/trips/BucketItemThumbnail";
@@ -394,6 +395,7 @@ export default function TripBucketListPanel({ tripId }: TripBucketListPanelProps
                     <Box sx={{ minWidth: 0, flex: 1 }}>
                       <Typography variant="body1" sx={{ fontWeight: 600, color: tokens.ink, overflowWrap: "anywhere" }}>
                         {item.title}
+                        {item.aiChangedAt ? <AiBadge sx={{ ml: 1 }} /> : null}
                       </Typography>
                       <Typography variant="body2" sx={{ color: tokens.inkSoft, mt: "1px", overflowWrap: "anywhere" }}>
                         {bucketItemMetaLine(item, t)}

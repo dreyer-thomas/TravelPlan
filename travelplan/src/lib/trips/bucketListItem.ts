@@ -22,6 +22,8 @@ export type BucketListItem = {
   firstImageUrl: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Story 15.4. ISO time the connector last created or changed the idea; `null` once a person edits it. */
+  aiChangedAt: string | null;
 };
 
 /** The row as the activity dialog's `item`: parked, so FLEXIBLE with no day and no times. */
@@ -43,4 +45,5 @@ export const toBucketDialogItem = (item: BucketListItem) => ({
   createdAt: item.createdAt,
   scheduleMode: "FLEXIBLE" as const,
   durationMinutes: item.durationMinutes,
+  aiChangedAt: item.aiChangedAt,
 });

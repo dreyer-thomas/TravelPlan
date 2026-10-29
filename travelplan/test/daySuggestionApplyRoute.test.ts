@@ -547,6 +547,7 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
     const viewer = await addMember(trip.id, "VIEWER");
 
     const receipt = await applySuggestionsForTripDay({
+      origin: "user",
       userId: viewer.user.id,
       tripId: trip.id,
       tripDayId: day2.id,
@@ -572,6 +573,7 @@ describe("POST …/suggestions/preview and …/apply (Story 12.4)", () => {
     // A mode no schema admits: the leg create throws after the pictures are written.
     await expect(
       applySuggestionsForTripDay({
+        origin: "user",
         userId: user.id,
         tripId: trip.id,
         tripDayId: day2.id,
@@ -765,6 +767,7 @@ describe("POST …/suggestions/apply with parked suggestions (Story 14.3)", () =
     expect(refused.body.error?.code).toBe("forbidden");
     expect((await postApply(trip.id, day2.id, stranger.session, body)).status).toBe(404);
     const receipt = await applySuggestionsForTripDay({
+      origin: "user",
       userId: viewer.user.id,
       tripId: trip.id,
       tripDayId: day2.id,

@@ -189,6 +189,40 @@ describe("GET /api/trips/[id]", () => {
   // running build and nothing at all in CI. These exact key-set assertions pin both directions:
   // `feedback` (or any other field) cannot come back unnoticed, and no sibling field can silently
   // disappear. Update the expected arrays deliberately when the contract really changes.
+  it("carries the AI marker on activities and the stay as ISO or null (Story 15.4)", async () => {
+    const user = await prisma.user.create({
+      data: { email: "trip-ai-marker@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Marker Trip",
+      startDate: "2026-05-01T00:00:00.000Z",
+      endDate: "2026-05-01T00:00:00.000Z",
+    });
+    const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: trip.id } });
+    const aiChangedAt = new Date("2026-04-20T08:30:00.000Z");
+    await prisma.accommodation.create({ data: { tripDayId: day.id, name: "Marked Hotel", aiChangedAt } });
+    const marked = await prisma.dayPlanItem.create({
+      data: { tripId: trip.id, tripDayId: day.id, title: "Marked", contentJson: "{}", aiChangedAt, sortOrder: 0 },
+    });
+    const plain = await prisma.dayPlanItem.create({
+      data: { tripId: trip.id, tripDayId: day.id, title: "Plain", contentJson: "{}", sortOrder: 1 },
+    });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const payload = (await response.json()) as ApiEnvelope<{
+      days: { accommodation: { aiChangedAt: string | null } | null; dayPlanItems: { id: string; aiChangedAt: string | null }[] }[];
+    }>;
+
+    expect(response.status).toBe(200);
+    const [dayPayload] = payload.data!.days;
+    expect(dayPayload.accommodation?.aiChangedAt).toBe("2026-04-20T08:30:00.000Z");
+    const byId = new Map(dayPayload.dayPlanItems.map((item) => [item.id, item.aiChangedAt]));
+    expect(byId.get(marked.id)).toBe("2026-04-20T08:30:00.000Z");
+    expect(byId.get(plain.id)).toBeNull();
+  });
+
   it("returns an exact payload key set at every nesting level", async () => {
     const user = await prisma.user.create({
       data: { email: "trip-shape@example.com", passwordHash: "hashed", role: "OWNER" },
@@ -271,6 +305,8 @@ describe("GET /api/trips/[id]", () => {
     ]);
 
     expect(Object.keys(dayPayload.accommodation as Record<string, unknown>).sort()).toEqual([
+      // Story 15.4. The KI/AI badge on the stay cards and in the stay dialog.
+      "aiChangedAt",
       "checkInTime",
       "checkOutTime",
       "costCents",
@@ -292,6 +328,8 @@ describe("GET /api/trips/[id]", () => {
     const items = dayPayload.dayPlanItems as Record<string, unknown>[];
     expect(items).toHaveLength(2);
     expect(Object.keys(items[0]!).sort()).toEqual([
+      // Story 15.4. The KI/AI badge on the activity card and in the activity dialog.
+      "aiChangedAt",
       "contentJson",
       "costCents",
       // Story 10.1 - see the note on the accommodation key set above.

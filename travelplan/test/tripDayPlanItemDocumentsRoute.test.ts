@@ -674,6 +674,7 @@ describe("/api/trips/[id]/day-plan-items/documents", () => {
     expect(await fs.readFile(filePath, "utf8")).toContain("%PDF-1.4");
 
     const park = await parkDayPlanItemForTripDay({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -681,6 +682,7 @@ describe("/api/trips/[id]/day-plan-items/documents", () => {
     });
     expect(park.status).toBe("parked");
     const schedule = await scheduleParkedDayPlanItemForTripDay({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: laterDay.id,

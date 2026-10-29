@@ -152,6 +152,8 @@ export type ScheduleEdit =
   | { kind: "remove"; itemId: string }
   /** *Nach oben* / *Nach unten*: the two rows trade places. */
   | { kind: "swap"; itemId: string; neighbourId: string }
+  /** Story 15.4. The row moves to `toIndex` (0-based) in the day's order; the rows between shift by one. */
+  | { kind: "move"; itemId: string; toIndex: number }
   /** A leg save: `removeSegmentId` leaves the stored row out, `leg` is put first so it wins its pair. */
   | { kind: "legs"; removeSegmentId?: string; leg?: ScheduleLeg }
   /** Last night's check-out as it will be stored. */
@@ -255,6 +257,11 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
       const first = indexOf(edit.itemId);
       const second = indexOf(edit.neighbourId);
       [items[first], items[second]] = [items[second], items[first]];
+      break;
+    }
+    case "move": {
+      const [moved] = items.splice(indexOf(edit.itemId), 1);
+      items.splice(edit.toIndex, 0, moved);
       break;
     }
     case "legs":

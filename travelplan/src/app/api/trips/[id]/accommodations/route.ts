@@ -80,6 +80,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   const accommodation = await createAccommodationForTripDay({
     userId,
     tripId,
+    origin: "user",
     tripDayId: parsed.data.tripDayId,
     name: parsed.data.name,
     status: parsed.data.status,
@@ -156,6 +157,7 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
   const attempt = await withPushConflict(() => updateAccommodationForTripDay({
     userId,
     tripId,
+    origin: "user",
     tripDayId: parsed.data.tripDayId,
     name: parsed.data.name,
     status: parsed.data.status,

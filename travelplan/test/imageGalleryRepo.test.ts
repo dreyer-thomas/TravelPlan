@@ -67,6 +67,7 @@ describe("image gallery repositories", () => {
     });
 
     const first = await createAccommodationImage({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -74,6 +75,7 @@ describe("image gallery repositories", () => {
       imageUrl: "/uploads/stay-1.webp",
     });
     const second = await createAccommodationImage({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -86,6 +88,7 @@ describe("image gallery repositories", () => {
     expect(second?.sortOrder).toBe(2);
 
     const unauthorizedCreate = await createAccommodationImage({
+      origin: "user",
       userId: other.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -147,6 +150,7 @@ describe("image gallery repositories", () => {
     });
 
     const first = await createDayPlanItemImage({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -154,6 +158,7 @@ describe("image gallery repositories", () => {
       imageUrl: "/uploads/plan-1.webp",
     });
     const second = await createDayPlanItemImage({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -232,6 +237,7 @@ describe("image gallery repositories", () => {
     });
 
     const contributorImage = await createDayPlanItemImage({
+      origin: "user",
       userId: contributor.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -251,6 +257,7 @@ describe("image gallery repositories", () => {
 
     expect(
       await createDayPlanItemImage({
+        origin: "user",
         userId: viewer.id,
         tripId: trip.id,
         tripDayId: day.id,

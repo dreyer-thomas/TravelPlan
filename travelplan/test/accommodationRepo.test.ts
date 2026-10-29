@@ -99,6 +99,7 @@ describe("accommodationRepo", () => {
     const { trip, day } = await createTripWithDay(user.id);
 
     const accommodation = await createAccommodationForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -130,6 +131,7 @@ describe("accommodationRepo", () => {
     const { trip, day } = await createTripWithDay(owner.id);
 
     const accommodation = await createAccommodationForTripDay({
+      origin: "user",
       userId: other.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -148,6 +150,7 @@ describe("accommodationRepo", () => {
     const { trip, day } = await createTripWithDay(user.id);
 
     await createAccommodationForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -159,6 +162,7 @@ describe("accommodationRepo", () => {
     });
 
     const updated = await updateAccommodationForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -190,6 +194,7 @@ describe("accommodationRepo", () => {
     const { trip, day } = await createTripWithDay(user.id);
 
     const created = await createAccommodationForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -211,6 +216,7 @@ describe("accommodationRepo", () => {
     expect(existingPayments).toHaveLength(2);
 
     const updated = await updateAccommodationForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -237,6 +243,7 @@ describe("accommodationRepo", () => {
     const { trip, day } = await createTripWithDay(user.id);
 
     const created = await createAccommodationForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -257,6 +264,7 @@ describe("accommodationRepo", () => {
     ]);
 
     const updated = await updateAccommodationForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -293,6 +301,7 @@ describe("accommodationRepo", () => {
     const { trip, day } = await createTripWithDay(user.id);
 
     const accommodation = await createAccommodationForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -312,6 +321,7 @@ describe("accommodationRepo", () => {
     const { trip, day } = await createTripWithDay(user.id);
 
     const updated = await updateAccommodationForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -331,6 +341,7 @@ describe("accommodationRepo", () => {
     const { trip, day } = await createTripWithDay(owner.id);
 
     const updated = await updateAccommodationForTripDay({
+      origin: "user",
       userId: other.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -349,6 +360,7 @@ describe("accommodationRepo", () => {
     const { trip, day } = await createTripWithDay(user.id);
 
     await createAccommodationForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -462,6 +474,7 @@ describe("accommodationRepo", () => {
     const { trip, day } = await createTripWithDay(owner.id);
 
     await createAccommodationForTripDay({
+      origin: "user",
       userId: owner.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -495,6 +508,7 @@ describe("accommodationRepo", () => {
     });
 
     await createAccommodationForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -506,6 +520,7 @@ describe("accommodationRepo", () => {
     });
 
     await createAccommodationForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: secondDay.id,
@@ -542,6 +557,7 @@ describe("accommodationRepo", () => {
     });
 
     const result = await copyAccommodationFromPreviousNight({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: currentDay.id,
@@ -588,6 +604,7 @@ describe("accommodationRepo", () => {
     });
 
     const result = await copyAccommodationFromPreviousNight({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: currentDay.id,
@@ -630,6 +647,7 @@ describe("accommodationRepo", () => {
     });
 
     const result = await copyAccommodationFromPreviousNight({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: currentDay.id,
@@ -686,6 +704,7 @@ describe("accommodationRepo", () => {
     });
 
     const result = await copyAccommodationFromPreviousNight({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: currentDay.id,
@@ -704,6 +723,7 @@ describe("accommodationRepo", () => {
     const { trip, currentDay } = await createTripWithTwoDays(user.id);
 
     const result = await copyAccommodationFromPreviousNight({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: currentDay.id,
@@ -718,6 +738,7 @@ describe("accommodationRepo", () => {
     const { trip, currentDay } = await createTripWithTwoDays(owner.id);
 
     const result = await copyAccommodationFromPreviousNight({
+      origin: "user",
       userId: other.id,
       tripId: trip.id,
       tripDayId: currentDay.id,

@@ -49,6 +49,7 @@ export type TravelSegmentMinAggregateOutputType = {
   linkUrl: string | null
   createdAt: Date | null
   updatedAt: Date | null
+  aiChangedAt: Date | null
 }
 
 export type TravelSegmentMaxAggregateOutputType = {
@@ -64,6 +65,7 @@ export type TravelSegmentMaxAggregateOutputType = {
   linkUrl: string | null
   createdAt: Date | null
   updatedAt: Date | null
+  aiChangedAt: Date | null
 }
 
 export type TravelSegmentCountAggregateOutputType = {
@@ -79,6 +81,7 @@ export type TravelSegmentCountAggregateOutputType = {
   linkUrl: number
   createdAt: number
   updatedAt: number
+  aiChangedAt: number
   _all: number
 }
 
@@ -106,6 +109,7 @@ export type TravelSegmentMinAggregateInputType = {
   linkUrl?: true
   createdAt?: true
   updatedAt?: true
+  aiChangedAt?: true
 }
 
 export type TravelSegmentMaxAggregateInputType = {
@@ -121,6 +125,7 @@ export type TravelSegmentMaxAggregateInputType = {
   linkUrl?: true
   createdAt?: true
   updatedAt?: true
+  aiChangedAt?: true
 }
 
 export type TravelSegmentCountAggregateInputType = {
@@ -136,6 +141,7 @@ export type TravelSegmentCountAggregateInputType = {
   linkUrl?: true
   createdAt?: true
   updatedAt?: true
+  aiChangedAt?: true
   _all?: true
 }
 
@@ -238,6 +244,7 @@ export type TravelSegmentGroupByOutputType = {
   linkUrl: string | null
   createdAt: Date
   updatedAt: Date
+  aiChangedAt: Date | null
   _count: TravelSegmentCountAggregateOutputType | null
   _avg: TravelSegmentAvgAggregateOutputType | null
   _sum: TravelSegmentSumAggregateOutputType | null
@@ -276,6 +283,7 @@ export type TravelSegmentWhereInput = {
   linkUrl?: Prisma.StringNullableFilter<"TravelSegment"> | string | null
   createdAt?: Prisma.DateTimeFilter<"TravelSegment"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"TravelSegment"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableFilter<"TravelSegment"> | Date | string | null
   tripDay?: Prisma.XOR<Prisma.TripDayScalarRelationFilter, Prisma.TripDayWhereInput>
 }
 
@@ -292,6 +300,7 @@ export type TravelSegmentOrderByWithRelationInput = {
   linkUrl?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   tripDay?: Prisma.TripDayOrderByWithRelationInput
 }
 
@@ -312,6 +321,7 @@ export type TravelSegmentWhereUniqueInput = Prisma.AtLeast<{
   linkUrl?: Prisma.StringNullableFilter<"TravelSegment"> | string | null
   createdAt?: Prisma.DateTimeFilter<"TravelSegment"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"TravelSegment"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableFilter<"TravelSegment"> | Date | string | null
   tripDay?: Prisma.XOR<Prisma.TripDayScalarRelationFilter, Prisma.TripDayWhereInput>
 }, "id" | "tripDayId_fromItemType_fromItemId_toItemType_toItemId">
 
@@ -328,6 +338,7 @@ export type TravelSegmentOrderByWithAggregationInput = {
   linkUrl?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.TravelSegmentCountOrderByAggregateInput
   _avg?: Prisma.TravelSegmentAvgOrderByAggregateInput
   _max?: Prisma.TravelSegmentMaxOrderByAggregateInput
@@ -351,6 +362,7 @@ export type TravelSegmentScalarWhereWithAggregatesInput = {
   linkUrl?: Prisma.StringNullableWithAggregatesFilter<"TravelSegment"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"TravelSegment"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"TravelSegment"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"TravelSegment"> | Date | string | null
 }
 
 export type TravelSegmentCreateInput = {
@@ -365,6 +377,7 @@ export type TravelSegmentCreateInput = {
   linkUrl?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
   tripDay: Prisma.TripDayCreateNestedOneWithoutTravelSegmentsInput
 }
 
@@ -381,6 +394,7 @@ export type TravelSegmentUncheckedCreateInput = {
   linkUrl?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type TravelSegmentUpdateInput = {
@@ -395,6 +409,7 @@ export type TravelSegmentUpdateInput = {
   linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tripDay?: Prisma.TripDayUpdateOneRequiredWithoutTravelSegmentsNestedInput
 }
 
@@ -411,6 +426,7 @@ export type TravelSegmentUncheckedUpdateInput = {
   linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type TravelSegmentCreateManyInput = {
@@ -426,6 +442,7 @@ export type TravelSegmentCreateManyInput = {
   linkUrl?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type TravelSegmentUpdateManyMutationInput = {
@@ -440,6 +457,7 @@ export type TravelSegmentUpdateManyMutationInput = {
   linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type TravelSegmentUncheckedUpdateManyInput = {
@@ -455,6 +473,7 @@ export type TravelSegmentUncheckedUpdateManyInput = {
   linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type TravelSegmentListRelationFilter = {
@@ -488,6 +507,7 @@ export type TravelSegmentCountOrderByAggregateInput = {
   linkUrl?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrder
 }
 
 export type TravelSegmentAvgOrderByAggregateInput = {
@@ -508,6 +528,7 @@ export type TravelSegmentMaxOrderByAggregateInput = {
   linkUrl?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrder
 }
 
 export type TravelSegmentMinOrderByAggregateInput = {
@@ -523,6 +544,7 @@ export type TravelSegmentMinOrderByAggregateInput = {
   linkUrl?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrder
 }
 
 export type TravelSegmentSumOrderByAggregateInput = {
@@ -592,6 +614,7 @@ export type TravelSegmentCreateWithoutTripDayInput = {
   linkUrl?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type TravelSegmentUncheckedCreateWithoutTripDayInput = {
@@ -606,6 +629,7 @@ export type TravelSegmentUncheckedCreateWithoutTripDayInput = {
   linkUrl?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type TravelSegmentCreateOrConnectWithoutTripDayInput = {
@@ -649,6 +673,7 @@ export type TravelSegmentScalarWhereInput = {
   linkUrl?: Prisma.StringNullableFilter<"TravelSegment"> | string | null
   createdAt?: Prisma.DateTimeFilter<"TravelSegment"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"TravelSegment"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableFilter<"TravelSegment"> | Date | string | null
 }
 
 export type TravelSegmentCreateManyTripDayInput = {
@@ -663,6 +688,7 @@ export type TravelSegmentCreateManyTripDayInput = {
   linkUrl?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type TravelSegmentUpdateWithoutTripDayInput = {
@@ -677,6 +703,7 @@ export type TravelSegmentUpdateWithoutTripDayInput = {
   linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type TravelSegmentUncheckedUpdateWithoutTripDayInput = {
@@ -691,6 +718,7 @@ export type TravelSegmentUncheckedUpdateWithoutTripDayInput = {
   linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type TravelSegmentUncheckedUpdateManyWithoutTripDayInput = {
@@ -705,6 +733,7 @@ export type TravelSegmentUncheckedUpdateManyWithoutTripDayInput = {
   linkUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 
@@ -722,6 +751,7 @@ export type TravelSegmentSelect<ExtArgs extends runtime.Types.Extensions.Interna
   linkUrl?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["travelSegment"]>
 
@@ -738,6 +768,7 @@ export type TravelSegmentSelectCreateManyAndReturn<ExtArgs extends runtime.Types
   linkUrl?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["travelSegment"]>
 
@@ -754,6 +785,7 @@ export type TravelSegmentSelectUpdateManyAndReturn<ExtArgs extends runtime.Types
   linkUrl?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["travelSegment"]>
 
@@ -770,9 +802,10 @@ export type TravelSegmentSelectScalar = {
   linkUrl?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
 }
 
-export type TravelSegmentOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tripDayId" | "fromItemType" | "fromItemId" | "toItemType" | "toItemId" | "transportType" | "durationMinutes" | "distanceKm" | "linkUrl" | "createdAt" | "updatedAt", ExtArgs["result"]["travelSegment"]>
+export type TravelSegmentOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tripDayId" | "fromItemType" | "fromItemId" | "toItemType" | "toItemId" | "transportType" | "durationMinutes" | "distanceKm" | "linkUrl" | "createdAt" | "updatedAt" | "aiChangedAt", ExtArgs["result"]["travelSegment"]>
 export type TravelSegmentInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   tripDay?: boolean | Prisma.TripDayDefaultArgs<ExtArgs>
 }
@@ -801,6 +834,7 @@ export type $TravelSegmentPayload<ExtArgs extends runtime.Types.Extensions.Inter
     linkUrl: string | null
     createdAt: Date
     updatedAt: Date
+    aiChangedAt: Date | null
   }, ExtArgs["result"]["travelSegment"]>
   composites: {}
 }
@@ -1237,6 +1271,7 @@ export interface TravelSegmentFieldRefs {
   readonly linkUrl: Prisma.FieldRef<"TravelSegment", 'String'>
   readonly createdAt: Prisma.FieldRef<"TravelSegment", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"TravelSegment", 'DateTime'>
+  readonly aiChangedAt: Prisma.FieldRef<"TravelSegment", 'DateTime'>
 }
     
 

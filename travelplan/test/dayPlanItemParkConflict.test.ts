@@ -84,7 +84,7 @@ describe("a park that loses a race rolls back (Story 14.2 AC8)", () => {
     const before = await state();
     interlope.title = "B";
 
-    await expect(parkDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id })).rejects.toBeInstanceOf(
+    await expect(parkDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id })).rejects.toBeInstanceOf(
       DayPlanChangedError,
     );
     interlope.title = null;

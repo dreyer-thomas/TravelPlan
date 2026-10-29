@@ -86,6 +86,7 @@ model User {
   aiUsageRecords AiUsageRecord[]
   oauthAuthorizationCodes OAuthAuthorizationCode[]
   oauthTokens OAuthToken[]
+  aiChanges AiChange[]
 
   @@map("users")
 }
@@ -126,6 +127,7 @@ model Trip {
   members TripMember[]
   days  TripDay[]
   dayPlanItems DayPlanItem[]
+  aiChanges AiChange[]
 
   @@index([userId])
   @@map("trips")
@@ -162,6 +164,7 @@ model TripDay {
   accommodation Accommodation?
   dayPlanItems  DayPlanItem[]
   travelSegments TravelSegment[]
+  aiChanges AiChange[]
 
   @@index([tripId], map: "idx_trip_days_trip_id")
   @@map("trip_days")
@@ -180,6 +183,9 @@ model TravelSegment {
   linkUrl   String?  @map("link_url")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+  // Story 15.4. Set when a connector write (origin "ai") targeted the row, cleared when an app write
+  // targeted it. Recompute-only shifts keep it. Not exported in backups.
+  aiChangedAt DateTime? @map("ai_changed_at")
 
   tripDay TripDay @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
 
@@ -207,6 +213,9 @@ model Accommodation {
   checkOutTime String? @map("check_out_time")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+  // Story 15.4. Set when a connector write (origin "ai") targeted the row, cleared when an app write
+  // targeted it. Recompute-only shifts keep it. Not exported in backups.
+  aiChangedAt DateTime? @map("ai_changed_at")
 
   tripDay TripDay @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
   images  AccommodationImage[]
@@ -248,6 +257,9 @@ model DayPlanItem {
   scheduleMode    DayPlanItemScheduleMode @default(FIXED) @map("schedule_mode")
   durationMinutes Int @default(15) @map("duration_minutes")
   sortOrder       Int @default(0) @map("sort_order")
+  // Story 15.4. Set when a connector write (origin "ai") targeted the row, cleared when an app write
+  // targeted it. Recompute-only shifts keep it. Not exported in backups.
+  aiChangedAt DateTime? @map("ai_changed_at")
 
   trip    Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
   tripDay TripDay? @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
@@ -289,6 +301,9 @@ model AccommodationImage {
   sortOrder       Int      @map("sort_order")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
+  // Story 15.4. Set when a connector write (origin "ai") targeted the row, cleared when an app write
+  // targeted it. Recompute-only shifts keep it. Not exported in backups.
+  aiChangedAt DateTime? @map("ai_changed_at")
 
   accommodation Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
 
@@ -304,6 +319,9 @@ model DayPlanItemImage {
   sortOrder     Int      @map("sort_order")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
+  // Story 15.4. Set when a connector write (origin "ai") targeted the row, cleared when an app write
+  // targeted it. Recompute-only shifts keep it. Not exported in backups.
+  aiChangedAt DateTime? @map("ai_changed_at")
 
   dayPlanItem DayPlanItem @relation(fields: [dayPlanItemId], references: [id], onDelete: Cascade)
 
@@ -324,6 +342,9 @@ model AccommodationDocument {
   sortOrder       Int      @map("sort_order")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
+  // Story 15.4. Set when a connector write (origin "ai") targeted the row, cleared when an app write
+  // targeted it. Recompute-only shifts keep it. Not exported in backups.
+  aiChangedAt DateTime? @map("ai_changed_at")
 
   accommodation Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
 
@@ -340,6 +361,9 @@ model DayPlanItemDocument {
   sortOrder     Int      @map("sort_order")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
+  // Story 15.4. Set when a connector write (origin "ai") targeted the row, cleared when an app write
+  // targeted it. Recompute-only shifts keep it. Not exported in backups.
+  aiChangedAt DateTime? @map("ai_changed_at")
 
   dayPlanItem DayPlanItem @relation(fields: [dayPlanItemId], references: [id], onDelete: Cascade)
 
@@ -434,4 +458,30 @@ model OAuthToken {
   @@index([userId], map: "idx_oauth_tokens_user_id")
   @@index([expiresAt], map: "idx_oauth_tokens_expires_at")
   @@map("oauth_tokens")
+}
+
+// Story 15.4. One row per connector write: who (user + client metadata URL), what (`action` + `subject`,
+// the activity's title at write time, so the app can phrase it in the UI language) and the v3 day-change
+// receipt that undoes it. `receiptJson` is null for writes the app cannot undo (parked create/edit/delete);
+// `tripDayId` is null for bucket-list writes. Stored receipts are trusted and unsigned. Rows older than 14
+// days are ignored by every read and deleted whenever a new row is written.
+model AiChange {
+  id          String    @id @default(cuid()) @map("id")
+  tripId      String    @map("trip_id")
+  tripDayId   String?   @map("trip_day_id")
+  userId      String    @map("user_id")
+  clientId    String    @map("client_id")
+  action      String    @map("action")
+  subject     String?   @map("subject")
+  receiptJson String?   @map("receipt_json")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  undoneAt    DateTime? @map("undone_at")
+
+  trip    Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  tripDay TripDay? @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tripId, tripDayId, createdAt], map: "idx_ai_changes_trip_day_created_at")
+  @@index([createdAt], map: "idx_ai_changes_created_at")
+  @@map("ai_changes")
 }

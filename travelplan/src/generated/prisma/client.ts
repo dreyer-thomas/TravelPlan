@@ -121,3 +121,8 @@ export type OAuthAuthorizationCode = Prisma.OAuthAuthorizationCodeModel
  * 
  */
 export type OAuthToken = Prisma.OAuthTokenModel
+/**
+ * Model AiChange
+ * 
+ */
+export type AiChange = Prisma.AiChangeModel

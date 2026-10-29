@@ -136,6 +136,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   const mutationParams = {
     userId,
     tripId,
+    origin: "user" as const,
     tripDayId: parsed.data.tripDayId,
     title: parsed.data.title,
     scheduleMode: parsed.data.scheduleMode,
@@ -243,6 +244,7 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
   const attempt = await withPushConflict(() => updateDayPlanItemForTripDay({
     userId,
     tripId,
+    origin: "user",
     tripDayId: parsed.data.tripDayId,
     itemId: parsed.data.itemId,
     title: parsed.data.title,

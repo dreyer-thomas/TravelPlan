@@ -42,6 +42,7 @@ export type DayPlanItemDocumentMinAggregateOutputType = {
   sortOrder: number | null
   createdAt: Date | null
   updatedAt: Date | null
+  aiChangedAt: Date | null
 }
 
 export type DayPlanItemDocumentMaxAggregateOutputType = {
@@ -52,6 +53,7 @@ export type DayPlanItemDocumentMaxAggregateOutputType = {
   sortOrder: number | null
   createdAt: Date | null
   updatedAt: Date | null
+  aiChangedAt: Date | null
 }
 
 export type DayPlanItemDocumentCountAggregateOutputType = {
@@ -62,6 +64,7 @@ export type DayPlanItemDocumentCountAggregateOutputType = {
   sortOrder: number
   createdAt: number
   updatedAt: number
+  aiChangedAt: number
   _all: number
 }
 
@@ -82,6 +85,7 @@ export type DayPlanItemDocumentMinAggregateInputType = {
   sortOrder?: true
   createdAt?: true
   updatedAt?: true
+  aiChangedAt?: true
 }
 
 export type DayPlanItemDocumentMaxAggregateInputType = {
@@ -92,6 +96,7 @@ export type DayPlanItemDocumentMaxAggregateInputType = {
   sortOrder?: true
   createdAt?: true
   updatedAt?: true
+  aiChangedAt?: true
 }
 
 export type DayPlanItemDocumentCountAggregateInputType = {
@@ -102,6 +107,7 @@ export type DayPlanItemDocumentCountAggregateInputType = {
   sortOrder?: true
   createdAt?: true
   updatedAt?: true
+  aiChangedAt?: true
   _all?: true
 }
 
@@ -199,6 +205,7 @@ export type DayPlanItemDocumentGroupByOutputType = {
   sortOrder: number
   createdAt: Date
   updatedAt: Date
+  aiChangedAt: Date | null
   _count: DayPlanItemDocumentCountAggregateOutputType | null
   _avg: DayPlanItemDocumentAvgAggregateOutputType | null
   _sum: DayPlanItemDocumentSumAggregateOutputType | null
@@ -232,6 +239,7 @@ export type DayPlanItemDocumentWhereInput = {
   sortOrder?: Prisma.IntFilter<"DayPlanItemDocument"> | number
   createdAt?: Prisma.DateTimeFilter<"DayPlanItemDocument"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DayPlanItemDocument"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableFilter<"DayPlanItemDocument"> | Date | string | null
   dayPlanItem?: Prisma.XOR<Prisma.DayPlanItemScalarRelationFilter, Prisma.DayPlanItemWhereInput>
 }
 
@@ -243,6 +251,7 @@ export type DayPlanItemDocumentOrderByWithRelationInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   dayPlanItem?: Prisma.DayPlanItemOrderByWithRelationInput
 }
 
@@ -258,6 +267,7 @@ export type DayPlanItemDocumentWhereUniqueInput = Prisma.AtLeast<{
   sortOrder?: Prisma.IntFilter<"DayPlanItemDocument"> | number
   createdAt?: Prisma.DateTimeFilter<"DayPlanItemDocument"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DayPlanItemDocument"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableFilter<"DayPlanItemDocument"> | Date | string | null
   dayPlanItem?: Prisma.XOR<Prisma.DayPlanItemScalarRelationFilter, Prisma.DayPlanItemWhereInput>
 }, "id" | "dayPlanItemId_sortOrder">
 
@@ -269,6 +279,7 @@ export type DayPlanItemDocumentOrderByWithAggregationInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.DayPlanItemDocumentCountOrderByAggregateInput
   _avg?: Prisma.DayPlanItemDocumentAvgOrderByAggregateInput
   _max?: Prisma.DayPlanItemDocumentMaxOrderByAggregateInput
@@ -287,6 +298,7 @@ export type DayPlanItemDocumentScalarWhereWithAggregatesInput = {
   sortOrder?: Prisma.IntWithAggregatesFilter<"DayPlanItemDocument"> | number
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"DayPlanItemDocument"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"DayPlanItemDocument"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"DayPlanItemDocument"> | Date | string | null
 }
 
 export type DayPlanItemDocumentCreateInput = {
@@ -296,6 +308,7 @@ export type DayPlanItemDocumentCreateInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
   dayPlanItem: Prisma.DayPlanItemCreateNestedOneWithoutDocumentsInput
 }
 
@@ -307,6 +320,7 @@ export type DayPlanItemDocumentUncheckedCreateInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type DayPlanItemDocumentUpdateInput = {
@@ -316,6 +330,7 @@ export type DayPlanItemDocumentUpdateInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   dayPlanItem?: Prisma.DayPlanItemUpdateOneRequiredWithoutDocumentsNestedInput
 }
 
@@ -327,6 +342,7 @@ export type DayPlanItemDocumentUncheckedUpdateInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type DayPlanItemDocumentCreateManyInput = {
@@ -337,6 +353,7 @@ export type DayPlanItemDocumentCreateManyInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type DayPlanItemDocumentUpdateManyMutationInput = {
@@ -346,6 +363,7 @@ export type DayPlanItemDocumentUpdateManyMutationInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type DayPlanItemDocumentUncheckedUpdateManyInput = {
@@ -356,6 +374,7 @@ export type DayPlanItemDocumentUncheckedUpdateManyInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type DayPlanItemDocumentListRelationFilter = {
@@ -381,6 +400,7 @@ export type DayPlanItemDocumentCountOrderByAggregateInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrder
 }
 
 export type DayPlanItemDocumentAvgOrderByAggregateInput = {
@@ -395,6 +415,7 @@ export type DayPlanItemDocumentMaxOrderByAggregateInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrder
 }
 
 export type DayPlanItemDocumentMinOrderByAggregateInput = {
@@ -405,6 +426,7 @@ export type DayPlanItemDocumentMinOrderByAggregateInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrder
 }
 
 export type DayPlanItemDocumentSumOrderByAggregateInput = {
@@ -460,6 +482,7 @@ export type DayPlanItemDocumentCreateWithoutDayPlanItemInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type DayPlanItemDocumentUncheckedCreateWithoutDayPlanItemInput = {
@@ -469,6 +492,7 @@ export type DayPlanItemDocumentUncheckedCreateWithoutDayPlanItemInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type DayPlanItemDocumentCreateOrConnectWithoutDayPlanItemInput = {
@@ -507,6 +531,7 @@ export type DayPlanItemDocumentScalarWhereInput = {
   sortOrder?: Prisma.IntFilter<"DayPlanItemDocument"> | number
   createdAt?: Prisma.DateTimeFilter<"DayPlanItemDocument"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DayPlanItemDocument"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableFilter<"DayPlanItemDocument"> | Date | string | null
 }
 
 export type DayPlanItemDocumentCreateManyDayPlanItemInput = {
@@ -516,6 +541,7 @@ export type DayPlanItemDocumentCreateManyDayPlanItemInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type DayPlanItemDocumentUpdateWithoutDayPlanItemInput = {
@@ -525,6 +551,7 @@ export type DayPlanItemDocumentUpdateWithoutDayPlanItemInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type DayPlanItemDocumentUncheckedUpdateWithoutDayPlanItemInput = {
@@ -534,6 +561,7 @@ export type DayPlanItemDocumentUncheckedUpdateWithoutDayPlanItemInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type DayPlanItemDocumentUncheckedUpdateManyWithoutDayPlanItemInput = {
@@ -543,6 +571,7 @@ export type DayPlanItemDocumentUncheckedUpdateManyWithoutDayPlanItemInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 
@@ -555,6 +584,7 @@ export type DayPlanItemDocumentSelect<ExtArgs extends runtime.Types.Extensions.I
   sortOrder?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
   dayPlanItem?: boolean | Prisma.DayPlanItemDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["dayPlanItemDocument"]>
 
@@ -566,6 +596,7 @@ export type DayPlanItemDocumentSelectCreateManyAndReturn<ExtArgs extends runtime
   sortOrder?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
   dayPlanItem?: boolean | Prisma.DayPlanItemDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["dayPlanItemDocument"]>
 
@@ -577,6 +608,7 @@ export type DayPlanItemDocumentSelectUpdateManyAndReturn<ExtArgs extends runtime
   sortOrder?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
   dayPlanItem?: boolean | Prisma.DayPlanItemDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["dayPlanItemDocument"]>
 
@@ -588,9 +620,10 @@ export type DayPlanItemDocumentSelectScalar = {
   sortOrder?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
 }
 
-export type DayPlanItemDocumentOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "dayPlanItemId" | "documentUrl" | "fileName" | "sortOrder" | "createdAt" | "updatedAt", ExtArgs["result"]["dayPlanItemDocument"]>
+export type DayPlanItemDocumentOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "dayPlanItemId" | "documentUrl" | "fileName" | "sortOrder" | "createdAt" | "updatedAt" | "aiChangedAt", ExtArgs["result"]["dayPlanItemDocument"]>
 export type DayPlanItemDocumentInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   dayPlanItem?: boolean | Prisma.DayPlanItemDefaultArgs<ExtArgs>
 }
@@ -614,6 +647,7 @@ export type $DayPlanItemDocumentPayload<ExtArgs extends runtime.Types.Extensions
     sortOrder: number
     createdAt: Date
     updatedAt: Date
+    aiChangedAt: Date | null
   }, ExtArgs["result"]["dayPlanItemDocument"]>
   composites: {}
 }
@@ -1045,6 +1079,7 @@ export interface DayPlanItemDocumentFieldRefs {
   readonly sortOrder: Prisma.FieldRef<"DayPlanItemDocument", 'Int'>
   readonly createdAt: Prisma.FieldRef<"DayPlanItemDocument", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"DayPlanItemDocument", 'DateTime'>
+  readonly aiChangedAt: Prisma.FieldRef<"DayPlanItemDocument", 'DateTime'>
 }
     
 

@@ -329,6 +329,62 @@ describe("GET /api/trips/[id]/export", () => {
     expect(segment.toItemId).toBe(payload.days[0].dayPlanItems[0].id);
   });
 
+  it("never exports the AI marker, even on rows the connector changed (Story 15.4)", async () => {
+    const { user, token } = await createOwner("trip-export-ai-marker@example.com");
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Marked Trip",
+      startDate: "2026-09-01T00:00:00.000Z",
+      endDate: "2026-09-01T00:00:00.000Z",
+    });
+    const [day] = await prisma.tripDay.findMany({ where: { tripId: trip.id } });
+    const aiChangedAt = new Date("2026-08-20T10:00:00.000Z");
+
+    const accommodation = await prisma.accommodation.create({
+      data: { tripDayId: day.id, name: "Harbour Inn", aiChangedAt },
+    });
+    const planItem = await prisma.dayPlanItem.create({
+      data: {
+        tripId: trip.id,
+        tripDayId: day.id,
+        title: "Louvre",
+        contentJson: JSON.stringify({ type: "doc", content: [] }),
+        aiChangedAt,
+      },
+    });
+    await prisma.dayPlanItem.create({
+      data: {
+        tripId: trip.id,
+        tripDayId: null,
+        scheduleMode: "FLEXIBLE",
+        title: "Parked idea",
+        contentJson: JSON.stringify({ type: "doc", content: [] }),
+        aiChangedAt,
+      },
+    });
+    await prisma.travelSegment.create({
+      data: {
+        tripDayId: day.id,
+        fromItemType: "ACCOMMODATION",
+        fromItemId: accommodation.id,
+        toItemType: "DAY_PLAN_ITEM",
+        toItemId: planItem.id,
+        transportType: "CAR",
+        durationMinutes: 20,
+        aiChangedAt,
+      },
+    });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const entry = readZipArchive(await readArchive(response)).entries.find((candidate) => candidate.name === "trip.json");
+
+    expect(response.status).toBe(200);
+    const manifestText = entry?.data.toString("utf8") ?? "";
+    expect(manifestText).toContain("Louvre");
+    expect(manifestText).not.toContain("aiChangedAt");
+    expect(manifestText).not.toContain("2026-08-20T10:00:00");
+  });
+
   it("carries each day activity's schedule fields, sortOrder as its position in the day's order (Story 13.4)", async () => {
     const { user, token } = await createOwner("trip-export-schedule@example.com");
     const { trip } = await createTripWithDays({

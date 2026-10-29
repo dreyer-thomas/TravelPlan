@@ -53,6 +53,7 @@ describe("plannerShapes (Story 15.2)", () => {
       costRateDate: null,
       payments: [],
       updatedAt: new Date("2027-01-01T08:00:00.000Z"),
+      aiChangedAt: null as Date | null,
     };
     const media = { documents: [], images: [{ id: "img", imageUrl: "/uploads/x/y.jpg" }] };
     const parked = toActivity(item, media, { withTimes: false });
@@ -64,6 +65,11 @@ describe("plannerShapes (Story 15.2)", () => {
       startTime: "09:00",
       endTime: "09:30",
       updatedAt: "2027-01-01T08:00:00.000Z",
+      aiChangedAt: null,
+    });
+    // Story 15.4: the connector's marker as ISO.
+    expect(toActivity({ ...item, aiChangedAt: new Date("2027-01-02T09:00:00.000Z") }, undefined, { withTimes: false })).toMatchObject({
+      aiChangedAt: "2027-01-02T09:00:00.000Z",
     });
   });
 

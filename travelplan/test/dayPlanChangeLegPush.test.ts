@@ -119,6 +119,7 @@ const legParams = (
   durationMinutes: number,
   extra: { transportType?: "car" | "ship" | "flight" | "walking" | "cycling"; distanceKm?: number | null; linkUrl?: string | null } = {},
 ) => ({
+  origin: "user" as const,
   userId,
   tripId,
   tripDayId,

@@ -56,6 +56,14 @@
  * warning, and a write past 23:59 is saved instead of refused. A row that lost its times is a time change,
  * so it is in `movedItems` with its previous times and undo restores it. Removed without a bump, as 14.1
  * did: a receipt that still carries the field is refused by the `.strict()` schema (400).
+ *
+ * Story 15.4 adds the connector's provenance marker. Every item, leg, image and document row snapshot
+ * carries `aiChangedAt` (a required key, `null` when a person last wrote the row), so undo of an edit or a
+ * delete writes it back with the other columns. `scheduled`, `reordered` and `parked.previous` carry
+ * `previousAiChangedAt`, the marker the targeted activity had before, which undo restores. Still version
+ * 3: a receipt issued before the deploy lacks the keys and is refused by the `.strict()` schema (400,
+ * "undo unavailable"), as after Epic 14. Since 15.4 a connector write's receipt is also stored
+ * server-side (`ai_changes`), unsigned and trusted.
  */
 
 import { formatMessage } from "@/i18n";
@@ -66,10 +74,13 @@ export type DayChangeEndpointType = "ACCOMMODATION" | "DAY_PLAN_ITEM";
 // TRAIN and BUS) reaches the receipt type without a second list to forget.
 export type DayChangeTransportType = Uppercase<TransportType>;
 
-/** `Date` on the server, ISO string on the wire. Every row's only timestamps are these two. */
+/** `Date` on the server, ISO string on the wire. Every row's stamps; marked rows also carry `Marked`. */
 type Stamped<T extends Date | string> = { createdAt: T; updatedAt: T };
 
-export type TravelSegmentRow<T extends Date | string = Date> = Stamped<T> & {
+/** Story 15.4. The connector's provenance marker, on every row kind that can carry the badge. */
+type Marked<T extends Date | string> = { aiChangedAt: T | null };
+
+export type TravelSegmentRow<T extends Date | string = Date> = Stamped<T> & Marked<T> & {
   id: string;
   tripDayId: string;
   fromItemType: DayChangeEndpointType;
@@ -95,7 +106,7 @@ export type CostPaymentRow<T extends Date | string = Date> = Stamped<T> & {
 /** Story 13.1. The stored spelling of `DayPlanItemScheduleMode`, spelled out to keep Prisma out of the bundle. */
 export type DayChangeScheduleMode = "FLEXIBLE" | "FIXED";
 
-export type DayPlanItemRow<T extends Date | string = Date> = Stamped<T> & {
+export type DayPlanItemRow<T extends Date | string = Date> = Stamped<T> & Marked<T> & {
   id: string;
   tripDayId: string;
   title: string | null;
@@ -116,14 +127,14 @@ export type DayPlanItemRow<T extends Date | string = Date> = Stamped<T> & {
   locationLabel: string | null;
 };
 
-export type DayPlanItemImageRow<T extends Date | string = Date> = Stamped<T> & {
+export type DayPlanItemImageRow<T extends Date | string = Date> = Stamped<T> & Marked<T> & {
   id: string;
   dayPlanItemId: string;
   imageUrl: string;
   sortOrder: number;
 };
 
-export type DayPlanItemDocumentRow<T extends Date | string = Date> = Stamped<T> & {
+export type DayPlanItemDocumentRow<T extends Date | string = Date> = Stamped<T> & Marked<T> & {
   id: string;
   dayPlanItemId: string;
   documentUrl: string;
@@ -147,8 +158,11 @@ export type DayChangeEdited<T extends Date | string = Date> =
   | { kind: "created"; itemId: string; updatedAt: T }
   | { kind: "updated"; itemId: string; updatedAt: T; previous: DayPlanItemSnapshot<T> }
   | { kind: "deleted"; previous: DeletedDayPlanItemSnapshot<T> }
-  /** Story 11.3. `itemId` is the activity the user moved; both rows are always in `movedItems`. */
-  | { kind: "reordered"; itemId: string; neighbourId: string }
+  /**
+   * Story 11.3. `itemId` is the activity the user moved; both rows are always in `movedItems`. Story 15.4:
+   * `previousAiChangedAt` is the moved activity's marker before the write (the neighbour keeps its own).
+   */
+  | { kind: "reordered"; itemId: string; neighbourId: string; previousAiChangedAt: T | null }
   /** Story 11.4. A new leg; `updatedAt` is its post-write stamp. */
   | { kind: "legCreated"; segmentId: string; updatedAt: T }
   /** Story 11.4. `previous` is the whole stored row before the write, stamps included. */
@@ -165,9 +179,10 @@ export type DayChangeEdited<T extends Date | string = Date> =
     }
   /**
    * Story 14.1. A parked activity moved onto the day. `updatedAt` is its post-write stamp,
-   * `previousUpdatedAt` the stamp it had parked, which undo writes back.
+   * `previousUpdatedAt` the stamp it had parked, which undo writes back. Story 15.4: so is
+   * `previousAiChangedAt`, its marker while parked.
    */
-  | { kind: "scheduled"; itemId: string; updatedAt: T; previousUpdatedAt: T }
+  | { kind: "scheduled"; itemId: string; updatedAt: T; previousUpdatedAt: T; previousAiChangedAt: T | null }
   /**
    * Story 14.2. An activity moved off the day into the bucket list. `updatedAt` is its post-park stamp;
    * `previous` is where and how it was planned, which undo writes back (the receipt's `tripDayId` is
@@ -185,6 +200,8 @@ export type DayChangeEdited<T extends Date | string = Date> =
         fromTime: string | null;
         toTime: string | null;
         updatedAt: T;
+        /** Story 15.4. The marker it had on the day. */
+        previousAiChangedAt: T | null;
       };
     }
   /** Story 12.4. Everything one apply of picked suggestions created; `updatedAt` is each row's post-write stamp. */
@@ -245,12 +262,25 @@ const mapStamps = <R extends Stamped<A>, A extends Date | string, B extends Date
   updatedAt: convert(row.updatedAt),
 });
 
+/** Story 15.4. A nullable stamp: the marker. */
+const mapNullable = <A extends Date | string, B extends Date | string>(value: A | null, convert: (value: A) => B) =>
+  value === null ? null : convert(value);
+
+/** Story 15.4. A marked row: its stamps and its `aiChangedAt`. */
+const mapMarked = <R extends Stamped<A> & Marked<A>, A extends Date | string, B extends Date | string>(
+  row: R,
+  convert: (value: A) => B,
+): Omit<Omit<R, "aiChangedAt">, "createdAt" | "updatedAt"> & Stamped<B> & Marked<B> => {
+  const { aiChangedAt, ...rest } = row;
+  return { ...mapStamps(rest, convert), aiChangedAt: mapNullable(aiChangedAt, convert) };
+};
+
 const mapReceipt = <A extends Date | string, B extends Date | string>(
   receipt: DayChangeReceipt<A>,
   convert: (value: A) => B,
 ): DayChangeReceipt<B> => {
   const snapshot = (previous: DayPlanItemSnapshot<A>): DayPlanItemSnapshot<B> => ({
-    ...mapStamps(previous, convert),
+    ...mapMarked(previous, convert),
     payments: previous.payments.map((payment) => mapStamps(payment, convert)),
   });
 
@@ -271,13 +301,13 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
         kind: "deleted",
         previous: {
           ...snapshot(receipt.edited.previous),
-          images: receipt.edited.previous.images.map((image) => mapStamps(image, convert)),
-          documents: receipt.edited.previous.documents.map((document) => mapStamps(document, convert)),
+          images: receipt.edited.previous.images.map((image) => mapMarked(image, convert)),
+          documents: receipt.edited.previous.documents.map((document) => mapMarked(document, convert)),
         },
       };
       break;
     case "reordered":
-      edited = { ...receipt.edited };
+      edited = { ...receipt.edited, previousAiChangedAt: mapNullable(receipt.edited.previousAiChangedAt, convert) };
       break;
     case "legCreated":
       edited = { ...receipt.edited, updatedAt: convert(receipt.edited.updatedAt) };
@@ -286,11 +316,11 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
       edited = {
         ...receipt.edited,
         updatedAt: convert(receipt.edited.updatedAt),
-        previous: mapStamps(receipt.edited.previous, convert),
+        previous: mapMarked(receipt.edited.previous, convert),
       };
       break;
     case "legDeleted":
-      edited = { ...receipt.edited, previous: mapStamps(receipt.edited.previous, convert) };
+      edited = { ...receipt.edited, previous: mapMarked(receipt.edited.previous, convert) };
       break;
     case "stayCheckOutChanged":
       edited = {
@@ -304,13 +334,18 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
         ...receipt.edited,
         updatedAt: convert(receipt.edited.updatedAt),
         previousUpdatedAt: convert(receipt.edited.previousUpdatedAt),
+        previousAiChangedAt: mapNullable(receipt.edited.previousAiChangedAt, convert),
       };
       break;
     case "parked":
       edited = {
         ...receipt.edited,
         updatedAt: convert(receipt.edited.updatedAt),
-        previous: { ...receipt.edited.previous, updatedAt: convert(receipt.edited.previous.updatedAt) },
+        previous: {
+          ...receipt.edited.previous,
+          updatedAt: convert(receipt.edited.previous.updatedAt),
+          previousAiChangedAt: mapNullable(receipt.edited.previous.previousAiChangedAt, convert),
+        },
       };
       break;
     case "suggestionsApplied":
@@ -335,7 +370,7 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
     version: receipt.version,
     tripDayId: receipt.tripDayId,
     edited,
-    removedTravelSegments: receipt.removedTravelSegments.map((segment) => mapStamps(segment, convert)),
+    removedTravelSegments: receipt.removedTravelSegments.map((segment) => mapMarked(segment, convert)),
     movedItems: receipt.movedItems.map((moved) => ({
       ...moved,
       previousUpdatedAt: convert(moved.previousUpdatedAt),

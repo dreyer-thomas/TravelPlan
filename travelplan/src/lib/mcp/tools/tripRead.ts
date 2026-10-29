@@ -5,6 +5,7 @@ import { toolError } from "@/lib/mcp/logging";
 import { toBucketActivity, toPlannerDay, toTripListEntry, toTripOverview } from "@/lib/mcp/plannerShapes";
 import {
   DAY_NOT_FOUND,
+  idSchema,
   READ_ONLY_TOOL_ANNOTATIONS,
   requireWritableTrip,
   runTool,
@@ -21,14 +22,6 @@ import { DAY_START_WITHOUT_STAY } from "@/lib/trips/stayTimes";
  * user may plan (owner or contributor) exist here (ruling R1); every trip-scoped tool checks per call and
  * answers `Trip not found` for anything else, the same text as for an id that names nothing.
  */
-
-// Database ids are cuids; the character set also keeps the id safe to put in the log line.
-const idSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(64)
-  .regex(/^[A-Za-z0-9_-]+$/, "Not a TravelPlan id");
 
 const tripInput = z.object({ tripId: idSchema.describe("The trip's id, from list_trips.") });
 

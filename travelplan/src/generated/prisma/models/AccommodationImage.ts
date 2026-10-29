@@ -41,6 +41,7 @@ export type AccommodationImageMinAggregateOutputType = {
   sortOrder: number | null
   createdAt: Date | null
   updatedAt: Date | null
+  aiChangedAt: Date | null
 }
 
 export type AccommodationImageMaxAggregateOutputType = {
@@ -50,6 +51,7 @@ export type AccommodationImageMaxAggregateOutputType = {
   sortOrder: number | null
   createdAt: Date | null
   updatedAt: Date | null
+  aiChangedAt: Date | null
 }
 
 export type AccommodationImageCountAggregateOutputType = {
@@ -59,6 +61,7 @@ export type AccommodationImageCountAggregateOutputType = {
   sortOrder: number
   createdAt: number
   updatedAt: number
+  aiChangedAt: number
   _all: number
 }
 
@@ -78,6 +81,7 @@ export type AccommodationImageMinAggregateInputType = {
   sortOrder?: true
   createdAt?: true
   updatedAt?: true
+  aiChangedAt?: true
 }
 
 export type AccommodationImageMaxAggregateInputType = {
@@ -87,6 +91,7 @@ export type AccommodationImageMaxAggregateInputType = {
   sortOrder?: true
   createdAt?: true
   updatedAt?: true
+  aiChangedAt?: true
 }
 
 export type AccommodationImageCountAggregateInputType = {
@@ -96,6 +101,7 @@ export type AccommodationImageCountAggregateInputType = {
   sortOrder?: true
   createdAt?: true
   updatedAt?: true
+  aiChangedAt?: true
   _all?: true
 }
 
@@ -192,6 +198,7 @@ export type AccommodationImageGroupByOutputType = {
   sortOrder: number
   createdAt: Date
   updatedAt: Date
+  aiChangedAt: Date | null
   _count: AccommodationImageCountAggregateOutputType | null
   _avg: AccommodationImageAvgAggregateOutputType | null
   _sum: AccommodationImageSumAggregateOutputType | null
@@ -224,6 +231,7 @@ export type AccommodationImageWhereInput = {
   sortOrder?: Prisma.IntFilter<"AccommodationImage"> | number
   createdAt?: Prisma.DateTimeFilter<"AccommodationImage"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"AccommodationImage"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableFilter<"AccommodationImage"> | Date | string | null
   accommodation?: Prisma.XOR<Prisma.AccommodationScalarRelationFilter, Prisma.AccommodationWhereInput>
 }
 
@@ -234,6 +242,7 @@ export type AccommodationImageOrderByWithRelationInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   accommodation?: Prisma.AccommodationOrderByWithRelationInput
 }
 
@@ -248,6 +257,7 @@ export type AccommodationImageWhereUniqueInput = Prisma.AtLeast<{
   sortOrder?: Prisma.IntFilter<"AccommodationImage"> | number
   createdAt?: Prisma.DateTimeFilter<"AccommodationImage"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"AccommodationImage"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableFilter<"AccommodationImage"> | Date | string | null
   accommodation?: Prisma.XOR<Prisma.AccommodationScalarRelationFilter, Prisma.AccommodationWhereInput>
 }, "id" | "accommodationId_sortOrder">
 
@@ -258,6 +268,7 @@ export type AccommodationImageOrderByWithAggregationInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.AccommodationImageCountOrderByAggregateInput
   _avg?: Prisma.AccommodationImageAvgOrderByAggregateInput
   _max?: Prisma.AccommodationImageMaxOrderByAggregateInput
@@ -275,6 +286,7 @@ export type AccommodationImageScalarWhereWithAggregatesInput = {
   sortOrder?: Prisma.IntWithAggregatesFilter<"AccommodationImage"> | number
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"AccommodationImage"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"AccommodationImage"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"AccommodationImage"> | Date | string | null
 }
 
 export type AccommodationImageCreateInput = {
@@ -283,6 +295,7 @@ export type AccommodationImageCreateInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
   accommodation: Prisma.AccommodationCreateNestedOneWithoutImagesInput
 }
 
@@ -293,6 +306,7 @@ export type AccommodationImageUncheckedCreateInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type AccommodationImageUpdateInput = {
@@ -301,6 +315,7 @@ export type AccommodationImageUpdateInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   accommodation?: Prisma.AccommodationUpdateOneRequiredWithoutImagesNestedInput
 }
 
@@ -311,6 +326,7 @@ export type AccommodationImageUncheckedUpdateInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AccommodationImageCreateManyInput = {
@@ -320,6 +336,7 @@ export type AccommodationImageCreateManyInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type AccommodationImageUpdateManyMutationInput = {
@@ -328,6 +345,7 @@ export type AccommodationImageUpdateManyMutationInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AccommodationImageUncheckedUpdateManyInput = {
@@ -337,6 +355,7 @@ export type AccommodationImageUncheckedUpdateManyInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AccommodationImageListRelationFilter = {
@@ -361,6 +380,7 @@ export type AccommodationImageCountOrderByAggregateInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrder
 }
 
 export type AccommodationImageAvgOrderByAggregateInput = {
@@ -374,6 +394,7 @@ export type AccommodationImageMaxOrderByAggregateInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrder
 }
 
 export type AccommodationImageMinOrderByAggregateInput = {
@@ -383,6 +404,7 @@ export type AccommodationImageMinOrderByAggregateInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrder
 }
 
 export type AccommodationImageSumOrderByAggregateInput = {
@@ -437,6 +459,7 @@ export type AccommodationImageCreateWithoutAccommodationInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type AccommodationImageUncheckedCreateWithoutAccommodationInput = {
@@ -445,6 +468,7 @@ export type AccommodationImageUncheckedCreateWithoutAccommodationInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type AccommodationImageCreateOrConnectWithoutAccommodationInput = {
@@ -482,6 +506,7 @@ export type AccommodationImageScalarWhereInput = {
   sortOrder?: Prisma.IntFilter<"AccommodationImage"> | number
   createdAt?: Prisma.DateTimeFilter<"AccommodationImage"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"AccommodationImage"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableFilter<"AccommodationImage"> | Date | string | null
 }
 
 export type AccommodationImageCreateManyAccommodationInput = {
@@ -490,6 +515,7 @@ export type AccommodationImageCreateManyAccommodationInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type AccommodationImageUpdateWithoutAccommodationInput = {
@@ -498,6 +524,7 @@ export type AccommodationImageUpdateWithoutAccommodationInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AccommodationImageUncheckedUpdateWithoutAccommodationInput = {
@@ -506,6 +533,7 @@ export type AccommodationImageUncheckedUpdateWithoutAccommodationInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AccommodationImageUncheckedUpdateManyWithoutAccommodationInput = {
@@ -514,6 +542,7 @@ export type AccommodationImageUncheckedUpdateManyWithoutAccommodationInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 
@@ -525,6 +554,7 @@ export type AccommodationImageSelect<ExtArgs extends runtime.Types.Extensions.In
   sortOrder?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
   accommodation?: boolean | Prisma.AccommodationDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["accommodationImage"]>
 
@@ -535,6 +565,7 @@ export type AccommodationImageSelectCreateManyAndReturn<ExtArgs extends runtime.
   sortOrder?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
   accommodation?: boolean | Prisma.AccommodationDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["accommodationImage"]>
 
@@ -545,6 +576,7 @@ export type AccommodationImageSelectUpdateManyAndReturn<ExtArgs extends runtime.
   sortOrder?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
   accommodation?: boolean | Prisma.AccommodationDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["accommodationImage"]>
 
@@ -555,9 +587,10 @@ export type AccommodationImageSelectScalar = {
   sortOrder?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
 }
 
-export type AccommodationImageOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "accommodationId" | "imageUrl" | "sortOrder" | "createdAt" | "updatedAt", ExtArgs["result"]["accommodationImage"]>
+export type AccommodationImageOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "accommodationId" | "imageUrl" | "sortOrder" | "createdAt" | "updatedAt" | "aiChangedAt", ExtArgs["result"]["accommodationImage"]>
 export type AccommodationImageInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   accommodation?: boolean | Prisma.AccommodationDefaultArgs<ExtArgs>
 }
@@ -580,6 +613,7 @@ export type $AccommodationImagePayload<ExtArgs extends runtime.Types.Extensions.
     sortOrder: number
     createdAt: Date
     updatedAt: Date
+    aiChangedAt: Date | null
   }, ExtArgs["result"]["accommodationImage"]>
   composites: {}
 }
@@ -1010,6 +1044,7 @@ export interface AccommodationImageFieldRefs {
   readonly sortOrder: Prisma.FieldRef<"AccommodationImage", 'Int'>
   readonly createdAt: Prisma.FieldRef<"AccommodationImage", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"AccommodationImage", 'DateTime'>
+  readonly aiChangedAt: Prisma.FieldRef<"AccommodationImage", 'DateTime'>
 }
     
 

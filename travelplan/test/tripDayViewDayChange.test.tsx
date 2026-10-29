@@ -206,6 +206,7 @@ const wireLeg = (id: string) => ({
   linkUrl: null,
   createdAt: "2026-11-01T10:00:00.000Z",
   updatedAt: "2026-11-01T10:00:00.000Z",
+  aiChangedAt: null,
 });
 
 const receipt = (legs: ReturnType<typeof wireLeg>[]): SignedDayChangeReceiptWire => ({

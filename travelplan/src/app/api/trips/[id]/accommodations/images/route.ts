@@ -152,6 +152,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   const created = await createAccommodationImage({
     userId,
     tripId,
+    origin: "user",
     tripDayId: parsed.data.tripDayId,
     accommodationId: parsed.data.accommodationId,
     imageUrl,

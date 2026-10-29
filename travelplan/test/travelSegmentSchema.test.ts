@@ -22,6 +22,8 @@ describe("travel_segments schema", () => {
       "link_url",
       "created_at",
       "updated_at",
+      // Story 15.4.
+      "ai_changed_at",
     ]);
   });
 });

@@ -62,6 +62,7 @@ describe("a day planned by duration (Story 13.1, the proposal's success criteria
 
     const flexible = async (title: string, durationMinutes: number) => {
       const result = await createDayPlanItemForTripDay({
+        origin: "user",
         ...scope,
         title,
         scheduleMode: "FLEXIBLE",
@@ -75,6 +76,7 @@ describe("a day planned by duration (Story 13.1, the proposal's success criteria
     };
     const leg = async (from: { type: "accommodation" | "dayPlanItem"; id: string }, to: { id: string }, durationMinutes: number) => {
       const result = await createTravelSegmentForTripDay({
+        origin: "user",
         ...scope,
         fromItemType: from.type,
         fromItemId: from.id,
@@ -108,6 +110,7 @@ describe("a day planned by duration (Story 13.1, the proposal's success criteria
     // 2.
     const beforeShortening = await databaseState();
     const shortened = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...scope,
       itemId: second.id,
       title: "Lunch",
@@ -124,6 +127,7 @@ describe("a day planned by duration (Story 13.1, the proposal's success criteria
     // 3.
     const beforeFerry = await databaseState();
     const ferry = await createDayPlanItemForTripDay({
+      origin: "user",
       ...scope,
       title: "Ferry",
       scheduleMode: "FIXED",

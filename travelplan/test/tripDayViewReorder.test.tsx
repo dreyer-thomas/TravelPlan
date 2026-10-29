@@ -140,7 +140,7 @@ const reorderReceipt = (): SignedDayChangeReceiptWire => ({
   signature: "a".repeat(64),
   version: 3,
   tripDayId: "day-1",
-  edited: { kind: "reordered", itemId: "item-2", neighbourId: "item-1" },
+  edited: { kind: "reordered", itemId: "item-2", neighbourId: "item-1", previousAiChangedAt: null },
   removedTravelSegments: [],
   movedItems: [moved("item-2"), moved("item-1")],
 });
@@ -162,6 +162,7 @@ const parkReceipt = (itemId: string, movedIds: string[] = [], legs = 0): SignedD
       fromTime: "13:00",
       toTime: "14:00",
       updatedAt: "2026-11-01T10:00:00.000Z",
+      previousAiChangedAt: null,
     },
   },
   removedTravelSegments: Array.from({ length: legs }, (_, index) => ({
@@ -177,6 +178,7 @@ const parkReceipt = (itemId: string, movedIds: string[] = [], legs = 0): SignedD
     linkUrl: null,
     createdAt: "2026-11-01T10:00:00.000Z",
     updatedAt: "2026-11-01T10:00:00.000Z",
+    aiChangedAt: null,
   })),
   movedItems: movedIds.map(moved),
 });

@@ -339,12 +339,12 @@ describe("undo of an apply with parked suggestions (Story 14.3)", () => {
     [
       "edited in the bucket dialog",
       ({ user, trip, parkedId }) =>
-        updateParkedDayPlanItem({ userId: user.id, tripId: trip.id, itemId: parkedId, title: "Renamed", contentJson: "{}" }),
+        updateParkedDayPlanItem({ origin: "user", userId: user.id, tripId: trip.id, itemId: parkedId, title: "Renamed", contentJson: "{}" }),
     ],
     [
       "scheduled with +",
       ({ user, trip, day1, parkedId }) =>
-        scheduleParkedDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day1.id, itemId: parkedId }),
+        scheduleParkedDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: day1.id, itemId: parkedId }),
     ],
     [
       "given a picture",

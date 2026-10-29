@@ -95,6 +95,7 @@ const times = async (tripDayId: string) =>
 
 const patchStay = (userId: string, tripId: string, tripDayId: string, checkOutTime?: string | null) =>
   updateAccommodationForTripDay({
+    origin: "user",
     userId,
     tripId,
     tripDayId,
@@ -301,6 +302,7 @@ describe("a changed check-out recomputes the next day (Story 11.4 AC3, 13.1 AC3)
     const settled = await times(nextDay.id);
 
     const result = await updateAccommodationForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: stayDay.id,
@@ -318,6 +320,7 @@ describe("a changed check-out recomputes the next day (Story 11.4 AC3, 13.1 AC3)
     expect(await times(nextDay.id)).toEqual(["Early bird -–-", "Late show -–-"]);
 
     const earlier = await updateAccommodationForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: stayDay.id,
@@ -339,6 +342,7 @@ describe("creating or copying a stay pushes nothing (Story 11.4 AC4)", () => {
 
     // The update arm: day 4 already has a stay.
     await createAccommodationForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: stayDay.id,
@@ -357,7 +361,7 @@ describe("creating or copying a stay pushes nothing (Story 11.4 AC4)", () => {
     await createItem(thirdDay.id, "F", "07:00", "08:00");
     void stayDay;
 
-    const copied = await copyAccommodationFromPreviousNight({ userId: user.id, tripId: trip.id, tripDayId: nextDay.id });
+    const copied = await copyAccommodationFromPreviousNight({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: nextDay.id });
 
     expect(copied.status).toBe("copied");
     expect(await times(thirdDay.id)).toEqual(["F 07:00–08:00"]);

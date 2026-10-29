@@ -41,6 +41,7 @@ export type DayPlanItemImageMinAggregateOutputType = {
   sortOrder: number | null
   createdAt: Date | null
   updatedAt: Date | null
+  aiChangedAt: Date | null
 }
 
 export type DayPlanItemImageMaxAggregateOutputType = {
@@ -50,6 +51,7 @@ export type DayPlanItemImageMaxAggregateOutputType = {
   sortOrder: number | null
   createdAt: Date | null
   updatedAt: Date | null
+  aiChangedAt: Date | null
 }
 
 export type DayPlanItemImageCountAggregateOutputType = {
@@ -59,6 +61,7 @@ export type DayPlanItemImageCountAggregateOutputType = {
   sortOrder: number
   createdAt: number
   updatedAt: number
+  aiChangedAt: number
   _all: number
 }
 
@@ -78,6 +81,7 @@ export type DayPlanItemImageMinAggregateInputType = {
   sortOrder?: true
   createdAt?: true
   updatedAt?: true
+  aiChangedAt?: true
 }
 
 export type DayPlanItemImageMaxAggregateInputType = {
@@ -87,6 +91,7 @@ export type DayPlanItemImageMaxAggregateInputType = {
   sortOrder?: true
   createdAt?: true
   updatedAt?: true
+  aiChangedAt?: true
 }
 
 export type DayPlanItemImageCountAggregateInputType = {
@@ -96,6 +101,7 @@ export type DayPlanItemImageCountAggregateInputType = {
   sortOrder?: true
   createdAt?: true
   updatedAt?: true
+  aiChangedAt?: true
   _all?: true
 }
 
@@ -192,6 +198,7 @@ export type DayPlanItemImageGroupByOutputType = {
   sortOrder: number
   createdAt: Date
   updatedAt: Date
+  aiChangedAt: Date | null
   _count: DayPlanItemImageCountAggregateOutputType | null
   _avg: DayPlanItemImageAvgAggregateOutputType | null
   _sum: DayPlanItemImageSumAggregateOutputType | null
@@ -224,6 +231,7 @@ export type DayPlanItemImageWhereInput = {
   sortOrder?: Prisma.IntFilter<"DayPlanItemImage"> | number
   createdAt?: Prisma.DateTimeFilter<"DayPlanItemImage"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DayPlanItemImage"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableFilter<"DayPlanItemImage"> | Date | string | null
   dayPlanItem?: Prisma.XOR<Prisma.DayPlanItemScalarRelationFilter, Prisma.DayPlanItemWhereInput>
 }
 
@@ -234,6 +242,7 @@ export type DayPlanItemImageOrderByWithRelationInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   dayPlanItem?: Prisma.DayPlanItemOrderByWithRelationInput
 }
 
@@ -248,6 +257,7 @@ export type DayPlanItemImageWhereUniqueInput = Prisma.AtLeast<{
   sortOrder?: Prisma.IntFilter<"DayPlanItemImage"> | number
   createdAt?: Prisma.DateTimeFilter<"DayPlanItemImage"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DayPlanItemImage"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableFilter<"DayPlanItemImage"> | Date | string | null
   dayPlanItem?: Prisma.XOR<Prisma.DayPlanItemScalarRelationFilter, Prisma.DayPlanItemWhereInput>
 }, "id" | "dayPlanItemId_sortOrder">
 
@@ -258,6 +268,7 @@ export type DayPlanItemImageOrderByWithAggregationInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.DayPlanItemImageCountOrderByAggregateInput
   _avg?: Prisma.DayPlanItemImageAvgOrderByAggregateInput
   _max?: Prisma.DayPlanItemImageMaxOrderByAggregateInput
@@ -275,6 +286,7 @@ export type DayPlanItemImageScalarWhereWithAggregatesInput = {
   sortOrder?: Prisma.IntWithAggregatesFilter<"DayPlanItemImage"> | number
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"DayPlanItemImage"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"DayPlanItemImage"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"DayPlanItemImage"> | Date | string | null
 }
 
 export type DayPlanItemImageCreateInput = {
@@ -283,6 +295,7 @@ export type DayPlanItemImageCreateInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
   dayPlanItem: Prisma.DayPlanItemCreateNestedOneWithoutImagesInput
 }
 
@@ -293,6 +306,7 @@ export type DayPlanItemImageUncheckedCreateInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type DayPlanItemImageUpdateInput = {
@@ -301,6 +315,7 @@ export type DayPlanItemImageUpdateInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   dayPlanItem?: Prisma.DayPlanItemUpdateOneRequiredWithoutImagesNestedInput
 }
 
@@ -311,6 +326,7 @@ export type DayPlanItemImageUncheckedUpdateInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type DayPlanItemImageCreateManyInput = {
@@ -320,6 +336,7 @@ export type DayPlanItemImageCreateManyInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type DayPlanItemImageUpdateManyMutationInput = {
@@ -328,6 +345,7 @@ export type DayPlanItemImageUpdateManyMutationInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type DayPlanItemImageUncheckedUpdateManyInput = {
@@ -337,6 +355,7 @@ export type DayPlanItemImageUncheckedUpdateManyInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type DayPlanItemImageListRelationFilter = {
@@ -361,6 +380,7 @@ export type DayPlanItemImageCountOrderByAggregateInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrder
 }
 
 export type DayPlanItemImageAvgOrderByAggregateInput = {
@@ -374,6 +394,7 @@ export type DayPlanItemImageMaxOrderByAggregateInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrder
 }
 
 export type DayPlanItemImageMinOrderByAggregateInput = {
@@ -383,6 +404,7 @@ export type DayPlanItemImageMinOrderByAggregateInput = {
   sortOrder?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  aiChangedAt?: Prisma.SortOrder
 }
 
 export type DayPlanItemImageSumOrderByAggregateInput = {
@@ -437,6 +459,7 @@ export type DayPlanItemImageCreateWithoutDayPlanItemInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type DayPlanItemImageUncheckedCreateWithoutDayPlanItemInput = {
@@ -445,6 +468,7 @@ export type DayPlanItemImageUncheckedCreateWithoutDayPlanItemInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type DayPlanItemImageCreateOrConnectWithoutDayPlanItemInput = {
@@ -482,6 +506,7 @@ export type DayPlanItemImageScalarWhereInput = {
   sortOrder?: Prisma.IntFilter<"DayPlanItemImage"> | number
   createdAt?: Prisma.DateTimeFilter<"DayPlanItemImage"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DayPlanItemImage"> | Date | string
+  aiChangedAt?: Prisma.DateTimeNullableFilter<"DayPlanItemImage"> | Date | string | null
 }
 
 export type DayPlanItemImageCreateManyDayPlanItemInput = {
@@ -490,6 +515,7 @@ export type DayPlanItemImageCreateManyDayPlanItemInput = {
   sortOrder: number
   createdAt?: Date | string
   updatedAt?: Date | string
+  aiChangedAt?: Date | string | null
 }
 
 export type DayPlanItemImageUpdateWithoutDayPlanItemInput = {
@@ -498,6 +524,7 @@ export type DayPlanItemImageUpdateWithoutDayPlanItemInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type DayPlanItemImageUncheckedUpdateWithoutDayPlanItemInput = {
@@ -506,6 +533,7 @@ export type DayPlanItemImageUncheckedUpdateWithoutDayPlanItemInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type DayPlanItemImageUncheckedUpdateManyWithoutDayPlanItemInput = {
@@ -514,6 +542,7 @@ export type DayPlanItemImageUncheckedUpdateManyWithoutDayPlanItemInput = {
   sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 
@@ -525,6 +554,7 @@ export type DayPlanItemImageSelect<ExtArgs extends runtime.Types.Extensions.Inte
   sortOrder?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
   dayPlanItem?: boolean | Prisma.DayPlanItemDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["dayPlanItemImage"]>
 
@@ -535,6 +565,7 @@ export type DayPlanItemImageSelectCreateManyAndReturn<ExtArgs extends runtime.Ty
   sortOrder?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
   dayPlanItem?: boolean | Prisma.DayPlanItemDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["dayPlanItemImage"]>
 
@@ -545,6 +576,7 @@ export type DayPlanItemImageSelectUpdateManyAndReturn<ExtArgs extends runtime.Ty
   sortOrder?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
   dayPlanItem?: boolean | Prisma.DayPlanItemDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["dayPlanItemImage"]>
 
@@ -555,9 +587,10 @@ export type DayPlanItemImageSelectScalar = {
   sortOrder?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  aiChangedAt?: boolean
 }
 
-export type DayPlanItemImageOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "dayPlanItemId" | "imageUrl" | "sortOrder" | "createdAt" | "updatedAt", ExtArgs["result"]["dayPlanItemImage"]>
+export type DayPlanItemImageOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "dayPlanItemId" | "imageUrl" | "sortOrder" | "createdAt" | "updatedAt" | "aiChangedAt", ExtArgs["result"]["dayPlanItemImage"]>
 export type DayPlanItemImageInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   dayPlanItem?: boolean | Prisma.DayPlanItemDefaultArgs<ExtArgs>
 }
@@ -580,6 +613,7 @@ export type $DayPlanItemImagePayload<ExtArgs extends runtime.Types.Extensions.In
     sortOrder: number
     createdAt: Date
     updatedAt: Date
+    aiChangedAt: Date | null
   }, ExtArgs["result"]["dayPlanItemImage"]>
   composites: {}
 }
@@ -1010,6 +1044,7 @@ export interface DayPlanItemImageFieldRefs {
   readonly sortOrder: Prisma.FieldRef<"DayPlanItemImage", 'Int'>
   readonly createdAt: Prisma.FieldRef<"DayPlanItemImage", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"DayPlanItemImage", 'DateTime'>
+  readonly aiChangedAt: Prisma.FieldRef<"DayPlanItemImage", 'DateTime'>
 }
     
 

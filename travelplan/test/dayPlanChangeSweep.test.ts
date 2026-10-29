@@ -109,6 +109,7 @@ describe("day plan writes sweep the legs they un-draw (Story 11.1)", () => {
     const leg = await createLeg(day.id, item(a.id), item(b.id), 40);
 
     const result = await createDayPlanItemExpectingSuccess({
+      origin: "user",
       ...baseMutation(user.id, trip.id, day.id),
       title: "M",
       fromTime: "12:00",
@@ -147,6 +148,7 @@ describe("day plan writes sweep the legs they un-draw (Story 11.1)", () => {
     // 13.1 AC7: Story 11.2 kept a retimed row at its index and pushed; a fixed row now takes its place by
     // its time. A at 16:00 goes after B, so neither A→B nor B→C is drawn any more.
     const result = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...baseMutation(user.id, trip.id, day.id),
       itemId: a.id,
       title: "A",
@@ -184,6 +186,7 @@ describe("day plan writes sweep the legs they un-draw (Story 11.1)", () => {
     const leg = await createLeg(day.id, item(a.id), item(untimed.id));
 
     const result = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...baseMutation(user.id, trip.id, day.id),
       itemId: untimed.id,
       title: "U",
@@ -237,6 +240,7 @@ describe("day plan writes sweep the legs they un-draw (Story 11.1)", () => {
     const toStay = await createLeg(day.id, item(a.id), stay(tonight.id));
 
     const early = await createDayPlanItemExpectingSuccess({
+      origin: "user",
       ...baseMutation(user.id, trip.id, day.id),
       title: "Early",
       fromTime: "07:00",
@@ -247,6 +251,7 @@ describe("day plan writes sweep the legs they un-draw (Story 11.1)", () => {
     expect(early?.receipt.removedTravelSegments).toEqual([fromStay]);
 
     const late = await createDayPlanItemExpectingSuccess({
+      origin: "user",
       ...baseMutation(user.id, trip.id, day.id),
       title: "Late",
       fromTime: "20:00",
@@ -267,6 +272,7 @@ describe("day plan writes sweep the legs they un-draw (Story 11.1)", () => {
     const orphan = await createLeg(day.id, item(a.id), item(c.id));
 
     const result = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...baseMutation(user.id, trip.id, day.id),
       itemId: b.id,
       title: "B renamed",
@@ -289,6 +295,7 @@ describe("day plan writes sweep the legs they un-draw (Story 11.1)", () => {
     const leg = await createLeg(day.id, item(a.id), item(b.id));
 
     const result = await updateDayPlanItemForTripDay({
+      origin: "user",
       ...baseMutation(user.id, trip.id, day.id),
       itemId: a.id,
       title: "A",
@@ -314,7 +321,7 @@ describe("day plan writes sweep the legs they un-draw (Story 11.1)", () => {
       data: { tripId: trip.id, tripDayId: null, scheduleMode: "FLEXIBLE", title: "Idea", contentJson: sampleDoc("Idea") },
     });
 
-    const result = await scheduleParkedDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: idea.id });
+    const result = await scheduleParkedDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: idea.id });
 
     expect(await prisma.travelSegment.findUnique({ where: { id: leg.id } })).toEqual(leg);
     expect(result.status).toBe("scheduled");

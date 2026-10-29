@@ -83,6 +83,7 @@ const flexibleEdit = (
   durationMinutes: number,
 ) =>
   updateDayPlanItemForTripDay({
+    origin: "user",
     userId: seeded.user.id,
     tripId: seeded.trip.id,
     tripDayId: seeded.day.id,
@@ -157,6 +158,7 @@ describe("past midnight is saved (Story 13.2 AC6)", () => {
     const { user, trip, day } = seeded;
 
     const created = await createDayPlanItemForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -183,7 +185,7 @@ describe("past midnight is saved (Story 13.2 AC6)", () => {
       data: { tripId: trip.id, tripDayId: null, scheduleMode: "FLEXIBLE", durationMinutes: 60, title: "Idea", contentJson: doc("Idea") },
     });
 
-    const scheduled = await scheduleParkedDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: idea.id });
+    const scheduled = await scheduleParkedDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: idea.id });
 
     expect(scheduled.status).toBe("scheduled");
     expect(await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: idea.id } })).toMatchObject({
@@ -199,7 +201,7 @@ describe("past midnight is saved (Story 13.2 AC6)", () => {
     const { user, trip, day, a } = seeded;
     await flexibleEdit(seeded, a, "A", 150);
 
-    const parked = await parkDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: a.id });
+    const parked = await parkDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: a.id });
 
     expect(parked.status).toBe("parked");
     expect(await times(day.id)).toEqual({ Show: "20:00–21:00", B: "21:00–22:00", C: "22:00–22:30" });

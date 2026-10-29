@@ -27,6 +27,7 @@ import MoneyField from "@/components/forms/MoneyField";
 import { useEntryCurrency } from "@/components/forms/useEntryCurrency";
 import FormNotice from "@/components/forms/FormNotice";
 import PhotoUploadField from "@/components/forms/PhotoUploadField";
+import AiBadge from "@/components/ui/AiBadge";
 import DialogShell from "@/components/ui/DialogShell";
 import DiscardChangesDialog from "@/components/ui/DiscardChangesDialog";
 import FullscreenPhotoViewer from "@/components/ui/FullscreenPhotoViewer";
@@ -91,6 +92,8 @@ type DayPlanItem = {
   /** Story 13.1. Optional so an older caller or fixture still type-checks; absent reads as FIXED. */
   scheduleMode?: "FLEXIBLE" | "FIXED";
   durationMinutes?: number;
+  /** Story 15.4. ISO time the connector last created or changed the activity; shows the KI/AI badge. */
+  aiChangedAt?: string | null;
 };
 
 /** Story 13.1 (FR46). How an activity is planned: by its duration, or at a booked time. */
@@ -2399,6 +2402,7 @@ export default function TripDayPlanDialog({
       // dismissals owe the user the same question when there is typing to lose.
       onClose={handleCloseRequest}
       title={title}
+      titleAdornment={mode === "edit" && item?.aiChangedAt ? <AiBadge /> : undefined}
       subtitle={subtitle ?? undefined}
       // Screen G's `.dialog.w-520`, down from MUI's `maxWidth="md"` (900px). The TipTap toolbar and
       // the payment rows are the two blocks that have to survive the narrowing — both wrap rather

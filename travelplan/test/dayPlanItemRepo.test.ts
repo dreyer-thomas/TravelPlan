@@ -108,6 +108,7 @@ describe("dayPlanItemRepo", () => {
     const { trip, day } = await createTripWithDay(user.id);
 
     const item = await createDayPlanItemExpectingSuccess({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -136,6 +137,7 @@ describe("dayPlanItemRepo", () => {
     const { trip, day } = await createTripWithDay(user.id);
 
     const created = await createDayPlanItemExpectingSuccess({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -157,6 +159,7 @@ describe("dayPlanItemRepo", () => {
     expect(existingPayments).toHaveLength(2);
 
     const updated = await updateDayPlanItemForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -186,6 +189,7 @@ describe("dayPlanItemRepo", () => {
     const { trip, day } = await createTripWithDay(user.id);
 
     const created = await createDayPlanItemExpectingSuccess({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -208,6 +212,7 @@ describe("dayPlanItemRepo", () => {
     ]);
 
     const updated = await updateDayPlanItemForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -305,6 +310,7 @@ describe("dayPlanItemRepo", () => {
     });
 
     const updated = await updateDayPlanItemForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -335,6 +341,7 @@ describe("dayPlanItemRepo", () => {
     const { trip, day } = await createTripWithDay(user.id);
 
     const updated = await updateDayPlanItemForTripDay({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -365,6 +372,7 @@ describe("dayPlanItemRepo", () => {
     });
 
     const updated = await updateDayPlanItemForTripDay({
+      origin: "user",
       userId: other.id,
       tripId: trip.id,
       tripDayId: day.id,
@@ -438,7 +446,7 @@ describe("dayPlanItemRepo", () => {
       ),
     );
 
-    const scheduled = await scheduleParkedDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: idea.id });
+    const scheduled = await scheduleParkedDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: idea.id });
 
     expect(scheduled.status).toBe("scheduled");
     if (scheduled.status !== "scheduled") return;
@@ -484,11 +492,11 @@ describe("dayPlanItemRepo", () => {
     const before = await prisma.dayPlanItem.findMany({ orderBy: { id: "asc" } });
 
     for (const itemId of [planned.id, foreign.id, "unknown"]) {
-      expect(await scheduleParkedDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId })).toEqual({
+      expect(await scheduleParkedDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: day.id, itemId })).toEqual({
         status: "missing",
       });
     }
-    expect(await scheduleParkedDayPlanItemForTripDay({ userId: viewer.id, tripId: trip.id, tripDayId: day.id, itemId: idea.id })).toEqual({
+    expect(await scheduleParkedDayPlanItemForTripDay({ origin: "user", userId: viewer.id, tripId: trip.id, tripDayId: day.id, itemId: idea.id })).toEqual({
       status: "not_found",
     });
     expect(await prisma.dayPlanItem.findMany({ orderBy: { id: "asc" } })).toEqual(before);
@@ -620,6 +628,7 @@ describe("dayPlanItemRepo", () => {
     });
 
     const result = await moveDayPlanItemsBetweenTripDays({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       sourceTripDayId: firstDay.id,
@@ -691,6 +700,7 @@ describe("dayPlanItemRepo", () => {
     });
 
     const result = await swapDayPlanItemsBetweenTripDays({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       firstTripDayId: firstDay.id,
@@ -725,6 +735,7 @@ describe("dayPlanItemRepo", () => {
     });
 
     const result = await swapDayPlanItemsBetweenTripDays({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       firstTripDayId: firstDay.id,
@@ -752,12 +763,14 @@ describe("dayPlanItemRepo", () => {
     });
 
     const moveResult = await moveDayPlanItemsBetweenTripDays({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       sourceTripDayId: day.id,
       targetTripDayId: day.id,
     });
     const swapResult = await swapDayPlanItemsBetweenTripDays({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       firstTripDayId: day.id,
@@ -783,12 +796,14 @@ describe("dayPlanItemRepo", () => {
     });
 
     const moveResult = await moveDayPlanItemsBetweenTripDays({
+      origin: "user",
       userId: viewer.id,
       tripId: trip.id,
       sourceTripDayId: firstDay.id,
       targetTripDayId: secondDay.id,
     });
     const swapResult = await swapDayPlanItemsBetweenTripDays({
+      origin: "user",
       userId: viewer.id,
       tripId: trip.id,
       firstTripDayId: firstDay.id,
@@ -910,6 +925,7 @@ describe("dayPlanItemRepo", () => {
     // The insertion, as a user reaches it: a new activity whose time falls between the two, created
     // last. There is no "insert at position" anywhere in this app — this is what insertion *is*.
     const created = await createDayPlanItemExpectingSuccess({
+      origin: "user",
       userId: user.id,
       tripId: trip.id,
       tripDayId: day.id,

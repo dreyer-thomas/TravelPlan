@@ -21,6 +21,7 @@ import {
   type ScheduleEdit,
 } from "@/lib/repositories/dayScheduleTransaction";
 import type { DayChangeEdited, DayChangeReceipt } from "@/lib/trips/dayChangeReceipt";
+import { aiChangedAtFor, type WriteOrigin } from "@/lib/trips/writeOrigin";
 
 /**
  * Declared per repository, as `dayPlanItemRepo.ts` and `bucketListRepo.ts` do. There is no shared
@@ -79,6 +80,8 @@ type TravelSegmentMutationParams = {
   durationMinutes: number;
   distanceKm?: number | null;
   linkUrl?: string | null;
+  /** Story 15.4. `"ai"` marks the leg, `"user"` clears the mark. */
+  origin: WriteOrigin;
 };
 
 type TravelSegmentUpdateParams = TravelSegmentMutationParams & { segmentId: string };
@@ -496,6 +499,7 @@ export const createTravelSegmentForTripDay = async (
         durationMinutes: params.durationMinutes,
         distanceKm: params.distanceKm ?? null,
         linkUrl: params.linkUrl ?? null,
+        aiChangedAt: aiChangedAtFor(params.origin, now),
       },
     });
 
@@ -549,6 +553,7 @@ export const updateTravelSegmentForTripDay = async (
         durationMinutes: params.durationMinutes,
         distanceKm: params.distanceKm ?? null,
         linkUrl: params.linkUrl ?? null,
+        aiChangedAt: aiChangedAtFor(params.origin, now),
       },
     });
 

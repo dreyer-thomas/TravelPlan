@@ -32,6 +32,8 @@ const leg = (id: string): TravelSegmentRow => ({
   linkUrl: null,
   createdAt: at("2026-01-01T10:00:00.123Z"),
   updatedAt: at("2026-01-02T10:00:00.456Z"),
+  // Story 15.4: a leg the connector wrote.
+  aiChangedAt: at("2026-01-02T10:00:00.456Z"),
 });
 
 const itemRow = {
@@ -55,6 +57,8 @@ const itemRow = {
   sortOrder: 0,
   createdAt: at("2026-01-01T00:00:00.001Z"),
   updatedAt: at("2026-01-01T00:00:00.002Z"),
+  // Story 15.4: the connector's marker, carried through the wire form millisecond for millisecond.
+  aiChangedAt: at("2026-01-01T00:00:00.003Z") as Date | null,
 };
 
 const payment = {
@@ -127,7 +131,7 @@ describe("dayChangeReceipt, reordered (Story 11.3)", () => {
   const reordered = (extra: MovedItemRow[] = [], legs: TravelSegmentRow[] = []): DayChangeReceipt => ({
     version: 3,
     tripDayId: "day-1",
-    edited: { kind: "reordered", itemId: "item-b", neighbourId: "item-a" },
+    edited: { kind: "reordered", itemId: "item-b", neighbourId: "item-a", previousAiChangedAt: at("2026-01-03T00:00:00.000Z") },
     removedTravelSegments: legs,
     movedItems: [moved("item-b"), moved("item-a"), ...extra],
   });
@@ -136,7 +140,12 @@ describe("dayChangeReceipt, reordered (Story 11.3)", () => {
     const receipt = reordered([moved("item-c")], [leg("s1")]);
     const wire = toDayChangeReceiptWire(receipt);
     expect(wire.version).toBe(3) // Story 13.1: every receipt is version 3;
-    expect(wire.edited).toEqual({ kind: "reordered", itemId: "item-b", neighbourId: "item-a" });
+    expect(wire.edited).toEqual({
+      kind: "reordered",
+      itemId: "item-b",
+      neighbourId: "item-a",
+      previousAiChangedAt: "2026-01-03T00:00:00.000Z",
+    });
     expect(fromDayChangeReceiptWire(wire)).toEqual(receipt);
     expect(dayChangeReceiptSchema.safeParse(signDayChangeReceipt(wire, BINDING)).success).toBe(true);
   });
@@ -172,6 +181,7 @@ describe("dayChangeReceipt, scheduled (Story 14.1 AC8, AC9)", () => {
       itemId: "idea-1",
       updatedAt: at("2026-10-18T10:00:00.000Z"),
       previousUpdatedAt: at("2026-09-01T08:00:00.000Z"),
+      previousAiChangedAt: null,
     },
     removedTravelSegments: [],
     movedItems: extra,
@@ -185,6 +195,7 @@ describe("dayChangeReceipt, scheduled (Story 14.1 AC8, AC9)", () => {
       itemId: "idea-1",
       updatedAt: "2026-10-18T10:00:00.000Z",
       previousUpdatedAt: "2026-09-01T08:00:00.000Z",
+      previousAiChangedAt: null,
     });
     expect(fromDayChangeReceiptWire(wire)).toEqual(scheduled());
     expect(dayChangeReceiptSchema.safeParse(signDayChangeReceipt(wire, BINDING)).success).toBe(true);
@@ -259,6 +270,7 @@ describe("dayChangeReceipt, parked (Story 14.2 AC3, AC5)", () => {
         fromTime: "10:00",
         toTime: "12:00",
         updatedAt: at("2026-09-01T08:00:00.000Z"),
+        previousAiChangedAt: at("2026-08-01T08:00:00.000Z"),
       },
     },
     removedTravelSegments: legs,
@@ -280,6 +292,7 @@ describe("dayChangeReceipt, parked (Story 14.2 AC3, AC5)", () => {
         fromTime: "10:00",
         toTime: "12:00",
         updatedAt: "2026-09-01T08:00:00.000Z",
+        previousAiChangedAt: "2026-08-01T08:00:00.000Z",
       },
     });
     expect(fromDayChangeReceiptWire(wire)).toEqual(parked([moved("item-2")], [leg("s1")]));
@@ -426,6 +439,7 @@ describe("dayChangeReceipt (Story 11.1)", () => {
                 sortOrder: 1,
                 createdAt: at("2026-01-01T00:00:00.005Z"),
                 updatedAt: at("2026-01-01T00:00:00.006Z"),
+                aiChangedAt: at("2026-01-01T00:00:00.006Z"),
               },
             ],
             documents: [
@@ -437,6 +451,7 @@ describe("dayChangeReceipt (Story 11.1)", () => {
                 sortOrder: 1,
                 createdAt: at("2026-01-01T00:00:00.007Z"),
                 updatedAt: at("2026-01-01T00:00:00.008Z"),
+                aiChangedAt: null,
               },
             ],
           },
@@ -452,6 +467,7 @@ describe("dayChangeReceipt (Story 11.1)", () => {
           itemId: "item-9",
           updatedAt: at("2026-01-01T00:00:00.009Z"),
           previousUpdatedAt: at("2026-01-01T00:00:00.010Z"),
+          previousAiChangedAt: at("2026-01-01T00:00:00.011Z"),
         },
       },
       // Story 11.2: moved items (one an imported row with a null end). Story 13.2: one that lost its times.

@@ -59,6 +59,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   const result = await copyAccommodationFromPreviousNight({
     userId,
     tripId,
+    origin: "user",
     tripDayId: parsed.data.tripDayId,
   });
 

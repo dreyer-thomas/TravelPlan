@@ -37,6 +37,12 @@ import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
 import { compareDayPlanItemsByOrder } from "@/lib/trips/dayPlanItemOrder";
 import { minutesToTime, timeToMinutes, type ScheduleMode } from "@/lib/trips/daySchedule";
 import { DEFAULT_ACTIVITY_DURATION_MINUTES } from "@/lib/trips/legacySchedule";
+import {
+  aiChangedAtFor,
+  ChangedSinceReadError,
+  type InTransactionHook,
+  type WriteOrigin,
+} from "@/lib/trips/writeOrigin";
 
 // `TransactionClient` is `travelSegmentRepo.ts`'s alias, exported for Story 11.1: this file's one
 // named transaction helper (`deleteDayPlanItemInTransaction`, shared with undo) is typed against it.
@@ -134,9 +140,17 @@ type DayPlanItemMutationParams = {
   payments?: PaymentInput[] | null;
   linkUrl?: string | null;
   location?: { lat: number; lng: number; label?: string | null } | null;
+  /** Story 15.4. `"ai"` marks the row, `"user"` clears the mark. */
+  origin: WriteOrigin;
+  /** Story 15.4. Runs last inside the write's transaction (the connector records its change there). */
+  inTransaction?: InTransactionHook;
 };
 
-type DayPlanItemUpdateParams = DayPlanItemMutationParams & { itemId: string };
+/**
+ * Story 15.4. `expectedUpdatedAt`, when given, is the stamp the caller read; a row that no longer carries
+ * it throws `ChangedSinceReadError` inside the transaction, so nothing is written.
+ */
+type DayPlanItemUpdateParams = DayPlanItemMutationParams & { itemId: string; expectedUpdatedAt?: Date };
 
 /**
  * Story 13.3 (*Einfügen nach*). A create may name the activity a new FLEXIBLE one goes directly after; the
@@ -144,18 +158,23 @@ type DayPlanItemUpdateParams = DayPlanItemMutationParams & { itemId: string };
  */
 type DayPlanItemCreateParams = DayPlanItemMutationParams & { afterItemId?: string | null };
 
+/** Story 15.4. A pure delete takes no origin; `expectedUpdatedAt` and the hook as for the update. */
 type DayPlanItemDeleteParams = {
   userId: string;
   tripId: string;
   tripDayId: string;
   itemId: string;
+  expectedUpdatedAt?: Date;
+  inTransaction?: InTransactionHook;
 };
 
+/** Story 15.4. `origin` marks (or clears) every row the transfer moved. */
 type DayPlanItemMoveParams = {
   userId: string;
   tripId: string;
   sourceTripDayId: string;
   targetTripDayId: string;
+  origin: WriteOrigin;
 };
 
 type DayPlanItemSwapParams = {
@@ -163,6 +182,7 @@ type DayPlanItemSwapParams = {
   tripId: string;
   firstTripDayId: string;
   secondTripDayId: string;
+  origin: WriteOrigin;
 };
 
 
@@ -188,6 +208,8 @@ type DayPlanItemImageScopeParams = {
 
 type DayPlanItemImageCreateParams = DayPlanItemImageScopeParams & {
   imageUrl: string;
+  /** Story 15.4. Marks (or leaves unmarked) the new image row. */
+  origin: WriteOrigin;
 };
 
 type DayPlanItemImageDeleteParams = DayPlanItemImageScopeParams & {
@@ -221,6 +243,8 @@ export type DayPlanItemDocumentDetail = {
 type DayPlanItemDocumentCreateParams = DayPlanItemImageScopeParams & {
   documentUrl: string;
   fileName: string;
+  /** Story 15.4. Marks (or leaves unmarked) the new document row. */
+  origin: WriteOrigin;
 };
 
 type DayPlanItemDocumentDeleteParams = DayPlanItemImageScopeParams & {
@@ -457,6 +481,9 @@ const mediaSnapshotOrder = [{ sortOrder: "asc" as const }, { createdAt: "asc" as
  */
 const NEW_ITEM_ID = "\u0000new";
 
+/** Story 15.4. `updatedAt` by epoch milliseconds, never by `Date` identity. SQLite stores milliseconds. */
+const sameInstant = (left: Date, right: Date) => left.getTime() === right.getTime();
+
 /**
  * Story 13.1. The schedule fields a write stores, from what the caller sent (see
  * `DayPlanItemMutationParams`). For FIXED the duration is always the true `toTime − fromTime`.
@@ -664,6 +691,7 @@ export const createDayPlanItemForTripDay = async (
         locationLat: location?.lat ?? null,
         locationLng: location?.lng ?? null,
         locationLabel: location?.label?.trim() || null,
+        aiChangedAt: aiChangedAtFor(params.origin, now),
       },
     });
 
@@ -695,6 +723,8 @@ export const createDayPlanItemForTripDay = async (
       select: { amountCents: true, dueDate: true, amountOriginal: true },
     });
 
+    // Story 15.4: last, so a throw rolls back the whole create.
+    if (params.inTransaction) await params.inTransaction(tx, { receipt, itemId: item.id });
     return { item: toDetail({ ...item, payments: toPaymentDetails(payments) }), receipt };
   });
 };
@@ -710,12 +740,16 @@ export const createDayPlanItemForTripDay = async (
  * trip's). A day it fills past 23:59 is saved, its flexible rows past midnight without times (13.2). The
  * move itself is conditional on the item still being parked with the `updatedAt` read here; a miss is
  * `DayPlanChangedError` (409 `day_plan_changed`).
+ *
+ * Story 15.4: `origin` marks or clears the scheduled activity; its previous marker is on the receipt.
  */
 export const scheduleParkedDayPlanItemForTripDay = async (params: {
   userId: string;
   tripId: string;
   tripDayId: string;
   itemId: string;
+  origin: WriteOrigin;
+  inTransaction?: InTransactionHook;
 }): Promise<ParkedDayPlanItemScheduleResult> => {
   const { userId, tripId, tripDayId, itemId } = params;
   const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
@@ -726,7 +760,7 @@ export const scheduleParkedDayPlanItemForTripDay = async (params: {
   return prisma.$transaction(async (tx): Promise<ParkedDayPlanItemScheduleResult> => {
     const parked = await tx.dayPlanItem.findFirst({
       where: { id: itemId, ...parkedDayPlanItemsWhere(tripId) },
-      select: { id: true, title: true, durationMinutes: true, updatedAt: true },
+      select: { id: true, title: true, durationMinutes: true, updatedAt: true, aiChangedAt: true },
     });
     if (!parked) return { status: "missing" };
 
@@ -754,6 +788,7 @@ export const scheduleParkedDayPlanItemForTripDay = async (params: {
         fromTime: planned.fromTime,
         toTime: planned.toTime,
         updatedAt: now,
+        aiChangedAt: aiChangedAtFor(params.origin, now),
       },
     });
     if (moved.count !== 1) throw new DayPlanChangedError();
@@ -763,7 +798,9 @@ export const scheduleParkedDayPlanItemForTripDay = async (params: {
       itemId: parked.id,
       updatedAt: now,
       previousUpdatedAt: parked.updatedAt,
+      previousAiChangedAt: parked.aiChangedAt,
     });
+    if (params.inTransaction) await params.inTransaction(tx, { receipt, itemId: parked.id });
 
     const item = await tx.dayPlanItem.findUniqueOrThrow({
       where: { id: parked.id },
@@ -792,12 +829,16 @@ export const scheduleParkedDayPlanItemForTripDay = async (params: {
  * with 11.1's sweep, in one transaction. Unlike delete the park is conditional on the `updatedAt` read
  * here, because the receipt names the stamp it wrote; a miss is `DayPlanChangedError` (409
  * `day_plan_changed`).
+ *
+ * Story 15.4: `origin` marks or clears the parked activity; its previous marker is on the receipt.
  */
 export const parkDayPlanItemForTripDay = async (params: {
   userId: string;
   tripId: string;
   tripDayId: string;
   itemId: string;
+  origin: WriteOrigin;
+  inTransaction?: InTransactionHook;
 }): Promise<DayPlanItemParkResult> => {
   const { userId, tripId, tripDayId, itemId } = params;
   const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
@@ -818,6 +859,7 @@ export const parkDayPlanItemForTripDay = async (params: {
         fromTime: true,
         toTime: true,
         updatedAt: true,
+        aiChangedAt: true,
       },
     });
     if (!previous) return { status: "missing" };
@@ -837,6 +879,7 @@ export const parkDayPlanItemForTripDay = async (params: {
         toTime: null,
         sortOrder: 0,
         updatedAt: now,
+        aiChangedAt: aiChangedAtFor(params.origin, now),
       },
     });
     if (parked.count !== 1) throw new DayPlanChangedError();
@@ -863,10 +906,12 @@ export const parkDayPlanItemForTripDay = async (params: {
           fromTime: previous.fromTime,
           toTime: previous.toTime,
           updatedAt: previous.updatedAt,
+          previousAiChangedAt: previous.aiChangedAt,
         },
       },
       { removedTravelSegments: referencing },
     );
+    if (params.inTransaction) await params.inTransaction(tx, { receipt, itemId });
 
     const item = await tx.dayPlanItem.findUniqueOrThrow({
       where: { id: itemId },
@@ -900,6 +945,10 @@ export const updateDayPlanItemForTripDay = async (
     if (!existing) {
       return null;
     }
+    // Story 15.4: the caller's read, checked inside the transaction so nothing slips in after it.
+    if (params.expectedUpdatedAt && !sameInstant(existing.updatedAt, params.expectedUpdatedAt)) {
+      throw new ChangedSinceReadError();
+    }
 
     // Story 13.1: a FLEXIBLE edit and a FIXED edit that keeps its start keep the row where it is; a row
     // that becomes FIXED, or whose fixed start changes, is placed by its time. Planned before any write.
@@ -932,6 +981,7 @@ export const updateDayPlanItemForTripDay = async (
         locationLat: location?.lat ?? null,
         locationLng: location?.lng ?? null,
         locationLabel: location?.label?.trim() || null,
+        aiChangedAt: aiChangedAtFor(params.origin, now),
       },
     });
 
@@ -965,6 +1015,7 @@ export const updateDayPlanItemForTripDay = async (
       select: { amountCents: true, dueDate: true, amountOriginal: true },
     });
 
+    if (params.inTransaction) await params.inTransaction(tx, { receipt, itemId: existing.id });
     return { item: toDetail({ ...item, payments: toPaymentDetails(payments) }), receipt };
   });
 
@@ -990,7 +1041,12 @@ export const deleteDayPlanItemForTripDay = async (
   // Story 13.1: a delete now pulls the flexible rows after it forward, planned before the delete.
   return prisma.$transaction(async (tx): Promise<DayPlanItemDeleteResult> => {
     const state = await readScheduleInputInTransaction(tx, tripId, tripDayId);
-    if (!state || !state.rows.some((row) => row.id === itemId)) return { status: "missing" };
+    const row = state?.rows.find((candidate) => candidate.id === itemId);
+    if (!state || !row) return { status: "missing" };
+    // Story 15.4: the caller's read, checked before the first write.
+    if (params.expectedUpdatedAt && !sameInstant(row.updatedAt, params.expectedUpdatedAt)) {
+      throw new ChangedSinceReadError();
+    }
     const plan = planDaySchedule(state, { kind: "remove", itemId });
 
     const now = new Date();
@@ -1006,6 +1062,7 @@ export const deleteDayPlanItemForTripDay = async (
       { kind: "deleted", previous: outcome.previous },
       { removedTravelSegments: outcome.removedTravelSegments },
     );
+    if (params.inTransaction) await params.inTransaction(tx, { receipt, itemId });
 
     // `removedTravelSegmentIds` lists *every* removed leg, referencing or swept, so the client's local
     // filter after an optimistic delete stays correct (AC2).
@@ -1030,15 +1087,25 @@ export const deleteDayPlanItemForTripDay = async (
  * writes nothing. The writes are the recompute's own, each conditional on the `updatedAt` the plan read
  * (`DayPlanChangedError` rolls the whole change back), then 11.1's sweep of every leg the new order no
  * longer draws. Nothing creates or reverses a leg.
+ *
+ * Story 15.4. `toIndex` (0-based, in the day's order) is the alternative to `direction`: the FLEXIBLE
+ * activity moves to that position and every row between shifts by one. Still one `reordered` receipt:
+ * `movedItems` lists every row whose order or times changed, and `neighbourId` is the row the activity now
+ * follows (moved later) or precedes (moved earlier), which is always one of the shifted rows. A `toIndex`
+ * outside the day, or the activity's own position, is `not_reorderable`. `origin` marks or clears the moved
+ * activity only; the rows it shifted keep their marker.
  */
-export const reorderDayPlanItemForTripDay = async (params: {
-  userId: string;
-  tripId: string;
-  tripDayId: string;
-  itemId: string;
-  direction: ReorderDirection;
-}): Promise<DayPlanItemReorderResult> => {
-  const { userId, tripId, tripDayId, itemId, direction } = params;
+export const reorderDayPlanItemForTripDay = async (
+  params: {
+    userId: string;
+    tripId: string;
+    tripDayId: string;
+    itemId: string;
+    origin: WriteOrigin;
+    inTransaction?: InTransactionHook;
+  } & ({ direction: ReorderDirection; toIndex?: undefined } | { toIndex: number; direction?: undefined }),
+): Promise<DayPlanItemReorderResult> => {
+  const { userId, tripId, tripDayId, itemId } = params;
   const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
   if (!tripDay) {
     return { status: "not_found" };
@@ -1050,18 +1117,52 @@ export const reorderDayPlanItemForTripDay = async (params: {
     if (!state || index < 0) {
       return { status: "missing" };
     }
-    const neighbour = state.rows[direction === "up" ? index - 1 : index + 1];
-    if (state.rows[index].scheduleMode !== "FLEXIBLE" || !neighbour) return { status: "not_reorderable" };
+    if (state.rows[index].scheduleMode !== "FLEXIBLE") return { status: "not_reorderable" };
 
-    const plan = planDaySchedule(state, { kind: "swap", itemId, neighbourId: neighbour.id });
+    let edit: ScheduleEdit;
+    let neighbourId: string;
+    if (params.direction !== undefined) {
+      const neighbour = state.rows[params.direction === "up" ? index - 1 : index + 1];
+      if (!neighbour) return { status: "not_reorderable" };
+      edit = { kind: "swap", itemId, neighbourId: neighbour.id };
+      neighbourId = neighbour.id;
+    } else {
+      const { toIndex } = params;
+      if (!Number.isInteger(toIndex) || toIndex < 0 || toIndex >= state.rows.length || toIndex === index) {
+        return { status: "not_reorderable" };
+      }
+      const order = state.rows.map((row) => row.id).filter((id) => id !== itemId);
+      order.splice(toIndex, 0, itemId);
+      edit = { kind: "move", itemId, toIndex };
+      neighbourId = toIndex > index ? order[toIndex - 1] : order[toIndex + 1];
+    }
+
+    const plan = planDaySchedule(state, edit);
+    const before = await tx.dayPlanItem.findFirst({ where: { id: itemId, tripDayId }, select: { aiChangedAt: true } });
+    if (!before) return { status: "missing" };
 
     const now = new Date();
     const drawnBefore = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
     const { receipt } = await finishActivityWriteInTransaction(tx, { tripId, tripDayId, drawnBefore, now }, plan, {
       kind: "reordered",
       itemId,
-      neighbourId: neighbour.id,
+      neighbourId,
+      previousAiChangedAt: before.aiChangedAt,
     });
+    // Story 15.4: the moved activity's marker. Nothing to write when it stays null. When the recompute
+    // restamped the row (it is in `movedItems`), keep that stamp so its moved row on the receipt stays
+    // exact; a row the recompute left alone (a legacy duplicate `sortOrder`, unchanged times) is updated
+    // by id. The rows it only shifted keep their marker.
+    const aiChangedAt = aiChangedAtFor(params.origin, now);
+    if (aiChangedAt !== null || before.aiChangedAt !== null) {
+      const restamped = receipt.movedItems.some((moved) => moved.itemId === itemId);
+      const marked = await tx.dayPlanItem.updateMany({
+        where: restamped ? { id: itemId, tripDayId, updatedAt: now } : { id: itemId, tripDayId },
+        data: restamped ? { aiChangedAt, updatedAt: now } : { aiChangedAt },
+      });
+      if (marked.count !== 1) throw new DayPlanChangedError();
+    }
+    if (params.inTransaction) await params.inTransaction(tx, { receipt, itemId });
     return { status: "reordered", receipt };
   });
 };
@@ -1119,9 +1220,10 @@ export const moveDayPlanItemsBetweenTripDays = async (
     await tx.dayPlanItem.deleteMany({
       where: { id: { in: targetItems.map((item) => item.id) } },
     });
+    // Story 15.4: the moved rows are the transfer's targets, so `origin` marks or clears them.
     await tx.dayPlanItem.updateMany({
       where: { id: { in: sourceItems.map((item) => item.id) } },
-      data: { tripDayId: targetTripDayId },
+      data: { tripDayId: targetTripDayId, aiChangedAt: aiChangedAtFor(params.origin, new Date()) },
     });
     // Story 13.1 §11: the source day's order comes along unchanged; renumbering keeps it dense regardless.
     // Story 13.3: the order is not re-sorted by time (a fixed row the new start makes unreachable is a
@@ -1167,13 +1269,15 @@ export const swapDayPlanItemsBetweenTripDays = async (
     await tx.travelSegment.deleteMany({
       where: { tripDayId: { in: [firstTripDayId, secondTripDayId] } },
     });
+    // Story 15.4: every row the swap moved is its target, so `origin` marks or clears all of them.
+    const aiChangedAt = aiChangedAtFor(params.origin, new Date());
     await tx.dayPlanItem.updateMany({
       where: { id: { in: firstDayItems.map((item) => item.id) } },
-      data: { tripDayId: secondTripDayId },
+      data: { tripDayId: secondTripDayId, aiChangedAt },
     });
     await tx.dayPlanItem.updateMany({
       where: { id: { in: secondDayItems.map((item) => item.id) } },
-      data: { tripDayId: firstTripDayId },
+      data: { tripDayId: firstTripDayId, aiChangedAt },
     });
     // Story 13.1 §11: each day's order travels with it; renumbering keeps both dense regardless.
     // Story 13.3: both days are then recomputed from their new starts, the order as it travelled.
@@ -1248,6 +1352,7 @@ export const createDayPlanItemImage = async (
       dayPlanItemId: item.id,
       imageUrl: params.imageUrl,
       sortOrder: nextSortOrder,
+      aiChangedAt: aiChangedAtFor(params.origin, new Date()),
     },
   });
 
@@ -1394,6 +1499,7 @@ export const createDayPlanItemDocument = async (
       documentUrl: params.documentUrl,
       fileName: params.fileName,
       sortOrder: nextSortOrder,
+      aiChangedAt: aiChangedAtFor(params.origin, new Date()),
     },
   });
 

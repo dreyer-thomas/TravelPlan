@@ -27,6 +27,8 @@ import FormField from "@/components/forms/FormField";
 import PhotoUploadField from "@/components/forms/PhotoUploadField";
 import DialogShell, { useOpenInstanceKey } from "@/components/ui/DialogShell";
 import ActionNotice from "@/components/ui/ActionNotice";
+import AiBadge from "@/components/ui/AiBadge";
+import AiChangesNotice from "@/components/features/trips/AiChangesNotice";
 import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
 import DiscardChangesDialog, { useDiscardGuard } from "@/components/ui/DiscardChangesDialog";
 import DocChip from "@/components/ui/DocChip";
@@ -354,6 +356,8 @@ type TripDay = {
     checkInTime: string | null;
     checkOutTime: string | null;
     location?: { lat: number; lng: number; label?: string | null } | null;
+    /** Story 15.4. ISO time the connector last created or changed the stay; optional for older fixtures. */
+    aiChangedAt?: string | null;
   } | null;
   dayPlanItems: {
     id: string;
@@ -382,6 +386,8 @@ type TripDay = {
     scheduleMode?: "FLEXIBLE" | "FIXED";
     durationMinutes?: number;
     sortOrder?: number;
+    /** Story 15.4. ISO time the connector last created or changed the activity; optional for older fixtures. */
+    aiChangedAt?: string | null;
   }[];
   travelSegments?: {
     id: string;
@@ -417,6 +423,8 @@ type DayPlanItem = {
   scheduleMode: "FLEXIBLE" | "FIXED";
   durationMinutes: number;
   sortOrder: number;
+  /** Story 15.4. Set while the connector's change is the latest one; shows the KI/AI badge. */
+  aiChangedAt: string | null;
 };
 
 type SegmentItem = {
@@ -621,6 +629,8 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
   const [day, setDay] = useState<TripDay | null>(null);
   const [planItems, setPlanItems] = useState<DayPlanItem[]>([]);
   const [bucketItems, setBucketItems] = useState<BucketListItem[]>([]);
+  /** Story 15.4. Bumped by every completed `loadDay`; the AI-changes notice re-reads its list on it. */
+  const [dayLoadVersion, setDayLoadVersion] = useState(0);
   const [bucketLoading, setBucketLoading] = useState(false);
   const [bucketError, setBucketError] = useState<string | null>(null);
   const [travelSegments, setTravelSegments] = useState<TravelSegment[]>([]);
@@ -1108,10 +1118,15 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
             scheduleMode: item.scheduleMode ?? "FIXED",
             durationMinutes: item.durationMinutes ?? 15,
             sortOrder: item.sortOrder ?? 0,
+            // Story 15.4. The KI/AI badge on the card and in the activity dialog.
+            aiChangedAt: item.aiChangedAt ?? null,
           }))
           .sort(compareDayPlanItemsByOrder),
       );
       setTravelSegments(Array.isArray(resolvedDay.travelSegments) ? resolvedDay.travelSegments : []);
+      // Story 15.4. Every completed load - the first, another day, a reload after any write - has the
+      // "AI changed this day" notice read its list again.
+      setDayLoadVersion((version) => version + 1);
     } catch {
       setError(t("trips.dayView.loadError"));
       setLoadFailed(true);
@@ -1160,6 +1175,11 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
       setBucketLoading(false);
     }
   }, [canEditPlanning, resolveApiError, t, tripId]);
+
+  // Story 15.4. The notice's undo took a connector change back: show the day as it is now.
+  const reloadDayAfterAiUndo = useCallback(() => {
+    void loadDay({ silent: true });
+  }, [loadDay]);
 
   const ensureCsrfToken = useCallback(async () => {
     if (csrfToken) return csrfToken;
@@ -1354,6 +1374,9 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
           takeDayChangeReceipt(body?.data?.receipt ?? null);
           if (body?.data?.receipt?.movedItems.length) {
             await loadDay({ silent: true });
+          } else {
+            // Story 15.4: no reload, so have the AI notice read its list again.
+            setDayLoadVersion((version) => version + 1);
           }
         }
       } catch {
@@ -1473,8 +1496,12 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
     // Story 11.4: the save moved activities, which the local merge above cannot show. The reload comes
     // after the merge so it is the last write, and only while this is still the day the save was on.
     // Story 13.2: a leg can make a fixed activity late, or stop it being late, without moving anything.
-    if (dayWriteNeedsReload(receipt, day?.planConflicts?.length ?? 0) && currentDayIdRef.current === requestedDayId) {
+    if (currentDayIdRef.current !== requestedDayId) return;
+    if (dayWriteNeedsReload(receipt, day?.planConflicts?.length ?? 0)) {
       await loadDay({ silent: true });
+    } else {
+      // Story 15.4: no reload, so have the AI notice read its list again.
+      setDayLoadVersion((version) => version + 1);
     }
   };
 
@@ -1771,6 +1798,10 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
           // that becomes drawn once the row between its ends is gone).
           if (dayWriteNeedsReload(body.data?.receipt, day.planConflicts?.length ?? 0)) {
             await loadDay({ silent: true });
+          } else {
+            // Story 15.4: no reload, so have the AI notice read its list again (the deleted activity's
+            // changes stay listed, but their undo state may have moved on).
+            setDayLoadVersion((version) => version + 1);
           }
         }
         return true;
@@ -4038,6 +4069,26 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
               </Box>
             ) : null}
 
+            {/* Story 15.4 - "AI changed this day", in the same band as the notice above. Writers only;
+                it renders nothing while the day has no connector change left to show. */}
+            {canEditPlanning && day ? (
+              <AiChangesNotice
+                tripId={tripId}
+                dayId={day.id}
+                refreshKey={dayLoadVersion}
+                ensureCsrfToken={ensureCsrfToken}
+                onDayChanged={reloadDayAfterAiUndo}
+                onBucketChanged={loadBucketListItems}
+                sx={{
+                  backgroundColor: tokens.card,
+                  padding: {
+                    xs: `16px ${HERO_PADDING_INLINE.xs}px 0`,
+                    md: `16px ${HERO_PADDING_INLINE.md}px 0`,
+                  },
+                }}
+              />
+            ) : null}
+
             <Box
               sx={{
                 backgroundColor: tokens.card,
@@ -4399,6 +4450,7 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                       {renderTimePill(previousStayRange, previousStayRangeIsAssumed)}
                       <Typography variant="cardTitle" component="p" sx={{ color: tokens.ink, m: 0 }}>
                         {previousStay ? previousStay.name : t("trips.dayView.previousNightEmpty")}
+                        {previousStay?.aiChangedAt ? <AiBadge sx={{ ml: 1 }} /> : null}
                       </Typography>
                       <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
                         {t("trips.dayView.previousNightTitle")}
@@ -4628,6 +4680,7 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                             <Box display="flex" flexDirection="column" gap={0.75} sx={{ minWidth: 0, ...overlaidContentSx }}>
                               <Typography variant="cardTitle" component="p" sx={{ color: tokens.ink, m: 0 }}>
                                 {title}
+                                {item.aiChangedAt ? <AiBadge sx={{ ml: 1 }} /> : null}
                               </Typography>
                               {renderPlanConflictLine(planConflictByItemId.get(item.id))}
                               {/* The notes take their pointer events back, which is the one place the
@@ -4739,6 +4792,7 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                       {renderTimePill(currentStayRange, currentStayRangeIsAssumed)}
                       <Typography variant="cardTitle" component="p" sx={{ color: tokens.ink, m: 0 }}>
                         {currentStay ? currentStay.name : t("trips.dayView.currentNightEmpty")}
+                        {currentStay?.aiChangedAt ? <AiBadge sx={{ ml: 1 }} /> : null}
                       </Typography>
                       <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
                         {t("trips.dayView.currentNightTitle")}

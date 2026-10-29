@@ -78,6 +78,7 @@ describe("a day-plan write is atomic with its leg sweep", () => {
 
     await expect(
       createDayPlanItemForTripDay({
+        origin: "user",
         userId: user.id,
         tripId: trip.id,
         tripDayId: day.id,
@@ -98,6 +99,7 @@ describe("a day-plan write is atomic with its leg sweep", () => {
 
     await expect(
       updateDayPlanItemForTripDay({
+        origin: "user",
         userId: user.id,
         tripId: trip.id,
         tripDayId: day.id,

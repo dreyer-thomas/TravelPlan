@@ -26,6 +26,9 @@ import type { TransportType } from "@/lib/trips/transportTypes";
 
 export const toDateKey = (date: Date) => date.toISOString().slice(0, 10);
 
+/** Story 15.4. `aiChangedAt`: when the connector last wrote the entry, or `null` (a person did, or nobody). */
+const toIsoOrNull = (date: Date | null) => (date ? date.toISOString() : null);
+
 /** `Record` over the enum, so a new transport mode is a compile error here rather than a silent gap. */
 const TRANSPORT_MODES: Record<TravelTransportType, TransportType> = {
   CAR: "car",
@@ -107,6 +110,7 @@ export const toActivity = (item: ActivitySource, media: PlannerMedia | undefined
   payments: toPayments(item.payments),
   ...toFiles(media ?? NO_MEDIA),
   updatedAt: item.updatedAt.toISOString(),
+  aiChangedAt: toIsoOrNull(item.aiChangedAt),
 });
 
 export const toLeg = (leg: PlannerLeg) => ({
@@ -118,6 +122,7 @@ export const toLeg = (leg: PlannerLeg) => ({
   distanceKm: leg.distanceKm,
   link: leg.linkUrl,
   updatedAt: leg.updatedAt.toISOString(),
+  aiChangedAt: toIsoOrNull(leg.aiChangedAt),
 });
 
 export const toStay = (stay: PlannerStay) => ({
@@ -133,6 +138,7 @@ export const toStay = (stay: PlannerStay) => ({
   payments: toPayments(stay.payments),
   ...toFiles(stay),
   updatedAt: stay.updatedAt.toISOString(),
+  aiChangedAt: toIsoOrNull(stay.aiChangedAt),
 });
 
 /**

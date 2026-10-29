@@ -874,6 +874,63 @@ describe("TripDayPlanDialog", () => {
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the AI badge beside the edit title of an activity the connector changed (Story 15.4)", async () => {
+    const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
+    stubFetch(vi.fn(async () => mockFetchResponse({ data: { images: [], documents: [] }, error: null })));
+    const item = (aiChangedAt: string | null) => ({
+      id: "item-1",
+      tripDayId: "day-1",
+      title: "Old Town walk",
+      fromTime: "10:00",
+      toTime: "11:00",
+      contentJson: tiptapMocks.sampleDoc,
+      costCents: null,
+      linkUrl: null,
+      location: null,
+      createdAt: "2026-12-01T09:00:00.000Z",
+      aiChangedAt,
+    });
+
+    const view = render(
+      <Providers language="de">
+        <TripDayPlanDialog
+          open
+          mode="edit"
+          tripId="trip-1"
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+          item={item("2026-10-29T08:00:00.000Z")}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </Providers>,
+    );
+
+    const badge = await screen.findByTestId("ai-badge");
+    expect(badge).toHaveTextContent("KI");
+    expect(badge).toHaveAttribute("aria-label", "Von KI erstellt oder geändert");
+    // Outside the labelled `h2`, so the dialog's accessible name stays the title alone.
+    const heading = screen.getByRole("heading", { level: 2 });
+    expect(heading).not.toContainElement(badge);
+    expect(heading.textContent).not.toContain("KI");
+
+    view.unmount();
+    render(
+      <Providers language="en">
+        <TripDayPlanDialog
+          open
+          mode="edit"
+          tripId="trip-1"
+          day={{ id: "day-1", date: "2026-11-01T00:00:00.000Z", dayIndex: 1 }}
+          item={item(null)}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </Providers>,
+    );
+    await screen.findByRole("heading", { level: 2 });
+    expect(screen.queryByTestId("ai-badge")).not.toBeInTheDocument();
+  });
+
   it("shows delete action only for existing items and closes after delete", async () => {
     const { default: TripDayPlanDialog } = await import("@/components/features/trips/TripDayPlanDialog");
 

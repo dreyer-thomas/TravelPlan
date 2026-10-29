@@ -15,6 +15,7 @@ import {
 import type { DayChangeReceipt } from "@/lib/trips/dayChangeReceipt";
 import { resolveCheckOutTime } from "@/lib/trips/stayTimes";
 import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
+import { aiChangedAtFor, type WriteOrigin } from "@/lib/trips/writeOrigin";
 
 /**
  * Story 10.1. `amountOriginal` is the typed amount in the entry's currency, in hundredths, and a euro
@@ -77,6 +78,8 @@ type AccommodationMutationParams = {
   checkInTime?: string | null;
   checkOutTime?: string | null;
   location?: { lat: number; lng: number; label?: string | null } | null;
+  /** Story 15.4. `"ai"` marks the stay, `"user"` clears the mark. */
+  origin: WriteOrigin;
 };
 
 type AccommodationDeleteParams = {
@@ -103,6 +106,8 @@ type AccommodationImageScopeParams = {
 
 type AccommodationImageCreateParams = AccommodationImageScopeParams & {
   imageUrl: string;
+  /** Story 15.4. Marks (or leaves unmarked) the new image row. */
+  origin: WriteOrigin;
 };
 
 type AccommodationImageDeleteParams = AccommodationImageScopeParams & {
@@ -136,6 +141,8 @@ export type AccommodationDocumentDetail = {
 type AccommodationDocumentCreateParams = AccommodationImageScopeParams & {
   documentUrl: string;
   fileName: string;
+  /** Story 15.4. Marks (or leaves unmarked) the new document row. */
+  origin: WriteOrigin;
 };
 
 type AccommodationDocumentDeleteParams = AccommodationImageScopeParams & {
@@ -304,6 +311,7 @@ export const createAccommodationForTripDay = async (
   const checkInTime = params.checkInTime ?? null;
   const checkOutTime = params.checkOutTime ?? null;
   const location = params.location ?? null;
+  const aiChangedAt = aiChangedAtFor(params.origin, new Date());
   return prisma.$transaction(async (tx) => {
     const accommodation = await tx.accommodation.upsert({
       where: { tripDayId },
@@ -322,6 +330,7 @@ export const createAccommodationForTripDay = async (
         locationLat: location?.lat ?? null,
         locationLng: location?.lng ?? null,
         locationLabel: location?.label?.trim() || null,
+        aiChangedAt,
       },
       create: {
         tripDayId,
@@ -339,6 +348,7 @@ export const createAccommodationForTripDay = async (
         locationLat: location?.lat ?? null,
         locationLng: location?.lng ?? null,
         locationLabel: location?.label?.trim() || null,
+        aiChangedAt,
       },
     });
 
@@ -425,6 +435,7 @@ export const updateAccommodationForTripDay = async (
     locationLat: location?.lat ?? null,
     locationLng: location?.lng ?? null,
     locationLabel: location?.label?.trim() || null,
+    aiChangedAt: aiChangedAtFor(params.origin, new Date()),
   } as {
     name: string;
     notes: string | null;
@@ -438,6 +449,7 @@ export const updateAccommodationForTripDay = async (
     locationLat: number | null;
     locationLng: number | null;
     locationLabel: string | null;
+    aiChangedAt: Date | null;
     checkInTime?: string | null;
     checkOutTime?: string | null;
   };
@@ -514,10 +526,12 @@ export const updateAccommodationForTripDay = async (
   });
 };
 
+/** Story 15.4: the copy is a new stay on this night, so `origin` marks or clears it. */
 export const copyAccommodationFromPreviousNight = async (params: {
   userId: string;
   tripId: string;
   tripDayId: string;
+  origin: WriteOrigin;
 }): Promise<AccommodationCopyResult> => {
   const { userId, tripId, tripDayId } = params;
   const currentDay = await prisma.tripDay.findFirst({
@@ -587,6 +601,7 @@ export const copyAccommodationFromPreviousNight = async (params: {
     locationLat: previousAccommodation.locationLat,
     locationLng: previousAccommodation.locationLng,
     locationLabel: previousAccommodation.locationLabel,
+    aiChangedAt: aiChangedAtFor(params.origin, new Date()),
   };
 
   const nextAccommodation = await prisma.$transaction(async (tx) => {
@@ -711,6 +726,7 @@ export const createAccommodationImage = async (
       accommodationId: accommodation.id,
       imageUrl: params.imageUrl,
       sortOrder: nextSortOrder,
+      aiChangedAt: aiChangedAtFor(params.origin, new Date()),
     },
   });
 
@@ -832,6 +848,7 @@ export const createAccommodationDocument = async (
       documentUrl: params.documentUrl,
       fileName: params.fileName,
       sortOrder: nextSortOrder,
+      aiChangedAt: aiChangedAtFor(params.origin, new Date()),
     },
   });
 

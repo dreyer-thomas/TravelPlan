@@ -176,7 +176,7 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
     const receipt = (response.body.data as { receipt: WireReceipt }).receipt;
     expect(receipt.version).toBe(3);
     expect(receipt.signature).toMatch(/^[0-9a-f]{64}$/);
-    expect(receipt.edited).toEqual({ kind: "reordered", itemId: b.id, neighbourId: a.id });
+    expect(receipt.edited).toEqual({ kind: "reordered", itemId: b.id, neighbourId: a.id, previousAiChangedAt: null });
     expect(receipt.movedItems.map((row) => row.itemId)).toEqual([b.id, a.id]);
     // 13.1: B's previous times are the schedule's, 10:00–10:30.
     expect(receipt.movedItems[0]).toMatchObject({ previousFromTime: "10:00", previousToTime: "10:30", previousUpdatedAt: PAST.toISOString() });
@@ -191,12 +191,12 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
   it("moving A down is the same swap: same times, same pair, the user's item named as itemId", async () => {
     const { user, trip, day, a, b } = await seedDay("reorder-down@example.com");
 
-    const result = await reorderDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: a.id, direction: "down" });
+    const result = await reorderDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: a.id, direction: "down" });
 
     expect(result.status).toBe("reordered");
     if (result.status !== "reordered") return;
     expect(await times(day.id)).toEqual({ A: "09:30–10:30", B: "09:00–09:30", C: "10:30–11:30" });
-    expect(result.receipt.edited).toEqual({ kind: "reordered", itemId: a.id, neighbourId: b.id });
+    expect(result.receipt.edited).toEqual({ kind: "reordered", itemId: a.id, neighbourId: b.id, previousAiChangedAt: null });
     expect(result.receipt.movedItems.map((row) => row.itemId)).toEqual([b.id, a.id]);
   });
 
@@ -210,7 +210,7 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
     });
     const [fromStay, ab, bc] = legs;
 
-    const result = await reorderDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id, direction: "up" });
+    const result = await reorderDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id, direction: "up" });
 
     expect(result.status).toBe("reordered");
     if (result.status !== "reordered") return;
@@ -226,7 +226,7 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
     const ba = await createLeg(day.id, item(b.id), item(a.id), 20);
     await settleSeededDay(day.id, { flexible: [a.id, b.id] });
 
-    const result = await reorderDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id, direction: "up" });
+    const result = await reorderDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id, direction: "up" });
 
     expect(result.status).toBe("reordered");
     if (result.status !== "reordered") return;
@@ -246,7 +246,7 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
     await createLeg(day.id, item(b.id), item(c.id), 10);
     await settleSeededDay(day.id, { flexible: [a.id, b.id, c.id] });
 
-    const result = await reorderDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id, direction: "up" });
+    const result = await reorderDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id, direction: "up" });
 
     if (result.status !== "reordered") throw new Error(`expected reordered, got ${result.status}`);
     // B→C is no longer drawn (swept), so C now sits tight behind A.
@@ -329,6 +329,19 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
     expect(await databaseState()).toEqual(before);
   });
 
+  it("a user reorder on a day whose rows share a sortOrder (legacy data) still succeeds (Story 15.4)", async () => {
+    const { user, trip, day, b, c } = await seedDay("reorder-duplicate-order@example.com");
+    // B and C share sortOrder 1 and C already carries the times it gets at position 2 (10:00–11:00), so
+    // moving C up changes neither its order nor its times: the recompute does not restamp it.
+    await prisma.dayPlanItem.update({ where: { id: b.id }, data: { durationMinutes: 60, fromTime: "10:00", toTime: "11:00" } });
+    await prisma.dayPlanItem.update({ where: { id: c.id }, data: { sortOrder: 1, fromTime: "10:00", toTime: "11:00" } });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+
+    const response = await send(trip.id, session, { tripDayId: day.id, itemId: c.id, direction: "up" });
+    expect(response.status).toBe(200);
+    expect((await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: c.id } })).aiChangedAt).toBeNull();
+  });
+
   it("a contributor may reorder", async () => {
     const { trip, day, b } = await seedDay("reorder-owner@example.com");
     const contributor = await createUser("reorder-contributor@example.com");
@@ -355,14 +368,14 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
       const { user, trip, day, a, ferry, b } = await seedFerryDay("reorder-past-fixed-up@example.com");
       const before = await databaseState();
 
-      const result = await reorderDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id, direction: "up" });
+      const result = await reorderDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id, direction: "up" });
 
       if (result.status !== "reordered") throw new Error(`expected reordered, got ${result.status}`);
       expect(await times(day.id)).toEqual({ A: "09:00–10:00", B: "10:00–11:00", Ferry: "12:00–13:00" });
       const order = await prisma.dayPlanItem.findMany({ where: { tripDayId: day.id }, orderBy: { sortOrder: "asc" } });
       expect(order.map((row) => row.id)).toEqual([a.id, b.id, ferry.id]);
       expect(order[2]).toMatchObject({ scheduleMode: "FIXED", fromTime: "12:00", toTime: "13:00" });
-      expect(result.receipt.edited).toEqual({ kind: "reordered", itemId: b.id, neighbourId: ferry.id });
+      expect(result.receipt.edited).toEqual({ kind: "reordered", itemId: b.id, neighbourId: ferry.id, previousAiChangedAt: null });
       expect(result.receipt.planConflicts).toBeUndefined();
 
       expect(await undoDayPlanChangeForTrip({ userId: user.id, tripId: trip.id, receipt: result.receipt })).toEqual({ status: "undone" });
@@ -373,13 +386,13 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
       const { user, trip, day, a, ferry, b } = await seedFerryDay("reorder-past-fixed-down@example.com");
       const before = await databaseState();
 
-      const result = await reorderDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: a.id, direction: "down" });
+      const result = await reorderDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: a.id, direction: "down" });
 
       if (result.status !== "reordered") throw new Error(`expected reordered, got ${result.status}`);
       expect(await times(day.id)).toEqual({ A: "13:00–14:00", B: "14:00–15:00", Ferry: "12:00–13:00" });
       const order = await prisma.dayPlanItem.findMany({ where: { tripDayId: day.id }, orderBy: { sortOrder: "asc" } });
       expect(order.map((row) => row.id)).toEqual([ferry.id, a.id, b.id]);
-      expect(result.receipt.edited).toEqual({ kind: "reordered", itemId: a.id, neighbourId: ferry.id });
+      expect(result.receipt.edited).toEqual({ kind: "reordered", itemId: a.id, neighbourId: ferry.id, previousAiChangedAt: null });
 
       expect(await undoDayPlanChangeForTrip({ userId: user.id, tripId: trip.id, receipt: result.receipt })).toEqual({ status: "undone" });
       expect(await databaseState()).toEqual(before);
@@ -394,7 +407,7 @@ describe("POST /api/trips/[id]/day-plan-items/reorder (Story 11.3)", () => {
       const b = await createRawItem(day.id, "B", "13:00", "16:00");
       await settleSeededDay(day.id, { flexible: [x.id, b.id] });
 
-      const result = await reorderDayPlanItemForTripDay({ userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id, direction: "up" });
+      const result = await reorderDayPlanItemForTripDay({ origin: "user", userId: user.id, tripId: trip.id, tripDayId: day.id, itemId: b.id, direction: "up" });
 
       if (result.status !== "reordered") throw new Error(`expected reordered, got ${result.status}`);
       expect(await times(day.id)).toEqual({ X: "09:00–11:00", B: "11:00–14:00", Ferry: "12:00–13:00" });

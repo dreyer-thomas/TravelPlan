@@ -94,6 +94,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     const receipt = await applySuggestionsForTripDay({
       userId,
       tripId,
+      origin: "user",
       tripDayId: dayId,
       mode,
       suggestions,

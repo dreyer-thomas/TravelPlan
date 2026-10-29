@@ -31,6 +31,7 @@ import type {
   SuggestionPlanBasis,
   SuggestionPreviewOrigin,
 } from "@/lib/validation/daySuggestionApplySchemas";
+import { aiChangedAtFor, type WriteOrigin } from "@/lib/trips/writeOrigin";
 import type { SuggestionMode } from "@/lib/validation/daySuggestionSchemas";
 
 /**
@@ -271,6 +272,8 @@ export type ApplySuggestionsParams = {
   parked?: ApplySuggestion[];
   /** One entry per parked suggestion, already downloaded. */
   parkedImages?: DownloadedSuggestionImage[][];
+  /** Story 15.4. Marks (or leaves unmarked) every activity, image and leg the apply creates. */
+  origin: WriteOrigin;
 };
 
 /** 24 small writes, 24 files and a sweep; well past Prisma's 5 s default on a slow disk. */
@@ -286,6 +289,7 @@ const sameBasis = (left: SuggestionPlanBasis, right: SuggestionPlanBasis) =>
  */
 export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams): Promise<DayChangeReceipt | null> => {
   const { userId, tripId, tripDayId, mode, suggestions, legs, basis, images, parked = [], parkedImages = [] } = params;
+  const aiChangedAt = aiChangedAtFor(params.origin, new Date());
   const writtenFiles: string[] = [];
   const createdDirs = new Set<string>();
 
@@ -308,7 +312,7 @@ export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams)
       await fs.writeFile(placement.filePath, image.bytes);
       writtenFiles.push(placement.filePath);
       const row = await tx.dayPlanItemImage.create({
-        data: { dayPlanItemId: itemId, imageUrl: placement.imageUrl, sortOrder: position + 1 },
+        data: { dayPlanItemId: itemId, imageUrl: placement.imageUrl, sortOrder: position + 1, aiChangedAt },
         select: { id: true },
       });
       imageIds.push(row.id);
@@ -357,6 +361,7 @@ export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams)
                 locationLng: suggestion.lng,
                 locationLabel: suggestion.locationLabel,
                 createdAt: new Date(base + index),
+                aiChangedAt,
               },
               select: { id: true, updatedAt: true },
             });
@@ -383,6 +388,7 @@ export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams)
               locationLng: suggestion.lng,
               locationLabel: suggestion.locationLabel,
               createdAt: new Date(base + suggestions.length + index),
+              aiChangedAt,
             },
             select: { id: true, updatedAt: true },
           });
@@ -427,6 +433,7 @@ export const applySuggestionsForTripDay = async (params: ApplySuggestionsParams)
               transportType: toPrismaTransport(mode),
               durationMinutes: leg.durationMinutes,
               distanceKm: leg.distanceKm,
+              aiChangedAt,
             },
             select: { id: true, updatedAt: true },
           });

@@ -412,7 +412,8 @@ export const ModelName = {
   DayPlanItemDocument: 'DayPlanItemDocument',
   AiUsageRecord: 'AiUsageRecord',
   OAuthAuthorizationCode: 'OAuthAuthorizationCode',
-  OAuthToken: 'OAuthToken'
+  OAuthToken: 'OAuthToken',
+  AiChange: 'AiChange'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -428,7 +429,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "passwordResetToken" | "trip" | "tripMember" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "costPayment" | "accommodationImage" | "dayPlanItemImage" | "accommodationDocument" | "dayPlanItemDocument" | "aiUsageRecord" | "oAuthAuthorizationCode" | "oAuthToken"
+    modelProps: "user" | "passwordResetToken" | "trip" | "tripMember" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "costPayment" | "accommodationImage" | "dayPlanItemImage" | "accommodationDocument" | "dayPlanItemDocument" | "aiUsageRecord" | "oAuthAuthorizationCode" | "oAuthToken" | "aiChange"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1616,6 +1617,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    AiChange: {
+      payload: Prisma.$AiChangePayload<ExtArgs>
+      fields: Prisma.AiChangeFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.AiChangeFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiChangePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.AiChangeFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiChangePayload>
+        }
+        findFirst: {
+          args: Prisma.AiChangeFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiChangePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.AiChangeFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiChangePayload>
+        }
+        findMany: {
+          args: Prisma.AiChangeFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiChangePayload>[]
+        }
+        create: {
+          args: Prisma.AiChangeCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiChangePayload>
+        }
+        createMany: {
+          args: Prisma.AiChangeCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.AiChangeCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiChangePayload>[]
+        }
+        delete: {
+          args: Prisma.AiChangeDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiChangePayload>
+        }
+        update: {
+          args: Prisma.AiChangeUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiChangePayload>
+        }
+        deleteMany: {
+          args: Prisma.AiChangeDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.AiChangeUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.AiChangeUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiChangePayload>[]
+        }
+        upsert: {
+          args: Prisma.AiChangeUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiChangePayload>
+        }
+        aggregate: {
+          args: Prisma.AiChangeAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateAiChange>
+        }
+        groupBy: {
+          args: Prisma.AiChangeGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AiChangeGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.AiChangeCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AiChangeCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -1737,7 +1812,8 @@ export const TravelSegmentScalarFieldEnum = {
   distanceKm: 'distanceKm',
   linkUrl: 'linkUrl',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  aiChangedAt: 'aiChangedAt'
 } as const
 
 export type TravelSegmentScalarFieldEnum = (typeof TravelSegmentScalarFieldEnum)[keyof typeof TravelSegmentScalarFieldEnum]
@@ -1761,7 +1837,8 @@ export const AccommodationScalarFieldEnum = {
   checkInTime: 'checkInTime',
   checkOutTime: 'checkOutTime',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  aiChangedAt: 'aiChangedAt'
 } as const
 
 export type AccommodationScalarFieldEnum = (typeof AccommodationScalarFieldEnum)[keyof typeof AccommodationScalarFieldEnum]
@@ -1788,7 +1865,8 @@ export const DayPlanItemScalarFieldEnum = {
   updatedAt: 'updatedAt',
   scheduleMode: 'scheduleMode',
   durationMinutes: 'durationMinutes',
-  sortOrder: 'sortOrder'
+  sortOrder: 'sortOrder',
+  aiChangedAt: 'aiChangedAt'
 } as const
 
 export type DayPlanItemScalarFieldEnum = (typeof DayPlanItemScalarFieldEnum)[keyof typeof DayPlanItemScalarFieldEnum]
@@ -1815,7 +1893,8 @@ export const AccommodationImageScalarFieldEnum = {
   imageUrl: 'imageUrl',
   sortOrder: 'sortOrder',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  aiChangedAt: 'aiChangedAt'
 } as const
 
 export type AccommodationImageScalarFieldEnum = (typeof AccommodationImageScalarFieldEnum)[keyof typeof AccommodationImageScalarFieldEnum]
@@ -1827,7 +1906,8 @@ export const DayPlanItemImageScalarFieldEnum = {
   imageUrl: 'imageUrl',
   sortOrder: 'sortOrder',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  aiChangedAt: 'aiChangedAt'
 } as const
 
 export type DayPlanItemImageScalarFieldEnum = (typeof DayPlanItemImageScalarFieldEnum)[keyof typeof DayPlanItemImageScalarFieldEnum]
@@ -1840,7 +1920,8 @@ export const AccommodationDocumentScalarFieldEnum = {
   fileName: 'fileName',
   sortOrder: 'sortOrder',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  aiChangedAt: 'aiChangedAt'
 } as const
 
 export type AccommodationDocumentScalarFieldEnum = (typeof AccommodationDocumentScalarFieldEnum)[keyof typeof AccommodationDocumentScalarFieldEnum]
@@ -1853,7 +1934,8 @@ export const DayPlanItemDocumentScalarFieldEnum = {
   fileName: 'fileName',
   sortOrder: 'sortOrder',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  aiChangedAt: 'aiChangedAt'
 } as const
 
 export type DayPlanItemDocumentScalarFieldEnum = (typeof DayPlanItemDocumentScalarFieldEnum)[keyof typeof DayPlanItemDocumentScalarFieldEnum]
@@ -1915,6 +1997,22 @@ export const OAuthTokenScalarFieldEnum = {
 } as const
 
 export type OAuthTokenScalarFieldEnum = (typeof OAuthTokenScalarFieldEnum)[keyof typeof OAuthTokenScalarFieldEnum]
+
+
+export const AiChangeScalarFieldEnum = {
+  id: 'id',
+  tripId: 'tripId',
+  tripDayId: 'tripDayId',
+  userId: 'userId',
+  clientId: 'clientId',
+  action: 'action',
+  subject: 'subject',
+  receiptJson: 'receiptJson',
+  createdAt: 'createdAt',
+  undoneAt: 'undoneAt'
+} as const
+
+export type AiChangeScalarFieldEnum = (typeof AiChangeScalarFieldEnum)[keyof typeof AiChangeScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -2203,6 +2301,7 @@ export type GlobalOmitConfig = {
   aiUsageRecord?: Prisma.AiUsageRecordOmit
   oAuthAuthorizationCode?: Prisma.OAuthAuthorizationCodeOmit
   oAuthToken?: Prisma.OAuthTokenOmit
+  aiChange?: Prisma.AiChangeOmit
 }
 
 /* Types for Logging */

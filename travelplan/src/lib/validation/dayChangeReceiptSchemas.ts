@@ -68,6 +68,9 @@ const transportTypeSchema = z
   .transform((value) => value as DayChangeTransportType);
 
 const stamps = { createdAt: isoDateSchema, updatedAt: isoDateSchema };
+/** Story 15.4. The connector's provenance marker: a required key, `null` when a person last wrote the row. */
+const nullableIsoDateSchema = isoDateSchema.nullable();
+const marked = { aiChangedAt: nullableIsoDateSchema };
 
 const travelSegmentRowSchema = z
   .object({
@@ -82,6 +85,7 @@ const travelSegmentRowSchema = z
     distanceKm: finiteNullable,
     linkUrl: safeLinkSchema,
     ...stamps,
+    ...marked,
   })
   .strict();
 
@@ -119,6 +123,7 @@ const dayPlanItemColumns = {
   locationLng: finiteNullable,
   locationLabel: nullableText(),
   ...stamps,
+  ...marked,
   payments: z.array(costPaymentRowSchema).max(MAX_PAYMENTS),
 };
 
@@ -134,6 +139,7 @@ const imageRowSchema = z
       .refine((value) => isSafeStoredImageUrl(value), "Image URL must be a stored image address"),
     sortOrder: z.number().int(),
     ...stamps,
+    ...marked,
   })
   .strict();
 
@@ -150,6 +156,7 @@ const documentRowSchema = z
     fileName: z.string().min(1),
     sortOrder: z.number().int(),
     ...stamps,
+    ...marked,
   })
   .strict();
 
@@ -173,7 +180,15 @@ const editedSchema = z.discriminatedUnion("kind", [
     .strict(),
   z.object({ kind: z.literal("deleted"), previous: deletedSnapshotSchema }).strict(),
   // Story 11.3. Additive, so `version` stays 2; `dayPlanChangeRepo.ts` checks both ids are in `movedItems`.
-  z.object({ kind: z.literal("reordered"), itemId: idSchema, neighbourId: idSchema }).strict(),
+  // Story 15.4: `previousAiChangedAt` is the moved activity's marker before the write.
+  z
+    .object({
+      kind: z.literal("reordered"),
+      itemId: idSchema,
+      neighbourId: idSchema,
+      previousAiChangedAt: nullableIsoDateSchema,
+    })
+    .strict(),
   // Story 11.4. Additive too; `dayPlanChangeRepo.ts` checks the leg row and the stay against the day.
   z.object({ kind: z.literal("legCreated"), segmentId: idSchema, updatedAt: isoDateSchema }).strict(),
   z
@@ -202,6 +217,7 @@ const editedSchema = z.discriminatedUnion("kind", [
       itemId: idSchema,
       updatedAt: isoDateSchema,
       previousUpdatedAt: isoDateSchema,
+      previousAiChangedAt: nullableIsoDateSchema,
     })
     .strict(),
   // Story 14.2. An activity parked off the day; `dayPlanChangeRepo.ts` checks `previous.tripDayId`
@@ -220,6 +236,7 @@ const editedSchema = z.discriminatedUnion("kind", [
           fromTime: nullableText(),
           toTime: nullableText(),
           updatedAt: isoDateSchema,
+          previousAiChangedAt: nullableIsoDateSchema,
         })
         .strict(),
     })
@@ -269,6 +286,22 @@ const planConflictSchema = z
   .object({ itemId: idSchema, title: nullableText(), fromTime: z.string(), reachableAt: z.string() })
   .strict();
 
+/**
+ * Story 15.4. Everything but the seal. A connector write stores its receipt server-side (`ai_changes`),
+ * unsigned and trusted, and `storedDayChangeReceiptSchema` parses it back; a client-held receipt is the
+ * same shape plus `signature` (`dayChangeReceiptSchema`). Both `.strict()`.
+ */
+const receiptShape = {
+  version: z.literal(3),
+  tripDayId: idSchema,
+  edited: editedSchema,
+  removedTravelSegments: z.array(travelSegmentRowSchema).max(MAX_LEGS),
+  movedItems: z.array(movedItemSchema).max(MAX_LEGS),
+  planConflicts: z.array(planConflictSchema).max(MAX_LEGS).optional(),
+};
+
+export const storedDayChangeReceiptSchema = z.object(receiptShape).strict();
+
 export const dayChangeReceiptSchema = z
   .object({
     // Story 11.2 bumped this to 2, Story 13.1 to 3. An older receipt held across a deploy is refused
@@ -276,15 +309,15 @@ export const dayChangeReceiptSchema = z
     // that moved nothing. Receipts are client-held and short-lived, so no older version is tolerated.
     // Story 14.1 dropped `consumedBucketListItem` without a bump: `.strict()` refuses a receipt that
     // still carries it (400), which is the same "undo unavailable" outcome. Story 13.2 dropped
-    // the check-in warning the same way.
-    version: z.literal(3),
+    // the check-in warning the same way. Story 15.4 added the marker keys the same way.
+    version: receiptShape.version,
     // The server's seal (hex HMAC-SHA256). The route verifies it; the schema only bounds its shape.
     signature: z.string().regex(/^[0-9a-f]{64}$/, "Receipt signature is malformed"),
-    tripDayId: idSchema,
-    edited: editedSchema,
-    removedTravelSegments: z.array(travelSegmentRowSchema).max(MAX_LEGS),
-    movedItems: z.array(movedItemSchema).max(MAX_LEGS),
-    planConflicts: z.array(planConflictSchema).max(MAX_LEGS).optional(),
+    tripDayId: receiptShape.tripDayId,
+    edited: receiptShape.edited,
+    removedTravelSegments: receiptShape.removedTravelSegments,
+    movedItems: receiptShape.movedItems,
+    planConflicts: receiptShape.planConflicts,
   })
   .strict();
 

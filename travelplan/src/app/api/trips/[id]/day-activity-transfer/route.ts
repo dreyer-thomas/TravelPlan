@@ -93,6 +93,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
       moveDayPlanItemsBetweenTripDays({
         userId,
         tripId,
+        origin: "user",
         sourceTripDayId: parsed.data.sourceTripDayId,
         targetTripDayId: parsed.data.targetTripDayId,
       }),
@@ -123,6 +124,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     swapDayPlanItemsBetweenTripDays({
       userId,
       tripId,
+      origin: "user",
       firstTripDayId: parsed.data.sourceTripDayId,
       secondTripDayId: parsed.data.targetTripDayId,
     }),

@@ -164,6 +164,16 @@ describe("whoami", () => {
       "get_trip",
       "get_day",
       "get_bucket_list",
+      // Story 15.4.
+      "create_activity",
+      "update_activity",
+      "delete_activity",
+      "move_activity",
+      "move_activity_to_day",
+      "schedule_activity",
+      "park_activity",
+      "list_ai_changes",
+      "undo_ai_change",
     ]);
 
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);

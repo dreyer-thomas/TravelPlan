@@ -1,14 +1,11 @@
-import fs from "node:fs/promises";
 import type { NextRequest } from "next/server";
 import { apiError } from "@/lib/errors/apiError";
 import { fail, ok } from "@/lib/http/response";
 import { hasTripOwnerOrContributorAccess } from "@/lib/auth/tripAccess";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { requireSession } from "@/lib/auth/sessionGuard";
-import { undoDayPlanChangeForTrip } from "@/lib/repositories/dayPlanChangeRepo";
-import { removeManagedMediaFile } from "@/lib/trips/mediaCleanup";
-import { resolveManagedItemMediaDir } from "@/lib/trips/uploadPaths";
 import { fromDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
+import { runDayChangeUndo } from "@/lib/trips/dayChangeUndo";
 import { verifyDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
 import { dayChangeUndoSchema } from "@/lib/validation/dayChangeReceiptSchemas";
 
@@ -23,10 +20,9 @@ import { dayChangeUndoSchema } from "@/lib/validation/dayChangeReceiptSchemas";
  * The repository adds the writer clause on the day and the ownership checks on every row (`invalid` →
  * 400), then staleness (`409 undo_stale`).
  *
- * Story 12.4: undoing an apply of suggestions deletes image rows whose files nothing else names. They are
- * unlinked here, after the transaction has committed and only for the rows it read, each confined to its
- * activity's own directory, and then that directory itself once it is empty. A failed unlink is logged
- * and never turns the undo into an error.
+ * Story 12.4: undoing an apply of suggestions deletes image rows whose files nothing else names; they are
+ * unlinked after the commit. Story 15.4 moved that cleanup, with the repository call, into the shared undo
+ * core (`runDayChangeUndo`); this route keeps the signature check in front of it.
  */
 
 type RouteContext = {
@@ -84,7 +80,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   }
 
   try {
-    const result = await undoDayPlanChangeForTrip({
+    const result = await runDayChangeUndo({
       userId,
       tripId,
       receipt: fromDayChangeReceiptWire(receipt),
@@ -97,36 +93,8 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
         return fail(apiError("validation_error", "Invalid change receipt"), 400);
       case "stale":
         return fail(apiError("undo_stale", "The day has changed since this change was made"), 409);
-      case "undone": {
-        const removedFiles = result.removedImageFiles ?? [];
-        // Story 14.1: each file from the folder its own URL names (`resolveManagedItemMediaDir`), not one
-        // built from the receipt's day; a URL outside the activity's folders is logged and skipped.
-        const folders = new Set<string>();
-        for (const file of removedFiles) {
-          const allowedDir = resolveManagedItemMediaDir({
-            storedUrl: file.imageUrl,
-            tripId,
-            itemId: file.dayPlanItemId,
-            kind: "image",
-          });
-          if (!allowedDir) {
-            console.error("day-plan-changes undo: stored media url names no folder of this activity", {
-              tripId,
-              dayPlanItemId: file.dayPlanItemId,
-              storedUrl: file.imageUrl,
-            });
-            continue;
-          }
-          folders.add(allowedDir);
-          await removeManagedMediaFile({ storedUrl: file.imageUrl, allowedDir, context: "day-plan-changes undo" });
-        }
-        // Then each activity's own directory, which nothing names any more. `rmdir` only removes an
-        // empty one, so anything else found there stays; failures are not the user's problem.
-        for (const folder of folders) {
-          await fs.rmdir(folder).catch(() => undefined);
-        }
+      case "undone":
         return ok({ undone: true });
-      }
       default: {
         const unhandled: never = result;
         throw new Error(`Unhandled undo result: ${String(unhandled)}`);

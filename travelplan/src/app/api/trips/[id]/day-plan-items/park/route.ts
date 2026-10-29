@@ -78,6 +78,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
       parkDayPlanItemForTripDay({
         userId,
         tripId,
+        origin: "user",
         tripDayId: parsed.data.tripDayId,
         itemId: parsed.data.itemId,
       }),

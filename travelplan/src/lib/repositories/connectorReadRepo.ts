@@ -72,6 +72,8 @@ export type PlannerItem = PlannerCost &
     linkUrl: string | null;
     location: PlannerLocation;
     updatedAt: Date;
+    /** Story 15.4. When the connector last wrote the row; `null` once a person has edited it. */
+    aiChangedAt: Date | null;
   };
 
 export type PlannerStay = PlannerCost &
@@ -85,6 +87,7 @@ export type PlannerStay = PlannerCost &
     notes: string | null;
     location: PlannerLocation;
     updatedAt: Date;
+    aiChangedAt: Date | null;
   };
 
 export type PlannerLeg = {
@@ -98,6 +101,7 @@ export type PlannerLeg = {
   distanceKm: number | null;
   linkUrl: string | null;
   updatedAt: Date;
+  aiChangedAt: Date | null;
 };
 
 export type PlannerDay = {
@@ -188,6 +192,7 @@ export const getPlannerDayForUser = async (params: {
             toTime: true,
             createdAt: true,
             updatedAt: true,
+            aiChangedAt: true,
             linkUrl: true,
             locationLat: true,
             locationLng: true,
@@ -209,6 +214,7 @@ export const getPlannerDayForUser = async (params: {
             distanceKm: true,
             linkUrl: true,
             updatedAt: true,
+            aiChangedAt: true,
           },
         },
         accommodation: {
@@ -221,6 +227,7 @@ export const getPlannerDayForUser = async (params: {
             link: true,
             notes: true,
             updatedAt: true,
+            aiChangedAt: true,
             locationLat: true,
             locationLng: true,
             locationLabel: true,
@@ -272,6 +279,7 @@ export const getPlannerDayForUser = async (params: {
           documents: item.documents,
           images: item.images,
           updatedAt: item.updatedAt,
+          aiChangedAt: item.aiChangedAt,
         })),
         legs: day.travelSegments.filter((leg) => drawnKeys.has(buildStoredSegmentPairKey(leg))),
         stay: stay
@@ -293,6 +301,7 @@ export const getPlannerDayForUser = async (params: {
               documents: stay.documents,
               images: stay.images,
               updatedAt: stay.updatedAt,
+              aiChangedAt: stay.aiChangedAt,
             }
           : null,
         missingStay: stay === null,
@@ -342,4 +351,97 @@ export const listParkedItemMediaForPlanner = async (params: {
   for (const document of documents) entry(document.dayPlanItemId).documents.push({ id: document.id, fileName: document.fileName });
   for (const image of images) entry(image.dayPlanItemId).images.push({ id: image.id, imageUrl: image.imageUrl });
   return media;
+};
+
+/**
+ * Story 15.4. One activity of a trip the user may plan, on a day or parked, with the stored fields an
+ * `update_activity` merges its input over (cost, payments and link pass through unchanged). `null`: no
+ * trip this user may plan. `{ activity: null }`: no such activity on this trip.
+ */
+export type PlannerActivityRow = {
+  id: string;
+  /** `null` for a parked activity (the bucket list). */
+  tripDayId: string | null;
+  title: string;
+  contentJson: string;
+  scheduleMode: DayPlanItemScheduleMode;
+  durationMinutes: number;
+  fromTime: string | null;
+  toTime: string | null;
+  costCents: number | null;
+  costOriginalAmount: number | null;
+  costCurrency: string | null;
+  costRate: number | null;
+  costRateDate: string | null;
+  /** In stored order, with the original amount where there is one: what the repositories write back. */
+  payments: { amountCents: number; dueDate: string; amountOriginal: number | null }[];
+  linkUrl: string | null;
+  location: PlannerLocation;
+  updatedAt: Date;
+};
+
+export const findActivityForPlanner = async (params: {
+  userId: string;
+  tripId: string;
+  activityId: string;
+}): Promise<{ activity: PlannerActivityRow | null } | null> => {
+  const { userId, tripId, activityId } = params;
+  const trip = await prisma.trip.findFirst({ where: writerTripWhere(userId, tripId), select: { id: true } });
+  if (!trip) return null;
+  // Day rows carry `tripId` too (Story 14.1), so one `tripId` filter finds both sides.
+  const row = await prisma.dayPlanItem.findFirst({
+    where: { id: activityId, tripId: trip.id },
+    select: {
+      id: true,
+      tripDayId: true,
+      title: true,
+      contentJson: true,
+      scheduleMode: true,
+      durationMinutes: true,
+      fromTime: true,
+      toTime: true,
+      costCents: true,
+      costOriginalAmount: true,
+      costCurrency: true,
+      costRate: true,
+      costRateDate: true,
+      payments: paymentsSelect,
+      linkUrl: true,
+      locationLat: true,
+      locationLng: true,
+      locationLabel: true,
+      updatedAt: true,
+    },
+  });
+  if (!row) return { activity: null };
+  return {
+    activity: {
+      id: row.id,
+      tripDayId: row.tripDayId,
+      title: row.title ?? "",
+      contentJson: row.contentJson,
+      scheduleMode: row.scheduleMode,
+      durationMinutes: row.durationMinutes,
+      fromTime: row.fromTime,
+      toTime: row.toTime,
+      costCents: row.costCents,
+      costOriginalAmount: row.costOriginalAmount,
+      costCurrency: row.costCurrency,
+      costRate: row.costRate,
+      costRateDate: row.costRateDate,
+      payments: row.payments,
+      linkUrl: row.linkUrl,
+      location: toLocation(row),
+      updatedAt: row.updatedAt,
+    },
+  };
+};
+
+/** Story 15.4. Whether `tripDayId` is a day of a trip the user may plan. */
+export const isPlannerDayOfTrip = async (params: { userId: string; tripId: string; tripDayId: string }) => {
+  const day = await prisma.tripDay.findFirst({
+    where: { id: params.tripDayId, trip: writerTripWhere(params.userId, params.tripId) },
+    select: { id: true },
+  });
+  return day !== null;
 };

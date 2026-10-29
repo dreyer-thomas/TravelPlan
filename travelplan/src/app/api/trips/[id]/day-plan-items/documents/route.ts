@@ -225,6 +225,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
   const created = await createDayPlanItemDocument({
     userId,
     tripId,
+    origin: "user",
     tripDayId: parsed.data.tripDayId,
     dayPlanItemId: parsed.data.dayPlanItemId,
     documentUrl,

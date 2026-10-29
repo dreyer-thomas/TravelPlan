@@ -55,6 +55,66 @@ describe("TripAccommodationDialog", () => {
     vi.unstubAllGlobals();
   });
 
+  it("shows the AI badge beside the title of a stay the connector changed, outside the dialog's name (Story 15.4)", async () => {
+    stubFetch(vi.fn(async () => mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null })));
+    const stay = {
+      id: "stay-1",
+      name: "Harbor Hotel",
+      notes: null,
+      status: "planned" as const,
+      costCents: null,
+      link: null,
+      checkInTime: null,
+      checkOutTime: null,
+      location: null,
+    };
+    const day = (aiChangedAt: string | null) => ({
+      id: "day-1",
+      date: "2026-11-01T00:00:00.000Z",
+      dayIndex: 1,
+      accommodation: { ...stay, aiChangedAt },
+    });
+
+    const view = render(
+      <Providers language="en">
+        <TripAccommodationDialog
+          open
+          tripId="trip-1"
+          stayType="current"
+          day={day("2026-10-29T08:00:00.000Z")}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </Providers>,
+    );
+
+    const dialog = await screen.findByRole("dialog");
+    const badge = within(dialog).getByTestId("ai-badge");
+    expect(badge).toHaveTextContent(en["trips.aiBadge.label"]);
+    expect(badge).toHaveAccessibleName(en["trips.aiBadge.tooltip"]);
+    const heading = within(dialog).getByRole("heading", { level: 2 });
+    // Beside the heading, never inside it: neither the heading nor the dialog's name gains the badge.
+    expect(heading).not.toContainElement(badge);
+    expect(dialog).toHaveAccessibleName(heading.textContent ?? "");
+    expect(heading.textContent).not.toContain(en["trips.aiBadge.label"]);
+
+    view.unmount();
+    render(
+      <Providers language="en">
+        <TripAccommodationDialog
+          open
+          tripId="trip-1"
+          stayType="current"
+          day={day(null)}
+          onClose={() => undefined}
+          onSaved={() => undefined}
+        />
+      </Providers>,
+    );
+    await screen.findByRole("dialog");
+    expect(screen.queryByTestId("ai-badge")).not.toBeInTheDocument();
+  });
+
   it("renders place lookup with read-only coordinates text", async () => {
     const fetchMock = vi.fn(async () => mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null }));
 

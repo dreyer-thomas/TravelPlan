@@ -66,7 +66,8 @@ export const ModelName = {
   DayPlanItemDocument: 'DayPlanItemDocument',
   AiUsageRecord: 'AiUsageRecord',
   OAuthAuthorizationCode: 'OAuthAuthorizationCode',
-  OAuthToken: 'OAuthToken'
+  OAuthToken: 'OAuthToken',
+  AiChange: 'AiChange'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -167,7 +168,8 @@ export const TravelSegmentScalarFieldEnum = {
   distanceKm: 'distanceKm',
   linkUrl: 'linkUrl',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  aiChangedAt: 'aiChangedAt'
 } as const
 
 export type TravelSegmentScalarFieldEnum = (typeof TravelSegmentScalarFieldEnum)[keyof typeof TravelSegmentScalarFieldEnum]
@@ -191,7 +193,8 @@ export const AccommodationScalarFieldEnum = {
   checkInTime: 'checkInTime',
   checkOutTime: 'checkOutTime',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  aiChangedAt: 'aiChangedAt'
 } as const
 
 export type AccommodationScalarFieldEnum = (typeof AccommodationScalarFieldEnum)[keyof typeof AccommodationScalarFieldEnum]
@@ -218,7 +221,8 @@ export const DayPlanItemScalarFieldEnum = {
   updatedAt: 'updatedAt',
   scheduleMode: 'scheduleMode',
   durationMinutes: 'durationMinutes',
-  sortOrder: 'sortOrder'
+  sortOrder: 'sortOrder',
+  aiChangedAt: 'aiChangedAt'
 } as const
 
 export type DayPlanItemScalarFieldEnum = (typeof DayPlanItemScalarFieldEnum)[keyof typeof DayPlanItemScalarFieldEnum]
@@ -245,7 +249,8 @@ export const AccommodationImageScalarFieldEnum = {
   imageUrl: 'imageUrl',
   sortOrder: 'sortOrder',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  aiChangedAt: 'aiChangedAt'
 } as const
 
 export type AccommodationImageScalarFieldEnum = (typeof AccommodationImageScalarFieldEnum)[keyof typeof AccommodationImageScalarFieldEnum]
@@ -257,7 +262,8 @@ export const DayPlanItemImageScalarFieldEnum = {
   imageUrl: 'imageUrl',
   sortOrder: 'sortOrder',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  aiChangedAt: 'aiChangedAt'
 } as const
 
 export type DayPlanItemImageScalarFieldEnum = (typeof DayPlanItemImageScalarFieldEnum)[keyof typeof DayPlanItemImageScalarFieldEnum]
@@ -270,7 +276,8 @@ export const AccommodationDocumentScalarFieldEnum = {
   fileName: 'fileName',
   sortOrder: 'sortOrder',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  aiChangedAt: 'aiChangedAt'
 } as const
 
 export type AccommodationDocumentScalarFieldEnum = (typeof AccommodationDocumentScalarFieldEnum)[keyof typeof AccommodationDocumentScalarFieldEnum]
@@ -283,7 +290,8 @@ export const DayPlanItemDocumentScalarFieldEnum = {
   fileName: 'fileName',
   sortOrder: 'sortOrder',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  aiChangedAt: 'aiChangedAt'
 } as const
 
 export type DayPlanItemDocumentScalarFieldEnum = (typeof DayPlanItemDocumentScalarFieldEnum)[keyof typeof DayPlanItemDocumentScalarFieldEnum]
@@ -345,6 +353,22 @@ export const OAuthTokenScalarFieldEnum = {
 } as const
 
 export type OAuthTokenScalarFieldEnum = (typeof OAuthTokenScalarFieldEnum)[keyof typeof OAuthTokenScalarFieldEnum]
+
+
+export const AiChangeScalarFieldEnum = {
+  id: 'id',
+  tripId: 'tripId',
+  tripDayId: 'tripDayId',
+  userId: 'userId',
+  clientId: 'clientId',
+  action: 'action',
+  subject: 'subject',
+  receiptJson: 'receiptJson',
+  createdAt: 'createdAt',
+  undoneAt: 'undoneAt'
+} as const
+
+export type AiChangeScalarFieldEnum = (typeof AiChangeScalarFieldEnum)[keyof typeof AiChangeScalarFieldEnum]
 
 
 export const SortOrder = {

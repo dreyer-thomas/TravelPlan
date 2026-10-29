@@ -33,7 +33,13 @@ const createTrip = (userId: string) =>
     },
   });
 
-const base = (userId: string, tripId: string, title: string) => ({ userId, tripId, title, contentJson: doc(title) });
+const base = (userId: string, tripId: string, title: string) => ({
+  userId,
+  tripId,
+  title,
+  contentJson: doc(title),
+  origin: "user" as const,
+});
 
 describe("bucketListRepo (Story 14.1)", () => {
   beforeEach(async () => {

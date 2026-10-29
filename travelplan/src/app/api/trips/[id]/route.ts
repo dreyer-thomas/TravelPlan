@@ -97,6 +97,8 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
                 checkInTime: day.accommodation.checkInTime ?? null,
                 checkOutTime: day.accommodation.checkOutTime ?? null,
                 location: day.accommodation.location,
+                // Story 15.4. Drives the KI/AI badge on the stay cards and the stay dialog.
+                aiChangedAt: day.accommodation.aiChangedAt?.toISOString() ?? null,
               }
             : null,
           dayPlanItems: day.dayPlanItems.map((item) => ({
@@ -126,6 +128,8 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
             payments: item.payments ?? [],
             linkUrl: item.linkUrl,
             location: item.location,
+            // Story 15.4. Drives the KI/AI badge on the activity card and the activity dialog.
+            aiChangedAt: item.aiChangedAt?.toISOString() ?? null,
           })),
           travelSegments: day.travelSegments.map((segment) => ({
             id: segment.id,
@@ -245,6 +249,8 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
                 checkInTime: day.accommodation.checkInTime ?? null,
                 checkOutTime: day.accommodation.checkOutTime ?? null,
                 location: day.accommodation.location,
+                // Story 15.4. Drives the KI/AI badge on the stay cards and the stay dialog.
+                aiChangedAt: day.accommodation.aiChangedAt?.toISOString() ?? null,
               }
             : null,
           dayPlanItems: day.dayPlanItems.map((item) => ({
@@ -274,6 +280,8 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
             payments: item.payments ?? [],
             linkUrl: item.linkUrl,
             location: item.location,
+            // Story 15.4. Drives the KI/AI badge on the activity card and the activity dialog.
+            aiChangedAt: item.aiChangedAt?.toISOString() ?? null,
           })),
           travelSegments: day.travelSegments.map((segment) => ({
             id: segment.id,

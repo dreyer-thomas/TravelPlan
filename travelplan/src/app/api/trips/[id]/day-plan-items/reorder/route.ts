@@ -80,6 +80,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
       reorderDayPlanItemForTripDay({
         userId,
         tripId,
+        origin: "user",
         tripDayId: parsed.data.tripDayId,
         itemId: parsed.data.itemId,
         direction: parsed.data.direction,
