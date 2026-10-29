@@ -74,6 +74,11 @@ const acquireMigrationLock = () => {
   }
 };
 
+// The template `test/globalSetup.ts` migrated once per run. Used only when this run owns the database path;
+// a DATABASE_URL set from outside keeps the old behaviour of migrating whatever it points at.
+const templateDbPath = path.resolve(process.cwd(), "prisma", "test-template.db");
+const usesOwnTestDb = process.env.DATABASE_URL === undefined;
+
 process.env.DATABASE_URL = process.env.DATABASE_URL ?? `file:${testDbPath}`;
 process.env.JWT_SECRET = process.env.JWT_SECRET ?? "test-secret";
 (process.env as Record<string, string | undefined>).NODE_ENV = "test";
@@ -82,6 +87,15 @@ const globalForTests = globalThis as unknown as { prismaMigrated?: Record<string
 
 if (!globalForTests.prismaMigrated) {
   globalForTests.prismaMigrated = {};
+}
+
+if (!globalForTests.prismaMigrated[workerId] && usesOwnTestDb && fs.existsSync(templateDbPath)) {
+  // A fresh copy of the migrated template: same schema, milliseconds instead of a `prisma` process per file.
+  for (const suffix of ["-journal", "-wal", "-shm"]) {
+    fs.rmSync(`${testDbPath}${suffix}`, { force: true });
+  }
+  fs.copyFileSync(templateDbPath, testDbPath);
+  globalForTests.prismaMigrated[workerId] = true;
 }
 
 if (!globalForTests.prismaMigrated[workerId]) {
