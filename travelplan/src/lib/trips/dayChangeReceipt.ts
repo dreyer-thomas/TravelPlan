@@ -71,6 +71,15 @@
  * (the `deleted` kind's shape). The legs those deletes took, and every leg the plan swept, are in
  * `removedTravelSegments` as usual. Undo deletes the created rows, recreates the deleted ones and restores
  * the rest like every kind. Additive, so the version stays 3. It is only ever stored server-side.
+ *
+ * Story 15.6 adds the connector's stay kinds, again additively and only ever stored server-side (the app's
+ * stay routes keep returning what they returned). `stayCreated` names the new stay and its post-write stamp.
+ * `stayUpdated` carries the whole stay before the write (`StaySnapshot`: every column, the marker, and its
+ * payments); when its check-out pushed the next day, the receipt's `tripDayId` is that pushed day and
+ * `movedItems` are its rows, as for `stayCheckOutChanged`. `stayDeleted` carries the deleted stay with its
+ * payments, images and documents, and the legs the delete took: the ones on the stay's own day (into
+ * tonight's stay) in `removedTravelSegments` as usual, the ones on the next day (out of last night's stay)
+ * in `nextDayLegs`, with `nextDayId`. A leg that was already undrawn before the delete is not recorded.
  */
 
 import { formatMessage } from "@/i18n";
@@ -160,6 +169,56 @@ export type DeletedDayPlanItemSnapshot<T extends Date | string = Date> = DayPlan
   documents: DayPlanItemDocumentRow<T>[];
 };
 
+/** Story 15.6. The stored spelling of `AccommodationStatus`, spelled out to keep Prisma out of the bundle. */
+export type DayChangeStayStatus = "PLANNED" | "BOOKED";
+
+/** Story 15.6. Every `Accommodation` column, stamps and marker included. */
+export type StayRow<T extends Date | string = Date> = Stamped<T> & Marked<T> & {
+  id: string;
+  tripDayId: string;
+  name: string;
+  status: DayChangeStayStatus;
+  costCents: number | null;
+  costOriginalAmount: number | null;
+  costCurrency: string | null;
+  costRate: number | null;
+  costRateDate: string | null;
+  link: string | null;
+  locationLat: number | null;
+  locationLng: number | null;
+  locationLabel: string | null;
+  notes: string | null;
+  checkInTime: string | null;
+  checkOutTime: string | null;
+};
+
+/** Story 15.6. A stay's payment: `accommodationId` set, `dayPlanItemId` null (`CostPaymentRow` allows both). */
+export type StayPaymentRow<T extends Date | string = Date> = CostPaymentRow<T>;
+
+export type StayImageRow<T extends Date | string = Date> = Stamped<T> & Marked<T> & {
+  id: string;
+  accommodationId: string;
+  imageUrl: string;
+  sortOrder: number;
+};
+
+export type StayDocumentRow<T extends Date | string = Date> = Stamped<T> & Marked<T> & {
+  id: string;
+  accommodationId: string;
+  documentUrl: string;
+  fileName: string;
+  sortOrder: number;
+};
+
+/** Story 15.6. Every stay column plus its payments in `sortOrder`; the stay write replaces payments wholesale. */
+export type StaySnapshot<T extends Date | string = Date> = StayRow<T> & { payments: StayPaymentRow<T>[] };
+
+/** Story 15.6. A deleted stay also loses its media rows through the cascade, so its snapshot carries them. */
+export type DeletedStaySnapshot<T extends Date | string = Date> = StaySnapshot<T> & {
+  images: StayImageRow<T>[];
+  documents: StayDocumentRow<T>[];
+};
+
 /** Story 15.5. `append` adds after the day's last activity; `replace` deletes the day's activities first. */
 export type DayPlanApplyMode = "append" | "replace";
 
@@ -233,6 +292,24 @@ export type DayChangeEdited<T extends Date | string = Date> =
       items: { itemId: string; updatedAt: T }[];
       segments: { segmentId: string; updatedAt: T }[];
       deletedItems: DeletedDayPlanItemSnapshot<T>[];
+    }
+  /** Story 15.6. A new stay on the receipt's day; `updatedAt` is its post-write stamp. */
+  | { kind: "stayCreated"; accommodationId: string; updatedAt: T }
+  /**
+   * Story 15.6. `previous` is the whole stay before the write. The receipt's `tripDayId` is the pushed next
+   * day when the check-out recompute ran, otherwise the stay's day (`previous.tripDayId`).
+   */
+  | { kind: "stayUpdated"; accommodationId: string; updatedAt: T; previous: StaySnapshot<T> }
+  /**
+   * Story 15.6. The deleted stay in full, on the receipt's day. `nextDayLegs` are the legs the delete took on
+   * `nextDayId` (out of last night's stay); the ones on the stay's own day are in `removedTravelSegments`.
+   */
+  | {
+      kind: "stayDeleted";
+      accommodationId: string;
+      previous: DeletedStaySnapshot<T>;
+      nextDayId: string | null;
+      nextDayLegs: TravelSegmentRow<T>[];
     };
 
 /**
@@ -306,6 +383,15 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
   });
   const deletedSnapshot = (previous: DeletedDayPlanItemSnapshot<A>): DeletedDayPlanItemSnapshot<B> => ({
     ...snapshot(previous),
+    images: previous.images.map((image) => mapMarked(image, convert)),
+    documents: previous.documents.map((document) => mapMarked(document, convert)),
+  });
+  const staySnapshot = (previous: StaySnapshot<A>): StaySnapshot<B> => ({
+    ...mapMarked(previous, convert),
+    payments: previous.payments.map((payment) => mapStamps(payment, convert)),
+  });
+  const deletedStaySnapshot = (previous: DeletedStaySnapshot<A>): DeletedStaySnapshot<B> => ({
+    ...staySnapshot(previous),
     images: previous.images.map((image) => mapMarked(image, convert)),
     documents: previous.documents.map((document) => mapMarked(document, convert)),
   });
@@ -386,6 +472,25 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
         items: receipt.edited.items.map((item) => ({ ...item, updatedAt: convert(item.updatedAt) })),
         segments: receipt.edited.segments.map((segment) => ({ ...segment, updatedAt: convert(segment.updatedAt) })),
         deletedItems: receipt.edited.deletedItems.map(deletedSnapshot),
+      };
+      break;
+    case "stayCreated":
+      edited = { ...receipt.edited, updatedAt: convert(receipt.edited.updatedAt) };
+      break;
+    case "stayUpdated":
+      edited = {
+        ...receipt.edited,
+        updatedAt: convert(receipt.edited.updatedAt),
+        previous: staySnapshot(receipt.edited.previous),
+      };
+      break;
+    case "stayDeleted":
+      edited = {
+        kind: "stayDeleted",
+        accommodationId: receipt.edited.accommodationId,
+        previous: deletedStaySnapshot(receipt.edited.previous),
+        nextDayId: receipt.edited.nextDayId,
+        nextDayLegs: receipt.edited.nextDayLegs.map((segment) => mapMarked(segment, convert)),
       };
       break;
     default: {

@@ -1,8 +1,9 @@
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { GeocodingError, nominatimThrottle, searchNominatim } from "@/lib/geocoding/nominatim";
+import { costField, resolveCost, type ResolvedCostFields } from "@/lib/mcp/costInput";
 import { toolError } from "@/lib/mcp/logging";
-import { toBucketActivity, toPlannerDay } from "@/lib/mcp/plannerShapes";
+import { toBucketActivity, toDateKey, toPlannerDay } from "@/lib/mcp/plannerShapes";
 import {
   DAY_NOT_FOUND,
   DESTRUCTIVE_WRITE_TOOL_ANNOTATIONS,
@@ -37,6 +38,7 @@ import {
   scheduleParkedDayPlanItemForTripDay,
   updateDayPlanItemForTripDay,
 } from "@/lib/repositories/dayPlanItemRepo";
+import { readDayPlanContextForWriter } from "@/lib/repositories/dayPlanApplyRepo";
 import { removeParkedItemFiles } from "@/lib/trips/parkedItemFiles";
 import { markdownToTiptapDoc, plainTextToTiptapDoc } from "@/lib/trips/planText";
 import { fixedDurationOf } from "@/lib/repositories/dayScheduleTransaction";
@@ -57,6 +59,11 @@ import {
  *
  * Story 15.5: the input fields and the write helpers are exported for `apply_day_plan` (`dayPlanApply.ts`),
  * which writes a whole day through the same gate, geocoder, change record and error mapping.
+ *
+ * Story 15.6: `create_activity` and `update_activity` take `link` and `cost` (EUR or an ECB currency,
+ * converted on the server as the dialogs do, with an optional payment schedule; `costInput.ts`). An absent
+ * field keeps what is stored, `null` removes it. The stay and leg tools (`stayWrite.ts`, `legWrite.ts`) run
+ * on the same rails.
  */
 
 export const ACTIVITY_NOT_FOUND = "Activity not found";
@@ -159,6 +166,16 @@ export const activityFields = {
     .describe("Fixed activities only: the end as HH:MM, after startTime and not past 23:59."),
 };
 
+/** Story 15.6. A web link; the entry's own schema checks it is http or https. */
+export const linkField = z.string().max(2000);
+
+/** Story 15.6. The cost input's description, shared by the activity and stay tools. */
+export const COST_FIELD_NOTE =
+  "{amount, currency?, payments?}: amount in the currency's major unit (e.g. 12.5, at most two decimals); " +
+  "currency EUR (default) or an ECB currency, converted to EUR at today's ECB rate; payments [{amount, dueDate " +
+  "YYYY-MM-DD}] in the same currency, adding up exactly to amount (default: one payment of the full amount due " +
+  "on the entry's day).";
+
 const createInput = z.object({
   tripId: tripIdField,
   dayId: idSchema
@@ -171,6 +188,11 @@ const createInput = z.object({
   afterActivityId: idSchema
     .optional()
     .describe("Flexible activities on a day only: insert directly after this activity of the same day (default: at the end)."),
+  link: linkField.nullable().optional().describe("A web link for the activity (http or https)."),
+  cost: costField
+    .nullable()
+    .optional()
+    .describe(`The cost: ${COST_FIELD_NOTE} A bucket-list activity must give payments.`),
 });
 
 const updatedAtField = z.iso
@@ -191,6 +213,14 @@ const updateInput = z.object({
     .nullable()
     .optional()
     .describe("The new place (a name alone is looked up on OpenStreetMap), or null to remove it."),
+  link: linkField.nullable().optional().describe("The new web link (http or https), or null to remove it."),
+  cost: costField
+    .nullable()
+    .optional()
+    .describe(
+      `The new cost, replacing the stored one with its payments: ${COST_FIELD_NOTE} A bucket-list activity must ` +
+        "give payments. null removes the cost and its payments.",
+    ),
 });
 
 const deleteInput = z.object({ tripId: tripIdField, activityId: activityIdField, updatedAt: updatedAtField });
@@ -347,9 +377,10 @@ const findActivity = async (caller: Caller, activityId: string): Promise<Planner
 const isActivity = (value: PlannerActivityRow | CallToolResult): value is PlannerActivityRow => "tripDayId" in value;
 
 /**
- * Cost, payments and link as stored: out of scope for 15.4 (15.6), and the repositories replace payments
- * wholesale. Passed to the repository unchanged and left out of the validation, so a stored row the
+ * Cost, payments and link as stored, for an edit that does not change them: the repositories replace
+ * payments wholesale. Passed to the repository unchanged and left out of the validation, so a stored row the
  * payment rule would refuse today (a legacy cost without instalments) does not block an edit of its title.
+ * Story 15.6: a given `cost` or `link` replaces its part, and only what was given is validated.
  */
 const storedMoneyAndLink = (row: PlannerActivityRow) => ({
   costCents: row.costCents,
@@ -359,6 +390,40 @@ const storedMoneyAndLink = (row: PlannerActivityRow) => ({
   costRateDate: row.costRateDate,
   payments: row.costCents === null ? null : row.payments,
   linkUrl: row.linkUrl,
+});
+
+/** Story 15.6. A day's date as `YYYY-MM-DD` (a cost's default payment is due on it), or `null` for no such day. */
+export const dayDateOf = async (caller: Caller, tripDayId: string) => {
+  const context = await readDayPlanContextForWriter({ userId: caller.userId, tripId: caller.tripId, tripDayId });
+  return context ? toDateKey(context.date) : null;
+};
+
+/**
+ * Story 15.6. A given cost resolved for an entry on `tripDayId` (`null`: the bucket list): its stored fields, or
+ * the tool error. The day's date is read only when the default payment needs it.
+ */
+const resolveCostFor = async (
+  caller: Caller,
+  cost: z.infer<typeof costField> | null,
+  tripDayId: string | null,
+): Promise<{ fields: ResolvedCostFields } | CallToolResult> => {
+  let dueDateDefault: string | null = null;
+  if (cost !== null && !cost.payments && tripDayId !== null) {
+    dueDateDefault = await dayDateOf(caller, tripDayId);
+    if (dueDateDefault === null) return toolError(DAY_NOT_FOUND);
+  }
+  const resolved = await resolveCost(cost, { dueDateDefault });
+  return "refusal" in resolved ? toolError(resolved.refusal) : resolved;
+};
+
+/** Story 15.6. The cost fields as the entry schemas and repositories take them. */
+const moneyPayload = (fields: ResolvedCostFields) => ({
+  costCents: fields.costCents,
+  costOriginalAmount: fields.costOriginalAmount,
+  costCurrency: fields.costCurrency,
+  costRate: fields.costRate,
+  costRateDate: fields.costRateDate,
+  payments: fields.payments,
 });
 
 type ScheduleInput = {
@@ -437,7 +502,8 @@ export const registerActivityWriteTools = (server: McpServer) => {
         "Adds an activity to a day of a trip, or to the trip's bucket list when dayId is left out. A flexible " +
         "activity (the default) is appended to the day, or inserted after afterActivityId, and gets its times " +
         "from the day's order; a fixed one needs startTime (HH:MM) and endTime (HH:MM) or durationMinutes, and " +
-        "must end by 23:59. Without a description the title is used as the text. " +
+        "must end by 23:59. Without a description the title is used as the text. Optional link and cost (EUR " +
+        "or an ECB currency, converted at today's ECB rate, with an optional payment schedule). " +
         "The day is recomputed as in the app; an over-full day is saved anyway and returned with its warnings. " +
         DAY_RESULT_NOTE +
         " " +
@@ -465,6 +531,18 @@ export const registerActivityWriteTools = (server: McpServer) => {
           if (after.tripDayId !== args.dayId) return toolError("afterActivityId must be an activity on the same day.");
         }
 
+        // Story 15.6: the cost as the dialog would store it, converted before anything is validated or written;
+        // a day that is not the trip's does not cost an ECB call first.
+        if (args.dayId !== undefined && args.cost) {
+          if (!(await isPlannerDayOfTrip({ userId, tripId: args.tripId, tripDayId: args.dayId }))) return toolError(DAY_NOT_FOUND);
+        }
+        const money = args.cost ? await resolveCostFor(caller, args.cost, args.dayId ?? null) : null;
+        if (money && isToolResult(money)) return money;
+        const extras = {
+          linkUrl: args.link ?? null,
+          ...(money ? moneyPayload(money.fields) : {}),
+        };
+
         const contentJson =
           args.description !== undefined ? markdownToTiptapDoc(args.description) : plainTextToTiptapDoc(title);
         const bucketPayload = (location: ResolvedLocation) => ({
@@ -472,6 +550,7 @@ export const registerActivityWriteTools = (server: McpServer) => {
           contentJson,
           durationMinutes: args.durationMinutes ?? null,
           location,
+          ...extras,
         });
         const dayPayload = (location: ResolvedLocation) => ({
           tripDayId: args.dayId,
@@ -480,6 +559,7 @@ export const registerActivityWriteTools = (server: McpServer) => {
           location,
           afterItemId: args.afterActivityId ?? null,
           ...scheduleOfCreate(args),
+          ...extras,
         });
         // A create the day or the payload would refuse anyway does not take a geocoder slot first.
         if (needsGeocoding(args.place)) {
@@ -506,6 +586,8 @@ export const registerActivityWriteTools = (server: McpServer) => {
             contentJson: parsed.data.contentJson,
             durationMinutes: parsed.data.durationMinutes ?? null,
             location: place.location,
+            linkUrl: parsed.data.linkUrl ?? null,
+            ...(money ? moneyPayload(money.fields) : {}),
             origin: "ai",
             inTransaction: change.hook,
           });
@@ -529,6 +611,8 @@ export const registerActivityWriteTools = (server: McpServer) => {
             contentJson: parsed.data.contentJson,
             location: place.location,
             afterItemId: parsed.data.afterItemId ?? null,
+            linkUrl: parsed.data.linkUrl ?? null,
+            ...(money ? moneyPayload(money.fields) : {}),
             origin: "ai",
             inTransaction: change.hook,
           });
@@ -546,7 +630,8 @@ export const registerActivityWriteTools = (server: McpServer) => {
       title: "Change an activity",
       description:
         "Changes an activity on a day or in the bucket list. Only the fields given change; the others, and the " +
-        "activity's cost, payments, link, documents and images, stay as they are. place: null removes the place. " +
+        "activity's documents and images, stay as they are. place, link or cost: null removes it; a given cost " +
+        "replaces the stored one with its payments (EUR or an ECB currency, converted at today's ECB rate). " +
         "Pass updatedAt exactly as get_day or get_bucket_list returned it: if the activity changed since, nothing " +
         "is written and you are asked to read it again. Times as HH:MM, durationMinutes in minutes; a bucket-list " +
         "activity has no mode or times. " +
@@ -568,6 +653,8 @@ export const registerActivityWriteTools = (server: McpServer) => {
           args.startTime,
           args.endTime,
           args.place,
+          args.link,
+          args.cost,
         ].some((value) => value !== undefined);
         if (!changing) return toolError(NOTHING_TO_CHANGE);
         if (args.description !== undefined && args.description.trim() === "") return toolError(DESCRIPTION_EMPTY);
@@ -579,6 +666,14 @@ export const registerActivityWriteTools = (server: McpServer) => {
         const hasTimes = args.startTime !== undefined || args.endTime !== undefined;
         if (!parked && hasTimes && effectiveModeOf(row, args) === "FLEXIBLE") return toolError(TIMES_NEED_FIXED);
 
+        // Story 15.6: a given cost or link replaces the stored one, and only what was given is validated.
+        const money = args.cost !== undefined ? await resolveCostFor(caller, args.cost, row.tripDayId) : null;
+        if (money && isToolResult(money)) return money;
+        const extras = {
+          ...(args.link !== undefined ? { linkUrl: args.link } : {}),
+          ...(money ? moneyPayload(money.fields) : {}),
+        };
+
         const title = (args.title ?? row.title).trim();
         const contentJson = args.description !== undefined ? markdownToTiptapDoc(args.description) : row.contentJson;
         const bucketPayload = (location: ResolvedLocation) => ({
@@ -586,6 +681,7 @@ export const registerActivityWriteTools = (server: McpServer) => {
           contentJson,
           durationMinutes: args.durationMinutes ?? row.durationMinutes,
           location,
+          ...extras,
         });
         const dayPayload = (location: ResolvedLocation) => ({
           tripDayId: row.tripDayId!,
@@ -593,6 +689,12 @@ export const registerActivityWriteTools = (server: McpServer) => {
           contentJson,
           location,
           ...scheduleOfUpdate(row, args),
+          ...extras,
+        });
+        const givenMoneyAndLink = (linkUrl: string | null | undefined) => ({
+          ...storedMoneyAndLink(row),
+          ...(args.link !== undefined ? { linkUrl: linkUrl ?? null } : {}),
+          ...(money ? moneyPayload(money.fields) : {}),
         });
         let location: ResolvedLocation = row.location;
         if (args.place !== undefined) {
@@ -622,7 +724,7 @@ export const registerActivityWriteTools = (server: McpServer) => {
               contentJson: parsed.data.contentJson,
               durationMinutes: parsed.data.durationMinutes ?? null,
               location,
-              ...storedMoneyAndLink(row),
+              ...givenMoneyAndLink(parsed.data.linkUrl),
               expectedUpdatedAt,
               origin: "ai",
               inTransaction: change.hook,
@@ -647,7 +749,7 @@ export const registerActivityWriteTools = (server: McpServer) => {
             toTime: parsed.data.toTime ?? null,
             contentJson: parsed.data.contentJson,
             location,
-            ...storedMoneyAndLink(row),
+            ...givenMoneyAndLink(parsed.data.linkUrl),
             expectedUpdatedAt,
             origin: "ai",
             inTransaction: change.hook,

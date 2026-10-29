@@ -78,7 +78,7 @@ const planItem = (id: string, title: string, sortOrder: number, aiChangedAt: str
   aiChangedAt,
 });
 
-const tripDetail = (accessRole: "owner" | "contributor" | "viewer") => ({
+const tripDetail = (accessRole: "owner" | "contributor" | "viewer", travelSegments: unknown[] = []) => ({
   trip: {
     id: "trip-1",
     name: "Trip",
@@ -111,7 +111,7 @@ const tripDetail = (accessRole: "owner" | "contributor" | "viewer") => ({
         aiChangedAt: "2026-10-29T08:00:00.000Z",
       },
       dayPlanItems: [planItem("item-1", "Louvre", 0, "2026-10-29T08:00:00.000Z"), planItem("item-2", "Orsay", 1, null)],
-      travelSegments: [],
+      travelSegments,
     },
   ],
 });
@@ -130,6 +130,8 @@ const stubDay = (
     accessRole?: "owner" | "contributor" | "viewer";
     list?: () => Change[];
     undo?: () => { status: number; body: unknown };
+    /** Story 15.6. The day's legs. */
+    travelSegments?: unknown[];
   } = {},
 ) => {
   const calls = { list: 0, detail: 0, bucket: 0 };
@@ -162,7 +164,7 @@ const stubDay = (
       });
     }
     calls.detail += 1;
-    return mockFetchResponse({ data: tripDetail(options.accessRole ?? "owner"), error: null });
+    return mockFetchResponse({ data: tripDetail(options.accessRole ?? "owner", options.travelSegments), error: null });
   });
   stubFetch(fetchMock);
   return { fetchMock, calls };
@@ -386,5 +388,99 @@ describe("AiChangesNotice, day plans (Story 15.5)", () => {
     const rows = within(notice).getAllByTestId("ai-change-row");
     expect(rows[0]).toHaveTextContent(replaced);
     expect(rows[1]).toHaveTextContent(appended);
+  });
+});
+
+describe("AI provenance on legs and the stay and leg notices (Story 15.6)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const legRow = (id: string, fromItemId: string, toItemType: "accommodation" | "dayPlanItem", toItemId: string, aiChangedAt: string | null) => ({
+    id,
+    fromItemType: "dayPlanItem",
+    fromItemId,
+    toItemType,
+    toItemId,
+    transportType: "walking",
+    durationMinutes: 15,
+    distanceKm: 1.2,
+    linkUrl: null,
+    aiChangedAt,
+  });
+
+  it("badges the leg the connector wrote, and not the one a person wrote", async () => {
+    stubDay({
+      list: () => [],
+      travelSegments: [
+        legRow("seg-1", "item-1", "dayPlanItem", "item-2", "2026-10-29T08:00:00.000Z"),
+        legRow("seg-2", "item-2", "accommodation", "stay-1", null),
+      ],
+    });
+    await renderDay();
+
+    const segments = await screen.findAllByTestId("travel-segment");
+    const marked = segments.find((segment) => segment.getAttribute("data-from-id") === "item-1")!;
+    const plain = segments.find((segment) => segment.getAttribute("data-from-id") === "item-2")!;
+    expect(within(marked).getByTestId("ai-badge")).toHaveTextContent("AI");
+    expect(within(plain).queryByTestId("ai-badge")).not.toBeInTheDocument();
+  });
+
+  const stayAndLegChanges: Change[] = [
+    { id: "l3", action: "legDeleted", subject: "Museum → Dinner", createdAt: "2026-10-20T15:00:00.000Z", undoable: true },
+    { id: "l2", action: "legUpdated", subject: "Museum → Dinner", createdAt: "2026-10-20T14:00:00.000Z", undoable: true },
+    { id: "l1", action: "legCreated", subject: "Hotel → Museum", createdAt: "2026-10-20T13:00:00.000Z", undoable: true },
+    { id: "s3", action: "stayDeleted", subject: "Harbour Inn", createdAt: "2026-10-20T12:00:00.000Z", undoable: true },
+    { id: "s2", action: "stayUpdated", subject: "Harbour Inn", createdAt: "2026-10-20T11:00:00.000Z", undoable: true },
+    { id: "s1", action: "stayCreated", subject: "Harbour Inn", createdAt: "2026-10-20T10:00:00.000Z", undoable: true },
+  ];
+
+  it.each([
+    [
+      "en",
+      en,
+      [
+        "Leg deleted: Museum → Dinner",
+        "Leg changed: Museum → Dinner",
+        "Leg added: Hotel → Museum",
+        "Stay deleted: Harbour Inn",
+        "Stay changed: Harbour Inn",
+        "Stay added: Harbour Inn",
+      ],
+    ],
+    [
+      "de",
+      de,
+      [
+        "Fahrt gelöscht: Museum → Dinner",
+        "Fahrt geändert: Museum → Dinner",
+        "Fahrt hinzugefügt: Hotel → Museum",
+        "Unterkunft gelöscht: Harbour Inn",
+        "Unterkunft geändert: Harbour Inn",
+        "Unterkunft hinzugefügt: Harbour Inn",
+      ],
+    ],
+  ] as const)("labels stay and leg changes in %s", async (language, dictionary, labels) => {
+    stubFetch(
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (requestUrl(input).includes("/ai-changes")) return mockFetchResponse({ data: { changes: stayAndLegChanges }, error: null });
+        return mockFetchResponse({ data: null, error: null });
+      }),
+    );
+    renderWithProviders(
+      <AiChangesNotice
+        tripId="trip-1"
+        dayId="day-1"
+        refreshKey={0}
+        ensureCsrfToken={async () => "csrf-token"}
+        onDayChanged={() => undefined}
+        onBucketChanged={() => undefined}
+      />,
+      { language },
+    );
+    const notice = await screen.findByTestId("ai-changes-notice");
+    await userEvent.click(within(notice).getByRole("button", { name: dictionary["trips.aiChanges.expand"] }));
+    const rows = within(notice).getAllByTestId("ai-change-row");
+    labels.forEach((label, index) => expect(rows[index]).toHaveTextContent(label));
   });
 });

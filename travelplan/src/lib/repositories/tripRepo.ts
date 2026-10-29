@@ -234,6 +234,11 @@ export type TripDaySummary = {
     durationMinutes: number;
     distanceKm: number | null;
     linkUrl: string | null;
+    /**
+     * Story 15.6. When the connector last created or changed the leg; drives the KI/AI badge. Optional:
+     * only the trip read selects it, the print payload shares the type without it.
+     */
+    aiChangedAt?: Date | null;
   }[];
 };
 
@@ -1190,6 +1195,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
               durationMinutes: true,
               distanceKm: true,
               linkUrl: true,
+              aiChangedAt: true,
             },
           },
           _count: { select: { dayPlanItems: true } },
@@ -1358,6 +1364,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
           durationMinutes: segment.durationMinutes,
           distanceKm: segment.distanceKm,
           linkUrl: segment.linkUrl,
+          aiChangedAt: segment.aiChangedAt,
         })),
       };
     }),

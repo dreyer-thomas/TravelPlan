@@ -31,8 +31,10 @@ export class ChangedSinceReadError extends Error {
 
 /**
  * Story 15.4. Runs last inside a write's transaction, with the write's receipt (`null` for writes the app
- * cannot undo: the parked create, edit and delete) and the id of the activity it targeted. The connector
+ * cannot undo: the parked create, edit and delete) and the id of the row it targeted. The connector
  * inserts its `ai_changes` row here, so the write and its record commit together; a throw rolls both back.
+ *
+ * Story 15.6: `itemId` is the targeted row, whatever its kind: the activity, the stay or the leg.
  */
 export type InTransactionHook = (
   tx: TransactionClient,

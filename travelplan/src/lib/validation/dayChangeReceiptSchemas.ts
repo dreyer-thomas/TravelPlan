@@ -103,6 +103,20 @@ const costPaymentRowSchema = z
   })
   .strict();
 
+/** Story 15.6. A stay's payment row: the other target of the one-target CHECK. */
+const stayPaymentRowSchema = z
+  .object({
+    id: idSchema,
+    accommodationId: idSchema,
+    dayPlanItemId: z.null(),
+    amountCents: z.number().int(),
+    amountOriginal: z.number().int().nullable(),
+    dueDate: z.string(),
+    sortOrder: z.number().int(),
+    ...stamps,
+  })
+  .strict();
+
 const dayPlanItemColumns = {
   id: idSchema,
   tripDayId: idSchema,
@@ -166,6 +180,68 @@ const deletedSnapshotSchema = z
     ...dayPlanItemColumns,
     images: z.array(imageRowSchema).max(MAX_MEDIA),
     documents: z.array(documentRowSchema).max(MAX_MEDIA),
+  })
+  .strict();
+
+/** Story 15.6. Every `Accommodation` column of a stay snapshot, plus its payments; stored values, no caps. */
+const stayColumns = {
+  id: idSchema,
+  tripDayId: idSchema,
+  name: z.string(),
+  status: z.enum(["PLANNED", "BOOKED"]),
+  costCents: z.number().int().nullable(),
+  costOriginalAmount: z.number().int().nullable(),
+  costCurrency: nullableText(),
+  costRate: finiteNullable,
+  costRateDate: nullableText(),
+  link: safeLinkSchema,
+  locationLat: finiteNullable,
+  locationLng: finiteNullable,
+  locationLabel: nullableText(),
+  notes: nullableText(),
+  checkInTime: nullableText(),
+  checkOutTime: nullableText(),
+  ...stamps,
+  ...marked,
+  payments: z.array(stayPaymentRowSchema).max(MAX_PAYMENTS),
+};
+
+const staySnapshotSchema = z.object(stayColumns).strict();
+
+const stayImageRowSchema = z
+  .object({
+    id: idSchema,
+    accommodationId: idSchema,
+    imageUrl: z
+      .string()
+      .max(MAX_STORED_IMAGE_URL_LENGTH)
+      .refine((value) => isSafeStoredImageUrl(value), "Image URL must be a stored image address"),
+    sortOrder: z.number().int(),
+    ...stamps,
+    ...marked,
+  })
+  .strict();
+
+const stayDocumentRowSchema = z
+  .object({
+    id: idSchema,
+    accommodationId: idSchema,
+    documentUrl: z
+      .string()
+      .max(MAX_STORED_IMAGE_URL_LENGTH)
+      .refine((value) => value.startsWith("/uploads/"), "Document URL must be a stored upload path"),
+    fileName: z.string().min(1),
+    sortOrder: z.number().int(),
+    ...stamps,
+    ...marked,
+  })
+  .strict();
+
+const deletedStaySnapshotSchema = z
+  .object({
+    ...stayColumns,
+    images: z.array(stayImageRowSchema).max(MAX_MEDIA),
+    documents: z.array(stayDocumentRowSchema).max(MAX_MEDIA),
   })
   .strict();
 
@@ -281,6 +357,26 @@ const editedSchema = z.discriminatedUnion("kind", [
         .array(z.object({ segmentId: idSchema, updatedAt: isoDateSchema }).strict())
         .max(MAX_DAY_PLAN_APPLY_ACTIVITIES),
       deletedItems: z.array(deletedSnapshotSchema).max(MAX_MEDIA),
+    })
+    .strict(),
+  // Story 15.6. The connector's stay kinds; `dayPlanChangeRepo.ts` checks the snapshots, their payments and
+  // media, and the next day's legs against the receipt's day and trip.
+  z.object({ kind: z.literal("stayCreated"), accommodationId: idSchema, updatedAt: isoDateSchema }).strict(),
+  z
+    .object({
+      kind: z.literal("stayUpdated"),
+      accommodationId: idSchema,
+      updatedAt: isoDateSchema,
+      previous: staySnapshotSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("stayDeleted"),
+      accommodationId: idSchema,
+      previous: deletedStaySnapshotSchema,
+      nextDayId: idSchema.nullable(),
+      nextDayLegs: z.array(travelSegmentRowSchema).max(MAX_LEGS),
     })
     .strict(),
 ]);

@@ -446,3 +446,123 @@ export const isPlannerDayOfTrip = async (params: { userId: string; tripId: strin
   });
   return day !== null;
 };
+
+/**
+ * Story 15.6. The stored stay of a day (the raw row, whatever its name) with the fields `set_stay` merges its
+ * input over, and the day's date (a cost's default payment is due on it). `null`: no trip this user may
+ * plan. `{ day: null }`: no such day on the trip. `stay: null`: the day has no stay.
+ */
+export type PlannerStayRow = {
+  id: string;
+  tripDayId: string;
+  name: string;
+  status: AccommodationStatus;
+  checkInTime: string | null;
+  checkOutTime: string | null;
+  link: string | null;
+  notes: string | null;
+  location: PlannerLocation;
+  costCents: number | null;
+  costOriginalAmount: number | null;
+  costCurrency: string | null;
+  costRate: number | null;
+  costRateDate: string | null;
+  /** In stored order, with the original amount where there is one: what the repository writes back. */
+  payments: { amountCents: number; dueDate: string; amountOriginal: number | null }[];
+  updatedAt: Date;
+};
+
+export const findStayForPlanner = async (params: {
+  userId: string;
+  tripId: string;
+  tripDayId: string;
+}): Promise<{ day: { id: string; date: Date; stay: PlannerStayRow | null } | null } | null> => {
+  const { userId, tripId, tripDayId } = params;
+  const trip = await prisma.trip.findFirst({ where: writerTripWhere(userId, tripId), select: { id: true } });
+  if (!trip) return null;
+  const day = await prisma.tripDay.findFirst({
+    where: { id: tripDayId, tripId: trip.id },
+    select: {
+      id: true,
+      date: true,
+      accommodation: {
+        select: {
+          id: true,
+          tripDayId: true,
+          name: true,
+          status: true,
+          checkInTime: true,
+          checkOutTime: true,
+          link: true,
+          notes: true,
+          locationLat: true,
+          locationLng: true,
+          locationLabel: true,
+          updatedAt: true,
+          ...costSelect,
+        },
+      },
+    },
+  });
+  if (!day) return { day: null };
+  const stay = day.accommodation;
+  return {
+    day: {
+      id: day.id,
+      date: day.date,
+      stay: stay
+        ? {
+            id: stay.id,
+            tripDayId: stay.tripDayId,
+            name: stay.name,
+            status: stay.status,
+            checkInTime: stay.checkInTime,
+            checkOutTime: stay.checkOutTime,
+            link: stay.link,
+            notes: stay.notes,
+            location: toLocation(stay),
+            costCents: stay.costCents,
+            costOriginalAmount: stay.costOriginalAmount,
+            costCurrency: stay.costCurrency,
+            costRate: stay.costRate,
+            costRateDate: stay.costRateDate,
+            payments: stay.payments,
+            updatedAt: stay.updatedAt,
+          }
+        : null,
+    },
+  };
+};
+
+/**
+ * Story 15.6. One stored leg of a trip the user may plan, with the fields `update_leg` merges its input over.
+ * `null`: no trip this user may plan. `{ leg: null }`: no such leg on this trip.
+ */
+export type PlannerLegRow = Omit<PlannerLeg, "aiChangedAt"> & { tripDayId: string };
+
+export const findLegForPlanner = async (params: {
+  userId: string;
+  tripId: string;
+  legId: string;
+}): Promise<{ leg: PlannerLegRow | null } | null> => {
+  const { userId, tripId, legId } = params;
+  const trip = await prisma.trip.findFirst({ where: writerTripWhere(userId, tripId), select: { id: true } });
+  if (!trip) return null;
+  const leg = await prisma.travelSegment.findFirst({
+    where: { id: legId, tripDay: { tripId: trip.id } },
+    select: {
+      id: true,
+      tripDayId: true,
+      fromItemType: true,
+      fromItemId: true,
+      toItemType: true,
+      toItemId: true,
+      transportType: true,
+      durationMinutes: true,
+      distanceKm: true,
+      linkUrl: true,
+      updatedAt: true,
+    },
+  });
+  return { leg };
+};

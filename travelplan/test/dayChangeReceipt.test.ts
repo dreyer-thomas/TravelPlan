@@ -828,3 +828,122 @@ describe("dayChangeReceipt, dayPlanApplied (Story 15.5)", () => {
     }
   });
 });
+
+describe("dayChangeReceipt, stay kinds (Story 15.6)", () => {
+  const stamp = (ms: number) => at(`2026-05-01T00:00:00.${String(ms).padStart(3, "0")}Z`);
+  const stayRow = {
+    id: "stay-1",
+    tripDayId: "day-1",
+    name: "Harbour Inn",
+    status: "BOOKED" as const,
+    costCents: 9259,
+    costOriginalAmount: 10000,
+    costCurrency: "USD",
+    costRate: 1.08,
+    costRateDate: "2026-04-30",
+    link: "https://inn.example",
+    locationLat: 50.1,
+    locationLng: 14.4,
+    locationLabel: "Harbour",
+    notes: "Late arrival",
+    checkInTime: "15:00",
+    checkOutTime: "10:30",
+    createdAt: stamp(1),
+    updatedAt: stamp(2),
+    aiChangedAt: stamp(2),
+  };
+  const stayPayment = {
+    id: "pay-stay-1",
+    accommodationId: "stay-1",
+    dayPlanItemId: null,
+    amountCents: 9259,
+    amountOriginal: 10000,
+    dueDate: "2026-05-01",
+    sortOrder: 0,
+    createdAt: stamp(3),
+    updatedAt: stamp(4),
+  };
+  const previous = { ...stayRow, payments: [stayPayment] };
+  const deleted = {
+    ...previous,
+    images: [
+      { id: "simg-1", accommodationId: "stay-1", imageUrl: "/uploads/trips/t/stay.webp", sortOrder: 0, createdAt: stamp(5), updatedAt: stamp(6), aiChangedAt: null },
+    ],
+    documents: [
+      {
+        id: "sdoc-1",
+        accommodationId: "stay-1",
+        documentUrl: "/uploads/trips/t/booking.pdf",
+        fileName: "Booking.pdf",
+        sortOrder: 0,
+        createdAt: stamp(7),
+        updatedAt: stamp(8),
+        aiChangedAt: stamp(9),
+      },
+    ],
+  };
+  const nextDayLeg = { ...leg("s-next"), tripDayId: "day-2" };
+  const receipts: DayChangeReceipt[] = [
+    {
+      version: 3,
+      tripDayId: "day-1",
+      edited: { kind: "stayCreated", accommodationId: "stay-1", updatedAt: stamp(10) },
+      removedTravelSegments: [],
+      movedItems: [],
+    },
+    {
+      version: 3,
+      tripDayId: "day-2",
+      edited: { kind: "stayUpdated", accommodationId: "stay-1", updatedAt: stamp(11), previous },
+      removedTravelSegments: [],
+      movedItems: [moved("item-next")],
+    },
+    {
+      version: 3,
+      tripDayId: "day-1",
+      edited: { kind: "stayDeleted", accommodationId: "stay-1", previous: deleted, nextDayId: "day-2", nextDayLegs: [nextDayLeg] },
+      removedTravelSegments: [leg("s1")],
+      movedItems: [],
+    },
+  ];
+
+  it("round-trips the three kinds through the wire form at version 3, and both schemas accept them", () => {
+    for (const receipt of receipts) {
+      const wire = toDayChangeReceiptWire(receipt);
+      expect(wire.version).toBe(3);
+      expect(fromDayChangeReceiptWire(wire)).toEqual(receipt);
+      expect(storedDayChangeReceiptSchema.safeParse(wire).success).toBe(true);
+      expect(dayChangeReceiptSchema.safeParse(signDayChangeReceipt(wire, BINDING)).success).toBe(true);
+    }
+  });
+
+  it("refuses an unknown key, an activity payment, an unknown status, a snapshot without its media and an unsafe link", () => {
+    const wire = toDayChangeReceiptWire(receipts[2]);
+    if (wire.edited.kind !== "stayDeleted") throw new Error("fixture");
+    const edited = wire.edited;
+    const parse = (next: unknown) => storedDayChangeReceiptSchema.safeParse({ ...wire, edited: next }).success;
+    expect(parse(edited)).toBe(true);
+    expect(parse({ ...edited, extra: 1 })).toBe(false);
+    expect(parse({ ...edited, previous: { ...edited.previous, payments: [{ ...edited.previous.payments[0], dayPlanItemId: "item-1" }] } })).toBe(false);
+    expect(parse({ ...edited, previous: { ...edited.previous, status: "CANCELLED" } })).toBe(false);
+    expect(parse({ ...edited, previous: { ...edited.previous, link: "javascript:alert(1)" } })).toBe(false);
+    const { images: _images, ...withoutImages } = edited.previous;
+    void _images;
+    expect(parse({ ...edited, previous: withoutImages })).toBe(false);
+    expect(parse({ ...edited, nextDayId: undefined })).toBe(false);
+  });
+
+  it("has the notice's stay and leg keys in both dictionaries", () => {
+    for (const key of [
+      "trips.aiChanges.stayCreated",
+      "trips.aiChanges.stayUpdated",
+      "trips.aiChanges.stayDeleted",
+      "trips.aiChanges.legCreated",
+      "trips.aiChanges.legUpdated",
+      "trips.aiChanges.legDeleted",
+    ]) {
+      expect(de[key as keyof typeof de], key).toContain("{title}");
+      expect(en[key as keyof typeof en], key).toContain("{title}");
+    }
+  });
+});

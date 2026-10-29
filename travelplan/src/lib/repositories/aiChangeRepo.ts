@@ -30,6 +30,9 @@ export const AI_CHANGE_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 /**
  * Story 15.5 adds `planAppended` and `planReplaced` (`apply_day_plan`), whose `subject` is the new activities'
  * titles joined by ", ", capped at 120 characters.
+ *
+ * Story 15.6 adds the stay actions (`subject`: the stay's name) and the leg actions (`subject`: "<from> →
+ * <to>", the endpoints' titles or names, "?" when untitled, capped at 120 code points).
  */
 export type AiChangeAction =
   | "created"
@@ -39,7 +42,13 @@ export type AiChangeAction =
   | "parked"
   | "scheduled"
   | "planAppended"
-  | "planReplaced";
+  | "planReplaced"
+  | "stayCreated"
+  | "stayUpdated"
+  | "stayDeleted"
+  | "legCreated"
+  | "legUpdated"
+  | "legDeleted";
 
 export type AiChangeEntry = {
   id: string;

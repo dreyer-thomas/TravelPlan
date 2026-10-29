@@ -33,6 +33,13 @@ const ACTION_KEYS = {
   // Story 15.5. `apply_day_plan`; the subject is the plan's titles, joined.
   planAppended: "trips.aiChanges.planAppended",
   planReplaced: "trips.aiChanges.planReplaced",
+  // Story 15.6. A stay's subject is its name, a leg's "<from> → <to>".
+  stayCreated: "trips.aiChanges.stayCreated",
+  stayUpdated: "trips.aiChanges.stayUpdated",
+  stayDeleted: "trips.aiChanges.stayDeleted",
+  legCreated: "trips.aiChanges.legCreated",
+  legUpdated: "trips.aiChanges.legUpdated",
+  legDeleted: "trips.aiChanges.legDeleted",
 } as const;
 
 const ROW_STATUS_KEYS = {

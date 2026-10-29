@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { hasAtMostTwoDecimals } from "@/lib/mcp/costInput";
 import { toolError } from "@/lib/mcp/logging";
 import { toDateKey } from "@/lib/mcp/plannerShapes";
 import {
@@ -116,9 +117,6 @@ const UNSTORABLE_RECEIPT = {
 /** The key two name-only places share a lookup by. */
 const placeNameKey = (name: string) => name.trim().toLowerCase();
 
-/** Whole cents: at most two decimals, within floating-point noise. */
-const hasAtMostTwoDecimals = (value: number) => Math.abs(Math.round(value * 100) - value * 100) < 1e-6;
-
 const planActivity = z.object({
   ...activityFields,
   place: placeField
@@ -197,8 +195,11 @@ const legRefusal = (leg: PlanLegArgs, activityCount: number, seen: Set<number>):
   return null;
 };
 
-/** The route between two points as the leg dialog's preview stores it, or `null` for no usable answer. */
-const routeLeg = async (mode: TransportType, from: GeoPoint, to: GeoPoint) => {
+/**
+ * The route between two points as the leg dialog's preview stores it, or `null` for no usable answer. Story
+ * 15.6: exported for `create_leg`.
+ */
+export const routeLeg = async (mode: TransportType, from: GeoPoint, to: GeoPoint) => {
   const routing = (SUGGESTION_MODE_ROUTING as Partial<Record<TransportType, { profile: "driving" | "walking" | "cycling" }>>)[mode];
   if (!routing) return null;
   try {

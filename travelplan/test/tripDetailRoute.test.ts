@@ -223,6 +223,40 @@ describe("GET /api/trips/[id]", () => {
     expect(byId.get(plain.id)).toBeNull();
   });
 
+  it("carries the AI marker on legs as ISO or null (Story 15.6)", async () => {
+    const user = await prisma.user.create({
+      data: { email: "trip-ai-leg-marker@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Leg Marker Trip",
+      startDate: "2026-05-01T00:00:00.000Z",
+      endDate: "2026-05-01T00:00:00.000Z",
+    });
+    const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: trip.id } });
+    const stay = await prisma.accommodation.create({ data: { tripDayId: day.id, name: "Hotel" } });
+    const [first, second] = await Promise.all(
+      ["First", "Second"].map((title, sortOrder) =>
+        prisma.dayPlanItem.create({ data: { tripId: trip.id, tripDayId: day.id, title, contentJson: "{}", sortOrder } }),
+      ),
+    );
+    const leg = (fromItemId: string, toItemType: "DAY_PLAN_ITEM" | "ACCOMMODATION", toItemId: string, aiChangedAt: Date | null) =>
+      prisma.travelSegment.create({
+        data: { tripDayId: day.id, fromItemType: "DAY_PLAN_ITEM", fromItemId, toItemType, toItemId, transportType: "WALKING", durationMinutes: 10, aiChangedAt },
+      });
+    const marked = await leg(first.id, "DAY_PLAN_ITEM", second.id, new Date("2026-04-21T09:00:00.000Z"));
+    const plain = await leg(second.id, "ACCOMMODATION", stay.id, null);
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const payload = (await response.json()) as ApiEnvelope<{ days: { travelSegments: { id: string; aiChangedAt: string | null }[] }[] }>;
+
+    expect(response.status).toBe(200);
+    const byId = new Map(payload.data!.days[0].travelSegments.map((segment) => [segment.id, segment.aiChangedAt]));
+    expect(byId.get(marked.id)).toBe("2026-04-21T09:00:00.000Z");
+    expect(byId.get(plain.id)).toBeNull();
+  });
+
   it("returns an exact payload key set at every nesting level", async () => {
     const user = await prisma.user.create({
       data: { email: "trip-shape@example.com", passwordHash: "hashed", role: "OWNER" },
@@ -360,6 +394,8 @@ describe("GET /api/trips/[id]", () => {
     const segments = dayPayload.travelSegments as Record<string, unknown>[];
     expect(segments).toHaveLength(1);
     expect(Object.keys(segments[0]!).sort()).toEqual([
+      // Story 15.6. The KI/AI badge on the leg.
+      "aiChangedAt",
       "distanceKm",
       "durationMinutes",
       "fromItemId",

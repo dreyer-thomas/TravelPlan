@@ -21,7 +21,12 @@ import {
   type ScheduleEdit,
 } from "@/lib/repositories/dayScheduleTransaction";
 import type { DayChangeEdited, DayChangeReceipt } from "@/lib/trips/dayChangeReceipt";
-import { aiChangedAtFor, type WriteOrigin } from "@/lib/trips/writeOrigin";
+import {
+  aiChangedAtFor,
+  ChangedSinceReadError,
+  type InTransactionHook,
+  type WriteOrigin,
+} from "@/lib/trips/writeOrigin";
 
 /**
  * Declared per repository, as `dayPlanItemRepo.ts` and `bucketListRepo.ts` do. There is no shared
@@ -82,16 +87,28 @@ type TravelSegmentMutationParams = {
   linkUrl?: string | null;
   /** Story 15.4. `"ai"` marks the leg, `"user"` clears the mark. */
   origin: WriteOrigin;
+  /** Story 15.6. Runs last in the save's transaction with its receipt and the leg's id (the connector's record). */
+  inTransaction?: InTransactionHook;
 };
 
-type TravelSegmentUpdateParams = TravelSegmentMutationParams & { segmentId: string };
+/**
+ * Story 15.6. `expectedUpdatedAt`, when given, is the stamp the caller read; a leg that no longer carries it
+ * throws `ChangedSinceReadError` inside the transaction, so nothing is written.
+ */
+type TravelSegmentUpdateParams = TravelSegmentMutationParams & { segmentId: string; expectedUpdatedAt?: Date };
 
 type TravelSegmentDeleteParams = {
   userId: string;
   tripId: string;
   tripDayId: string;
   segmentId: string;
+  /** Story 15.6. As for the update. */
+  expectedUpdatedAt?: Date;
+  inTransaction?: InTransactionHook;
 };
+
+/** `updatedAt` by epoch milliseconds, never by `Date` identity. */
+const sameInstant = (left: Date, right: Date) => left.getTime() === right.getTime();
 
 type SegmentTimelineItem = {
   id: string;
@@ -473,6 +490,9 @@ export const listTravelSegmentsForTripDay = async (params: {
  * Story 11.4, rewired by 13.1: a new leg recomputes its day (`planLegScheduleInTransaction`). Adjacency,
  * plan, write and moves are one transaction; a `not_adjacent` writes nothing, and a `P2002` (the pair already has
  * a leg) still propagates for the route's `409 travel_segment_exists`. The receipt is always returned.
+ *
+ * Story 15.6: create, update and delete take the connector's optional `inTransaction` hook, called last with
+ * the receipt and the leg's id; update and delete also take `expectedUpdatedAt`. The routes pass neither.
  */
 export const createTravelSegmentForTripDay = async (
   params: TravelSegmentMutationParams,
@@ -511,6 +531,7 @@ export const createTravelSegmentForTripDay = async (
       { kind: "legCreated", segmentId: segment.id, updatedAt: segment.updatedAt },
       now,
     );
+    if (params.inTransaction) await params.inTransaction(tx, { receipt, itemId: segment.id });
     return { status: "created", segment: toDetail(segment), receipt };
   });
 };
@@ -530,6 +551,9 @@ export const updateTravelSegmentForTripDay = async (
 
     if (!existing) {
       return { status: "missing" };
+    }
+    if (params.expectedUpdatedAt && !sameInstant(existing.updatedAt, params.expectedUpdatedAt)) {
+      throw new ChangedSinceReadError();
     }
 
     const itemStatus = await ensureSegmentItemsExist(tx, params);
@@ -565,6 +589,7 @@ export const updateTravelSegmentForTripDay = async (
       { kind: "legUpdated", segmentId, updatedAt: updated.updatedAt, previous: existing },
       now,
     );
+    if (params.inTransaction) await params.inTransaction(tx, { receipt, itemId: segmentId });
     return { status: "updated", segment: toDetail(updated), receipt };
   });
 };
@@ -581,6 +606,9 @@ export const deleteTravelSegmentForTripDay = async (
   return prisma.$transaction(async (tx): Promise<TravelSegmentDeleteResult> => {
     const existing = await tx.travelSegment.findFirst({ where: { id: segmentId, tripDayId } });
     if (!existing) return { status: "missing" };
+    if (params.expectedUpdatedAt && !sameInstant(existing.updatedAt, params.expectedUpdatedAt)) {
+      throw new ChangedSinceReadError();
+    }
 
     const plan = await planLegScheduleInTransaction(tx, { tripId, tripDayId }, { kind: "legs", removeSegmentId: segmentId });
 
@@ -595,6 +623,7 @@ export const deleteTravelSegmentForTripDay = async (
       { kind: "legDeleted", segmentId, previous: existing },
       now,
     );
+    if (params.inTransaction) await params.inTransaction(tx, { receipt, itemId: segmentId });
     return { status: "deleted", receipt };
   });
 };

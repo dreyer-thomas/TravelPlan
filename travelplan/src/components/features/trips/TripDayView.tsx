@@ -399,6 +399,8 @@ type TripDay = {
     durationMinutes: number;
     distanceKm: number | null;
     linkUrl: string | null;
+    /** Story 15.6. ISO time the connector last created or changed the leg; optional for older fixtures. */
+    aiChangedAt?: string | null;
   }[];
 };
 
@@ -3059,6 +3061,8 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
           <Typography sx={{ fontSize: "11.5px", fontWeight: 700, color: tokens.inkSoft }}>
             {travelSegmentLabel(segment)}
           </Typography>
+          {/* Story 15.6. A leg the connector created or last changed. */}
+          {segment?.aiChangedAt ? <AiBadge /> : null}
         </Box>
         {!canEditPlanning ? null : segment ? (
           <IconButton

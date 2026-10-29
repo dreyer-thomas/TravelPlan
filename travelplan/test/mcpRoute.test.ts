@@ -176,6 +176,12 @@ describe("whoami", () => {
       "undo_ai_change",
       // Story 15.5.
       "apply_day_plan",
+      // Story 15.6.
+      "set_stay",
+      "delete_stay",
+      "create_leg",
+      "update_leg",
+      "delete_leg",
     ]);
 
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);

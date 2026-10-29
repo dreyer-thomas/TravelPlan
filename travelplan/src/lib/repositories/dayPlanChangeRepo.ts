@@ -17,6 +17,9 @@ import type {
   DayPlanItemRow,
   DayPlanItemSnapshot,
   DeletedDayPlanItemSnapshot,
+  DeletedStaySnapshot,
+  StayRow,
+  StaySnapshot,
 } from "@/lib/trips/dayChangeReceipt";
 import { buildDrawnDaySegmentPairKeys } from "@/lib/trips/daySegmentPairs";
 import {
@@ -107,6 +110,17 @@ import {
  * left the disk, DW-187), and then restores the moved rows and the removed legs as for every kind, which
  * the post-condition checks.
  *
+ * Story 15.6 adds the connector's stay kinds. `stayCreated`: phase 1 refuses when the stay is gone, carries a
+ * new stamp, or gained an image, a document or a leg; phase 2 deletes it, conditional on the stamp (its
+ * payments go by cascade). `stayUpdated`: phase 1 refuses on a new stamp, and when the receipt's day is
+ * neither the stay's day nor the day after it (the pushed day of a check-out recompute); phase 2 writes
+ * every previous column back, conditional on the stamp, and replaces the payments; the pushed rows come
+ * back as moved items. `stayDeleted`: phase 1 refuses when the stay's id exists again, its day has a stay
+ * again, a next-day leg exists again, or `nextDayId` is no longer the day after the stay's; phase 2
+ * recreates the stay with its payments, images and documents, then its next-day legs; phase 3 checks each
+ * of those is drawn on the next day, as the generic check does for the stay's own day. A stay restored on
+ * its own day comes back last in the timeline and on the next day first, so it cannot un-draw another leg.
+ *
  * Any failure throws `UndoStaleError`, which rolls the transaction back and maps to `stale`. A `P2002`
  * while recreating a row maps there too: someone drew a new leg for the same pair, or reused the id.
  *
@@ -181,6 +195,63 @@ const deletedSnapshotInvalidity = (
   if (images.some((image) => !isInsideTripUploadTree(image.imageUrl, tripId))) return "image outside the trip";
   if (documents.some((document) => !isInsideTripUploadTree(document.documentUrl, tripId))) {
     return "document outside the trip";
+  }
+  return null;
+};
+
+/** Story 15.6. A stay snapshot's payments are its own: `accommodationId` set to it, no activity. */
+const stayPaymentsInvalidity = (previous: StaySnapshot): string | null =>
+  previous.payments.some((payment) => payment.accommodationId !== previous.id || payment.dayPlanItemId !== null)
+    ? "payment of another entry"
+    : null;
+
+/**
+ * Story 15.6. The stay kinds against the receipt's day and trip. A create or an update never removes a leg;
+ * a create or a delete never moves a row (a delete only takes legs, and an update moves rows only on the
+ * pushed next day). A deleted stay sits on the receipt's day with its own payments and media, its media
+ * inside this trip's upload tree, and its next-day legs on one other day, each leg once across both lists.
+ */
+const stayInvalidity = (receipt: DayChangeReceipt, tripId: string): string | null => {
+  const { tripDayId, edited } = receipt;
+  if (edited.kind === "stayCreated") {
+    if (receipt.removedTravelSegments.length > 0) return "side effect a stay save never has";
+    if (receipt.movedItems.length > 0) return "side effect a stay create never has";
+    return null;
+  }
+  if (edited.kind === "stayUpdated") {
+    const { previous } = edited;
+    if (receipt.removedTravelSegments.length > 0) return "side effect a stay save never has";
+    if (previous.id !== edited.accommodationId) return "snapshot of another stay";
+    if (previous.tripDayId === tripDayId && receipt.movedItems.length > 0) return "stay save moved its own day";
+    return stayPaymentsInvalidity(previous);
+  }
+  if (edited.kind === "stayDeleted") {
+    const { previous, nextDayId, nextDayLegs } = edited;
+    if (previous.id !== edited.accommodationId) return "snapshot of another stay";
+    if (previous.tripDayId !== tripDayId) return "stay on another day";
+    if (receipt.movedItems.length > 0) return "side effect a stay delete never has";
+    const paymentInvalidity = stayPaymentsInvalidity(previous);
+    if (paymentInvalidity) return paymentInvalidity;
+    if (previous.images.some((image) => image.accommodationId !== previous.id)) return "image of another stay";
+    if (previous.documents.some((document) => document.accommodationId !== previous.id)) return "document of another stay";
+    if (previous.images.some((image) => !isInsideTripUploadTree(image.imageUrl, tripId))) return "image outside the trip";
+    if (previous.documents.some((document) => !isInsideTripUploadTree(document.documentUrl, tripId))) {
+      return "document outside the trip";
+    }
+    // Only the stay's own legs: into it on its day, out of it on the next day.
+    const namesStay = (type: string, id: string) => type === "ACCOMMODATION" && id === previous.id;
+    if (receipt.removedTravelSegments.some((leg) => !namesStay(leg.fromItemType, leg.fromItemId) && !namesStay(leg.toItemType, leg.toItemId))) {
+      return "removed leg of another entry";
+    }
+    if (nextDayLegs.some((leg) => !namesStay(leg.fromItemType, leg.fromItemId))) return "next-day leg not out of the stay";
+    if (nextDayId === tripDayId) return "next day is the stay's day";
+    if (nextDayLegs.length > 0 && nextDayId === null) return "next-day legs without a next day";
+    if (nextDayLegs.some((leg) => leg.tripDayId !== nextDayId)) return "leg on another day";
+    const legIds = new Set(receipt.removedTravelSegments.map((leg) => leg.id));
+    for (const leg of nextDayLegs) {
+      if (legIds.has(leg.id)) return "duplicate leg";
+      legIds.add(leg.id);
+    }
   }
   return null;
 };
@@ -288,6 +359,11 @@ export const findInvalidity = (receipt: DayChangeReceipt, tripId: string): strin
     if (edited.segments.some((segment) => legIds.has(segment.segmentId))) return "leg both created and removed";
   }
 
+  if (edited.kind === "stayCreated" || edited.kind === "stayUpdated" || edited.kind === "stayDeleted") {
+    const invalidity = stayInvalidity(receipt, tripId);
+    if (invalidity) return invalidity;
+  }
+
   // Story 14.1: a schedule appends, which can un-draw the leg from the day's last activity to tonight's
   // stay; like a create's, that leg is in `removedTravelSegments` and phase 2 recreates it.
   // Story 14.2: a park removes the legs naming the activity (to either stay too); phase 2 recreates them.
@@ -307,6 +383,42 @@ const restorePayments = async (tx: TransactionClient, snapshot: DayPlanItemSnaps
   if (snapshot.payments.length > 0) {
     await tx.costPayment.createMany({ data: snapshot.payments });
   }
+};
+
+/** Story 15.6. Every `Accommodation` column of a stay snapshot, without the relations. */
+const stayColumns = (snapshot: StaySnapshot): StayRow => {
+  const { payments: _payments, ...columns } = snapshot;
+  void _payments;
+  return columns;
+};
+
+/** Story 15.6. The stay's payments replaced by the snapshot's, as the stay write replaces them. */
+const restoreStayPayments = async (tx: TransactionClient, snapshot: StaySnapshot) => {
+  await tx.costPayment.deleteMany({ where: { accommodationId: snapshot.id } });
+  if (snapshot.payments.length > 0) {
+    await tx.costPayment.createMany({ data: snapshot.payments });
+  }
+};
+
+/** Story 15.6. A deleted stay back from its snapshot, with its id, stamps, marker, payments and media rows. */
+const recreateDeletedStay = async (tx: TransactionClient, previous: DeletedStaySnapshot) => {
+  const { images, documents, ...snapshot } = previous;
+  await tx.accommodation.create({ data: stayColumns(snapshot) });
+  await restoreStayPayments(tx, snapshot);
+  if (images.length > 0) await tx.accommodationImage.createMany({ data: images });
+  if (documents.length > 0) await tx.accommodationDocument.createMany({ data: documents });
+};
+
+/** Story 15.6. The day after `tripDayId` by the check-out rule (the smallest higher `dayIndex`), or `null`. */
+const findNextDayIdInTransaction = async (tx: TransactionClient, tripId: string, tripDayId: string) => {
+  const day = await tx.tripDay.findFirst({ where: { id: tripDayId, tripId }, select: { dayIndex: true } });
+  if (!day) return null;
+  const next = await tx.tripDay.findFirst({
+    where: { tripId, dayIndex: { gt: day.dayIndex } },
+    orderBy: [{ dayIndex: "asc" }, { date: "asc" }],
+    select: { id: true },
+  });
+  return next?.id ?? null;
 };
 
 /**
@@ -569,6 +681,55 @@ const undoInTransaction = async (
     case "dayPlanApplied":
       await checkDayPlanAppliedInTransaction(tx, tripDayId, edited);
       break;
+    case "stayCreated": {
+      const stay = await tx.accommodation.findFirst({
+        where: { id: edited.accommodationId, tripDayId },
+        select: { updatedAt: true },
+      });
+      if (!stay || !sameInstant(stay.updatedAt, edited.updatedAt)) throw new UndoStaleError("created stay changed");
+      // Media and legs on a freshly created stay can only come from later edits; deleting it would take them.
+      const [images, documents, legs] = await Promise.all([
+        tx.accommodationImage.count({ where: { accommodationId: edited.accommodationId } }),
+        tx.accommodationDocument.count({ where: { accommodationId: edited.accommodationId } }),
+        tx.travelSegment.count({
+          where: {
+            OR: [
+              { fromItemType: "ACCOMMODATION", fromItemId: edited.accommodationId },
+              { toItemType: "ACCOMMODATION", toItemId: edited.accommodationId },
+            ],
+          },
+        }),
+      ]);
+      if (images > 0 || documents > 0 || legs > 0) throw new UndoStaleError("created stay gained media or legs");
+      break;
+    }
+    case "stayUpdated": {
+      const stay = await tx.accommodation.findFirst({
+        where: { id: edited.accommodationId, tripDay: { tripId } },
+        select: { updatedAt: true, tripDayId: true },
+      });
+      if (!stay || !sameInstant(stay.updatedAt, edited.updatedAt)) throw new UndoStaleError("stay changed");
+      if (stay.tripDayId !== edited.previous.tripDayId) throw new UndoStaleError("stay on another day");
+      // The receipt's day is the stay's own, or the next day its check-out pushed.
+      if (tripDayId !== stay.tripDayId && (await findNextDayIdInTransaction(tx, tripId, stay.tripDayId)) !== tripDayId) {
+        throw new UndoStaleError("stay is not on or before the receipt's day");
+      }
+      break;
+    }
+    case "stayDeleted": {
+      const [sameId, dayStay, reappearedLegs] = await Promise.all([
+        tx.accommodation.findUnique({ where: { id: edited.accommodationId }, select: { id: true } }),
+        tx.accommodation.findUnique({ where: { tripDayId }, select: { id: true } }),
+        tx.travelSegment.count({ where: { id: { in: edited.nextDayLegs.map((leg) => leg.id) } } }),
+      ]);
+      if (sameId) throw new UndoStaleError("deleted stay exists again");
+      if (dayStay) throw new UndoStaleError("day has a stay again");
+      if (reappearedLegs > 0) throw new UndoStaleError("removed leg exists again");
+      if (edited.nextDayId !== null && (await findNextDayIdInTransaction(tx, tripId, tripDayId)) !== edited.nextDayId) {
+        throw new UndoStaleError("next day changed");
+      }
+      break;
+    }
     default: {
       const unhandled: never = edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
@@ -725,6 +886,32 @@ const undoInTransaction = async (
       }
       break;
     }
+    case "stayCreated": {
+      // Conditional on the stamp just checked; the payments go by cascade.
+      const removed = await tx.accommodation.deleteMany({
+        where: { id: edited.accommodationId, tripDayId, updatedAt: edited.updatedAt },
+      });
+      if (removed.count !== 1) throw new UndoStaleError("created stay changed");
+      break;
+    }
+    case "stayUpdated": {
+      // Every column, stamps and marker included, so the stay reads exactly as before the save.
+      const { id: _id, ...columns } = stayColumns(edited.previous);
+      void _id;
+      const restored = await tx.accommodation.updateMany({
+        where: { id: edited.accommodationId, updatedAt: edited.updatedAt },
+        data: columns,
+      });
+      if (restored.count !== 1) throw new UndoStaleError("stay changed");
+      await restoreStayPayments(tx, edited.previous);
+      break;
+    }
+    case "stayDeleted":
+      await recreateDeletedStay(tx, edited.previous);
+      for (const leg of edited.nextDayLegs) {
+        await tx.travelSegment.create({ data: leg });
+      }
+      break;
     default: {
       const unhandled: never = edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
@@ -768,6 +955,13 @@ const undoInTransaction = async (
     !drawnAfterUndo.has(buildStoredSegmentPairKey(edited.previous))
   ) {
     throw new UndoStaleError("restored leg would not be drawn");
+  }
+  // Story 15.6: a deleted stay's legs out of last night's stay are drawn on the next day again.
+  if (edited.kind === "stayDeleted" && edited.nextDayId !== null && edited.nextDayLegs.length > 0) {
+    const nextDayDrawn = await readDrawnSegmentKeysInTransaction(tx, tripId, edited.nextDayId);
+    if (edited.nextDayLegs.some((leg) => !nextDayDrawn.has(buildStoredSegmentPairKey(leg)))) {
+      throw new UndoStaleError("restored leg would not be drawn");
+    }
   }
   if (protectedLegs.length > 0) {
     const stillThere = new Set(

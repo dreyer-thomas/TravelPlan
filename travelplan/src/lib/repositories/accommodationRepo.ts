@@ -1,6 +1,9 @@
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { type PaymentDetail, toPaymentDetails } from "@/lib/repositories/paymentDetail";
 import {
+  buildStoredSegmentPairKey,
+  readDrawnSegmentKeysInTransaction,
   removeTravelSegmentsReferencingItemInTransaction,
   type TransactionClient,
 } from "@/lib/repositories/travelSegmentRepo";
@@ -12,10 +15,15 @@ import {
   toPlanConflicts,
   type DaySchedulePlan,
 } from "@/lib/repositories/dayScheduleTransaction";
-import type { DayChangeReceipt } from "@/lib/trips/dayChangeReceipt";
+import type { DayChangeReceipt, StaySnapshot } from "@/lib/trips/dayChangeReceipt";
 import { resolveCheckOutTime } from "@/lib/trips/stayTimes";
 import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
-import { aiChangedAtFor, type WriteOrigin } from "@/lib/trips/writeOrigin";
+import {
+  aiChangedAtFor,
+  ChangedSinceReadError,
+  type InTransactionHook,
+  type WriteOrigin,
+} from "@/lib/trips/writeOrigin";
 
 /**
  * Story 10.1. `amountOriginal` is the typed amount in the entry's currency, in hundredths, and a euro
@@ -80,12 +88,60 @@ type AccommodationMutationParams = {
   location?: { lat: number; lng: number; label?: string | null } | null;
   /** Story 15.4. `"ai"` marks the stay, `"user"` clears the mark. */
   origin: WriteOrigin;
+  /**
+   * Story 15.6. The connector's record, called last in the write's transaction with a connector receipt
+   * (`stayCreated` / `stayUpdated`) and the stay's id. The receipt is built only when a hook is given; the
+   * route's return value never changes.
+   */
+  inTransaction?: InTransactionHook;
 };
+
+/**
+ * Story 15.6. The connector's create never upserts over a stay: with `expectNoStay`, a stay that appeared
+ * between its read and the write throws `ChangedSinceReadError` inside the transaction.
+ */
+type AccommodationCreateParams = AccommodationMutationParams & { expectNoStay?: true };
+
+/** Story 15.6. `expectedUpdatedAt`: the stamp the caller read, checked inside the transaction. */
+type AccommodationUpdateParams = AccommodationMutationParams & { expectedUpdatedAt?: Date };
 
 type AccommodationDeleteParams = {
   userId: string;
   tripId: string;
   tripDayId: string;
+  /** Story 15.6. As for the update; with either option the stay is read and checked inside the transaction. */
+  expectedUpdatedAt?: Date;
+  inTransaction?: InTransactionHook;
+};
+
+/** Story 15.6. A unique-index refusal (Prisma's P2002), by its code. */
+const isUniqueViolation = (error: unknown) =>
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+
+/** `updatedAt` by epoch milliseconds, never by `Date` identity. */
+const sameInstant = (left: Date, right: Date) => left.getTime() === right.getTime();
+
+const storedRowOrder = [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }];
+
+/** Story 15.6. The stay row with its payments as the receipt snapshots it, read through `tx`. */
+const readStaySnapshotInTransaction = async (
+  tx: TransactionClient,
+  stay: Omit<StaySnapshot, "payments">,
+): Promise<StaySnapshot> => ({
+  ...stay,
+  payments: await tx.costPayment.findMany({ where: { accommodationId: stay.id }, orderBy: storedRowOrder }),
+});
+
+/** Story 15.6. The day after the stay's (the smallest higher `dayIndex`): the day its check-out starts. */
+const findNextTripDayIdInTransaction = async (tx: TransactionClient, tripId: string, stayTripDayId: string) => {
+  const stayDay = await tx.tripDay.findUnique({ where: { id: stayTripDayId }, select: { dayIndex: true } });
+  if (!stayDay) return null;
+  const nextDay = await tx.tripDay.findFirst({
+    where: { tripId, dayIndex: { gt: stayDay.dayIndex } },
+    orderBy: [{ dayIndex: "asc" }, { date: "asc" }],
+    select: { id: true },
+  });
+  return nextDay?.id ?? null;
 };
 
 export type AccommodationImageDetail = {
@@ -253,7 +309,7 @@ const toDocumentDetail = (document: {
 });
 
 const toStatus = (status: string): AccommodationStatus => (status === "BOOKED" ? "booked" : "planned");
-const toDbStatus = (status: AccommodationStatus) => (status === "booked" ? "BOOKED" : "PLANNED");
+const toDbStatus = (status: AccommodationStatus) => (status === "booked" ? ("BOOKED" as const) : ("PLANNED" as const));
 
 const toDetail = (accommodation: {
   id: string;
@@ -299,7 +355,7 @@ const toDetail = (accommodation: {
 });
 
 export const createAccommodationForTripDay = async (
-  params: AccommodationMutationParams,
+  params: AccommodationCreateParams,
 ): Promise<AccommodationDetail | null> => {
   const { userId, tripId, tripDayId, name, notes } = params;
   const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
@@ -313,44 +369,36 @@ export const createAccommodationForTripDay = async (
   const location = params.location ?? null;
   const aiChangedAt = aiChangedAtFor(params.origin, new Date());
   return prisma.$transaction(async (tx) => {
-    const accommodation = await tx.accommodation.upsert({
-      where: { tripDayId },
-      update: {
-        name,
-        notes: notes ?? null,
-        status: toDbStatus(status),
-        costCents: costCents ?? null,
-        costOriginalAmount: params.costOriginalAmount ?? null,
-        costCurrency: params.costCurrency ?? null,
-        costRate: params.costRate ?? null,
-        costRateDate: params.costRateDate ?? null,
-        link: link ?? null,
-        checkInTime,
-        checkOutTime,
-        locationLat: location?.lat ?? null,
-        locationLng: location?.lng ?? null,
-        locationLabel: location?.label?.trim() || null,
-        aiChangedAt,
-      },
-      create: {
-        tripDayId,
-        name,
-        notes: notes ?? null,
-        status: toDbStatus(status),
-        costCents: costCents ?? null,
-        costOriginalAmount: params.costOriginalAmount ?? null,
-        costCurrency: params.costCurrency ?? null,
-        costRate: params.costRate ?? null,
-        costRateDate: params.costRateDate ?? null,
-        link: link ?? null,
-        checkInTime,
-        checkOutTime,
-        locationLat: location?.lat ?? null,
-        locationLng: location?.lng ?? null,
-        locationLabel: location?.label?.trim() || null,
-        aiChangedAt,
-      },
-    });
+    const columns = {
+      name,
+      notes: notes ?? null,
+      status: toDbStatus(status),
+      costCents: costCents ?? null,
+      costOriginalAmount: params.costOriginalAmount ?? null,
+      costCurrency: params.costCurrency ?? null,
+      costRate: params.costRate ?? null,
+      costRateDate: params.costRateDate ?? null,
+      link: link ?? null,
+      checkInTime,
+      checkOutTime,
+      locationLat: location?.lat ?? null,
+      locationLng: location?.lng ?? null,
+      locationLabel: location?.label?.trim() || null,
+      aiChangedAt,
+    };
+    // Story 15.6: the connector creates only where its read found no stay, so a plain create; a stay that
+    // appeared since trips the day's unique index (P2002), which is "changed since you read it". The app's
+    // upsert is unchanged.
+    const accommodation = params.expectNoStay
+      ? await tx.accommodation.create({ data: { tripDayId, ...columns } }).catch((error: unknown) => {
+          if (isUniqueViolation(error)) throw new ChangedSinceReadError();
+          throw error;
+        })
+      : await tx.accommodation.upsert({
+          where: { tripDayId },
+          update: columns,
+          create: { tripDayId, ...columns },
+        });
 
     if (params.payments) {
       await tx.costPayment.deleteMany({ where: { accommodationId: accommodation.id } });
@@ -372,6 +420,16 @@ export const createAccommodationForTripDay = async (
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       select: { amountCents: true, dueDate: true, amountOriginal: true },
     });
+
+    if (params.inTransaction) {
+      const receipt = buildReceipt(
+        tripDayId,
+        { kind: "stayCreated", accommodationId: accommodation.id, updatedAt: accommodation.updatedAt },
+        [],
+        [],
+      );
+      await params.inTransaction(tx, { receipt, itemId: accommodation.id });
+    }
 
     return toDetail({
       ...accommodation,
@@ -412,7 +470,7 @@ const planCheckOutScheduleInTransaction = async (
 };
 
 export const updateAccommodationForTripDay = async (
-  params: AccommodationMutationParams,
+  params: AccommodationUpdateParams,
 ): Promise<AccommodationUpdateResult> => {
   const { userId, tripId, tripDayId, name, notes } = params;
   const tripDay = await findTripDayForTripWriter(userId, tripId, tripDayId);
@@ -467,6 +525,11 @@ export const updateAccommodationForTripDay = async (
     if (!existing) {
       return { status: "missing" };
     }
+    if (params.expectedUpdatedAt && !sameInstant(existing.updatedAt, params.expectedUpdatedAt)) {
+      throw new ChangedSinceReadError();
+    }
+    // Story 15.6: the connector's receipt holds the whole stay before the write, payments included.
+    const previous = params.inTransaction ? await readStaySnapshotInTransaction(tx, existing) : null;
 
     // Planned before any write, from the stored rows the conditional writes compare against.
     const push = await planCheckOutScheduleInTransaction(tx, { tripId, checkOutTime: params.checkOutTime }, existing);
@@ -502,12 +565,24 @@ export const updateAccommodationForTripDay = async (
       ...accommodation,
       payments: toPaymentDetails(payments),
     });
+    // Story 15.6: on the stay's day when nothing was pushed, on the pushed day otherwise (`stayCheckOutChanged`'s rule).
+    const stayUpdated = { kind: "stayUpdated" as const, accommodationId: existing.id, updatedAt: accommodation.updatedAt };
     if (!push) {
+      if (params.inTransaction && previous) {
+        const receipt = buildReceipt(tripDayId, { ...stayUpdated, previous }, [], []);
+        await params.inTransaction(tx, { receipt, itemId: existing.id });
+      }
       return { status: "updated", accommodation: detail };
     }
 
     const { nextDayId, plan } = push;
     const movedItems = await applyScheduleChangesInTransaction(tx, nextDayId, plan.changes, now);
+    if (params.inTransaction && previous) {
+      const connectorReceipt = buildReceipt(nextDayId, { ...stayUpdated, previous }, [], movedItems, {
+        planConflicts: toPlanConflicts(plan.newConflicts),
+      });
+      await params.inTransaction(tx, { receipt: connectorReceipt, itemId: existing.id });
+    }
     // A check-out never changes an order, so 11.1's sweep has nothing to remove (rule 12).
     const receipt = buildReceipt(
       nextDayId,
@@ -644,6 +719,9 @@ export const deleteAccommodationForTripDay = async (params: AccommodationDeleteP
   if (!tripDay) {
     return false;
   }
+  if (params.expectedUpdatedAt || params.inTransaction) {
+    return deleteAccommodationForConnector({ ...params, tripDayId: tripDay.id });
+  }
 
   const existing = await prisma.accommodation.findUnique({ where: { tripDayId } });
   if (!existing) {
@@ -664,6 +742,63 @@ export const deleteAccommodationForTripDay = async (params: AccommodationDeleteP
     );
   });
 
+  return true;
+};
+
+/**
+ * Story 15.6. The connector's stay delete: the app's delete (the row, its payments, images and documents by
+ * cascade, and every leg naming it on any day of the trip; the files stay on disk and the next day is not
+ * recomputed), with the stay read and checked inside the transaction and a `stayDeleted` receipt for the
+ * hook. A stay gone or re-stamped since the caller's read throws `ChangedSinceReadError`.
+ *
+ * The legs are partitioned by whether their day drew them before the delete: on the stay's day they are the
+ * receipt's `removedTravelSegments`, on the next day its `nextDayLegs`. A leg already undrawn before (an old
+ * orphan on any day) is deleted as the app does, but not recorded: restoring it would fail the undo's
+ * "restored legs are drawn" post-condition and make every such undo stale.
+ */
+const deleteAccommodationForConnector = async (params: AccommodationDeleteParams): Promise<boolean> => {
+  const { tripId, tripDayId } = params;
+  await prisma.$transaction(async (tx) => {
+    const existing = await tx.accommodation.findUnique({
+      where: { tripDayId },
+      include: { images: { orderBy: storedRowOrder }, documents: { orderBy: storedRowOrder } },
+    });
+    if (!existing || (params.expectedUpdatedAt && !sameInstant(existing.updatedAt, params.expectedUpdatedAt))) {
+      throw new ChangedSinceReadError();
+    }
+    const { images, documents, ...row } = existing;
+    const snapshot = await readStaySnapshotInTransaction(tx, row);
+    const nextDayId = await findNextTripDayIdInTransaction(tx, tripId, tripDayId);
+    const drawnOnDay = await readDrawnSegmentKeysInTransaction(tx, tripId, tripDayId);
+    const drawnOnNextDay = nextDayId ? await readDrawnSegmentKeysInTransaction(tx, tripId, nextDayId) : new Set<string>();
+
+    const tripDays = await tx.tripDay.findMany({ where: { tripId }, select: { id: true } });
+    await tx.accommodation.delete({ where: { id: existing.id } });
+    const removed = await removeTravelSegmentsReferencingItemInTransaction(
+      tx,
+      tripDays.map((day) => day.id),
+      "ACCOMMODATION",
+      existing.id,
+    );
+
+    if (params.inTransaction) {
+      const drawnBefore = (leg: (typeof removed)[number], dayId: string, drawn: ReadonlySet<string>) =>
+        leg.tripDayId === dayId && drawn.has(buildStoredSegmentPairKey(leg));
+      const receipt = buildReceipt(
+        tripDayId,
+        {
+          kind: "stayDeleted",
+          accommodationId: existing.id,
+          previous: { ...snapshot, images, documents },
+          nextDayId,
+          nextDayLegs: nextDayId ? removed.filter((leg) => drawnBefore(leg, nextDayId, drawnOnNextDay)) : [],
+        },
+        removed.filter((leg) => drawnBefore(leg, tripDayId, drawnOnDay)),
+        [],
+      );
+      await params.inTransaction(tx, { receipt, itemId: existing.id });
+    }
+  });
   return true;
 };
 

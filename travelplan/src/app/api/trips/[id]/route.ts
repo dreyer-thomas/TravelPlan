@@ -141,6 +141,8 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
             durationMinutes: segment.durationMinutes,
             distanceKm: segment.distanceKm,
             linkUrl: segment.linkUrl,
+            // Story 15.6. Drives the KI/AI badge on the leg.
+            aiChangedAt: segment.aiChangedAt?.toISOString() ?? null,
           })),
         };
       }),
@@ -293,6 +295,8 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
             durationMinutes: segment.durationMinutes,
             distanceKm: segment.distanceKm,
             linkUrl: segment.linkUrl,
+            // Story 15.6. Drives the KI/AI badge on the leg.
+            aiChangedAt: segment.aiChangedAt?.toISOString() ?? null,
           })),
         };
       }),

@@ -2,6 +2,8 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { registerActivityWriteTools } from "@/lib/mcp/tools/activityWrite";
 import { registerAiChangeTools } from "@/lib/mcp/tools/aiChanges";
 import { registerDayPlanApplyTools } from "@/lib/mcp/tools/dayPlanApply";
+import { registerLegWriteTools } from "@/lib/mcp/tools/legWrite";
+import { registerStayWriteTools } from "@/lib/mcp/tools/stayWrite";
 import { registerTripReadTools } from "@/lib/mcp/tools/tripRead";
 import { registerWhoamiTool } from "@/lib/mcp/tools/whoami";
 
@@ -18,5 +20,8 @@ export const createTravelPlanMcpServer = () => {
   registerAiChangeTools(server);
   // Story 15.5.
   registerDayPlanApplyTools(server);
+  // Story 15.6.
+  registerStayWriteTools(server);
+  registerLegWriteTools(server);
   return server;
 };
