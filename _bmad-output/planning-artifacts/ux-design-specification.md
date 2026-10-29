@@ -469,3 +469,10 @@ No formal accessibility standard required at this stage.
 - Mobile-first media queries where appropriate.
 - Semantic HTML and ARIA roles on custom components.
 - Ensure layout reflows do not break set vs. open clarity.
+
+## Addendum 2026-10-29: Connector (Epic 15)
+
+- **KI/AI badge:** small neutral pill, text "KI" (de) / "AI" (en), placed after the title on activity cards, stay cards, legs, documents and images, using the same token as other secondary pills; tooltip "Von KI erstellt oder geändert" / "Created or changed by AI". Disappears after any human edit of that entry.
+- **AI changes notice on the day:** inline notice under the day header (same component family as the undo notice), collapsed to one line ("KI hat diesen Tag geändert · 3 Änderungen"), expandable to the list with time, one-line summary and *Rückgängig* each.
+- **Consent screen:** a centred card like the sign-in page: client name, redirect host, one sentence on what it may do, *Erlauben* (primary) and *Ablehnen*.
+- **Connected apps:** a section on the account page; list rows with name, host, since, last used, *Trennen*; empty state with the connector URL and a copy button.

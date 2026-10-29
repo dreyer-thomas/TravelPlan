@@ -61,6 +61,12 @@ FR48: Users who can plan a trip can park an activity of a day in the bucket list
 FR49: When applying AI suggestions, users choose for each selected suggestion whether to schedule it or park it in the bucket list.
 FR50: Users can see on the trip overview the planned distance of the whole trip (sum of known kilometres) and a per-mode breakdown with kilometres, number of legs and travel time; only legs the day shows are counted.
 FR51: Users can send a day's plan, with a link to the day and the day's document packet attached, to their own account's email address for offline use.
+FR52: Users can connect an AI assistant to their account through a connector (sign-in and consent) and see and revoke connected assistants.
+FR53: A connected assistant can read every trip the user may plan (owner/contributor): days, activities, stays, legs, bucket list, costs, links, documents, images. View-only trips are invisible to it.
+FR54: A connected assistant can create, change, delete, reorder, park and schedule activities, and manage stays, legs, costs and links, under the app's rules; it cannot create, rename, re-date or delete trips, change budgets, or manage members.
+FR55: A connected assistant can apply a whole day plan in one step (append or replace), with travel legs; the day is recomputed.
+FR56: A connected assistant can download documents and images and attach new ones to activities and stays, under the app's types and limits.
+FR57: Entries created or changed through a connector show a KI/AI marker until a person changes them; each connector change can be undone in one step from the app or by the assistant, unless something it touched changed since.
 
 ### NonFunctional Requirements
 
@@ -76,6 +82,7 @@ NFR9: No formal accessibility standard required at this stage.
 NFR10: Trip loads within ~15 seconds under normal use.
 NFR12: Encryption is not required at this stage.
 NFR13: External links must be supported in day plans and accommodations.
+NFR14: Connector tokens are short-lived, audience-bound, rotating, stored hashed, revoked on user revocation, password change and account deletion, and never exceed the user's rights on a trip.
 
 ### Additional Requirements
 
@@ -142,6 +149,12 @@ FR48: Epic 14 - The Bucket List as a Parking Lot
 FR49: Epic 14 - The Bucket List as a Parking Lot
 FR50: Epic 7 - Visual Redesign — Light Cockpit System (Story 7.14, added 2026-10-19)
 FR51: Epic 9 - Travel Documents (Story 9.3, added 2026-10-21)
+FR52: Epic 15 - Plan with Claude (Stories 15.1, 15.3, added 2026-10-29)
+FR53: Epic 15 (Story 15.2)
+FR54: Epic 15 (Stories 15.4, 15.6)
+FR55: Epic 15 (Story 15.5)
+FR56: Epic 15 (Story 15.7)
+FR57: Epic 15 (Story 15.4; applied by 15.5-15.7)
 
 ## Epic List
 
@@ -200,6 +213,10 @@ Users say how long they want to spend somewhere and the app works out when; only
 ### Epic 14: The Bucket List as a Parking Lot
 Users park what does not fit into a day, an activity or an AI suggestion, in the bucket list with everything it carries, and schedule it onto another day later without retyping anything.
 **FRs covered:** FR30 (amended), FR31 (amended), FR48, FR49
+
+### Epic 15: Plan with Claude — the TravelPlan Connector
+Users who plan a trip connect their AI assistant to TravelPlan once, sign in, and from then on the assistant reads the trip and writes the planned days straight into it, every change marked KI/AI and undoable, instead of being copied over by hand.
+**FRs covered:** FR52, FR53, FR54, FR55, FR56, FR57
 
 ## Epic 1: Secure Access & Personal Workspace
 
@@ -4634,3 +4651,285 @@ So that the day's controls say one thing each and the way I use can always be un
 
 **Given** both dictionaries
 **Then** the keys used only by the removed feature are deleted from `en.ts` and `de.ts`
+
+## Epic 15: Plan with Claude — the TravelPlan Connector
+
+Users who plan a trip connect their AI assistant to TravelPlan once, sign in, and from then on the assistant reads the trip and writes the planned days straight into it, every change marked KI/AI and undoable, instead of being copied over by hand.
+
+**Rulings (Tommy, 2026-10-29):** only people who may edit a trip (owner, contributor) reach it through the connector, and view-only trips are invisible; full control over trip content; no trip creation, renaming, re-dating, budget, deletion or member changes; marker "KI" (de) / "AI" (en), gone once a person changes the entry; connector changes undoable like UI edits; documents downloadable and uploadable, inline and by URL; Epic 12 unchanged. See `sprint-change-proposal-2026-10-29-mcp.md`.
+
+**Shared rules for every tool in this epic:**
+- Tools call the existing repositories and services (`dayPlanItemRepo`, accommodation, travel-segment, document and image repositories, `scheduleDay`, park/schedule), never Prisma directly, so FR42/FR43/FR46-FR48 and FR41 hold exactly as in the app.
+- Every call re-checks access per trip with `getTripAccessForUser` + `canTripAccessRoleWrite`; a trip the user cannot write answers *not found*, never *forbidden* (no existence leak).
+- Tool errors are returned as MCP tool errors with a short, actionable English message (for example "Activity changed since you read it; read the day again"); internal details never leak.
+- Every tool is logged with tool name, user id, trip id, outcome and duration, never its arguments' content.
+- Per-user rate limit through `rateLimit.ts` (120 tool calls per minute, 20 uploads per hour).
+- Tool descriptions are in English, written for the model, and name units (minutes, EUR cents vs amount, `HH:MM`, ISO dates).
+
+### Story 15.1: Add TravelPlan to Claude
+
+As someone who plans trips with Claude,
+I want to add TravelPlan as a connector, sign in with my TravelPlan account and confirm,
+So that Claude can act for me in TravelPlan without ever seeing my password.
+
+**FRs covered:** FR52 (connect), NFR14
+
+**Depends on:** Architect review of the *Connector (MCP + OAuth)* architecture section. **Origin:** Tommy with John (PM), 2026-10-29.
+
+**Context:** TravelPlan has only cookie sessions. This story builds the OAuth 2.1 authorization server, the protected MCP endpoint and one tool, and proves the whole loop in claude.ai before any trip data is exposed.
+
+**Acceptance Criteria:**
+
+**Given** `MCP_ENABLED` is not `true`
+**Then** every connector endpoint (metadata, register, authorize, token, revoke, `/api/mcp`) answers 404
+
+**Given** an unauthenticated request to `POST /api/mcp`
+**Then** it answers 401 with `WWW-Authenticate: Bearer resource_metadata="<APP_BASE_URL>/.well-known/oauth-protected-resource"`
+**And** the protected-resource metadata (RFC 9728) names `<APP_BASE_URL>/api/mcp` as the resource and TravelPlan as its authorization server
+**And** the authorization-server metadata (RFC 8414) lists the authorize, token, registration and revocation endpoints, `code` as the only response type, `authorization_code` and `refresh_token` as grant types, and `S256` as the only PKCE method
+
+**Given** a client registers
+**Then** dynamic client registration (RFC 7591) and client ID metadata documents are both supported (Winston confirms against the MCP authorization spec revision current at story time)
+**And** redirect URIs must be `https://`, or `http://localhost` / `http://127.0.0.1` with any port (Claude Code); anything else is refused
+**And** registration is rate-limited per IP
+
+**Given** the authorize request from a registered client with PKCE S256 and a `resource` equal to the MCP resource (RFC 8707)
+**When** I am not signed in
+**Then** I see TravelPlan's normal sign-in page and, after signing in, return to the authorization step
+**When** I am signed in
+**Then** I see a consent screen in my UI language naming the client, the host its redirect goes to, and what it may do ("Reisen lesen und bearbeiten, auf denen du planen darfst"), with *Erlauben* and *Ablehnen*
+**And** consent is CSRF-protected and a fresh consent is required for every new authorization (no silent re-grant)
+
+**Given** the code exchange
+**Then** codes are single-use, expire after 60 s, are bound to client, redirect URI, PKCE challenge and resource, and a reused code revokes the tokens issued from it
+**And** the access token lives 1 h and the refresh token 30 days, rotating on every use with reuse detection
+**And** tokens are opaque random strings, stored only as SHA-256 hashes with user id, client id, scope, resource, expiry and last-used time
+
+**Given** a valid bearer token
+**Then** `/api/mcp` serves the MCP Streamable HTTP transport, stateless, with JSON responses, and accepts the token only if its audience is the MCP resource
+**And** the session cookie is never accepted on `/api/mcp`, and a bearer token is never accepted on any other route
+
+**Given** the tool `whoami`
+**Then** it returns my email and the number of trips I may plan, and nothing else
+
+**Given** the test suite
+**Then** it covers metadata, registration with good and bad redirect URIs, PKCE mismatch, code reuse, wrong resource, expired and revoked tokens, refresh rotation and reuse, cookie refused on `/api/mcp`, bearer refused on a REST route, and `MCP_ENABLED` off
+
+**Given** the production server
+**When** the story is deployed (Tommy, manual)
+**Then** TravelPlan added as a custom connector in claude.ai (web) and in Claude Code signs in, shows the consent screen, and `whoami` answers correctly in both
+
+**Out of scope:** any trip data (15.2); the connections page (15.3); scopes finer than one.
+
+### Story 15.2: Claude Knows the Trip
+
+As someone planning with Claude,
+I want Claude to read my trips, days, activities, stays, legs, bucket list, costs, links and documents,
+So that its suggestions build on what is already planned instead of on what I retype.
+
+**FRs covered:** FR53
+
+**Depends on:** Story 15.1.
+
+**Acceptance Criteria:**
+
+**Given** the tool `list_trips`
+**Then** it returns the trips where I am owner or contributor (id, name, start and end date, my role, number of days), and no trip where I am only a viewer
+
+**Given** `get_trip(tripId)`
+**Then** it returns name, dates, budget, the planned-cost total, and per day: id, date, index, the night's stay (name, status), the number of activities, plan warnings (FR47) and whether a stay is missing
+
+**Given** `get_day(tripId, dayId or date)`
+**Then** it returns the previous night's stay with check-out, the day's activities in order with id, title, description as plain text (from `contentJson`), mode (flexible/fixed), duration, computed from/to, place (label, lat, lng), link, cost (EUR and original currency/rate if any), payments, document and image ids with names, the travel legs between them (mode, duration, distance), the night's stay with all its fields, the day's warnings, and the KI/AI marker of each entry
+**And** each entry carries its `updatedAt`, which write tools accept as an optimistic-concurrency check
+
+**Given** `get_bucket_list(tripId)`
+**Then** it returns the parked activities with the same fields as on a day, minus times and legs
+
+**Given** any trip or day I cannot write, or that does not exist
+**Then** the tool answers "not found"
+
+**Given** the test suite
+**Then** it covers a viewer-only trip being invisible in every read tool, an owner and a contributor reading, plain-text conversion of rich text, and the parked/day split
+
+**Out of scope:** writing; file contents (15.7); AI suggestions (Epic 12).
+
+### Story 15.3: Connected Apps
+
+As an account holder,
+I want to see which assistants are connected to my account and cut any of them off,
+So that I stay in control before anything can write to my trips.
+
+**FRs covered:** FR52 (see and revoke), NFR14
+
+**Depends on:** Story 15.1.
+
+**Acceptance Criteria:**
+
+**Given** my account page
+**Then** a section *Verbundene Apps* / *Connected apps* lists each connection: client name, redirect host, connected since, last used
+**And** each has *Trennen* / *Disconnect*, with a confirmation, which revokes all its access and refresh tokens at once; the next tool call answers 401
+
+**Given** I change my password, or my account is deleted
+**Then** all my connector tokens are revoked
+
+**Given** the token revocation endpoint (RFC 7009)
+**Then** a client can revoke its own token
+
+**Given** no connection exists
+**Then** the section says so in one line and explains how to add TravelPlan as a connector, with the connector URL to copy
+
+**Given** both dictionaries
+**Then** every new string exists in `en.ts` and `de.ts`
+
+**Out of scope:** admin view of other users' connections.
+
+### Story 15.4: Claude Plans Activities, Marked and Undoable
+
+As someone planning with Claude,
+I want Claude to add, change, remove, reorder, park and schedule activities, and to see in the app what it did and take it back,
+So that I can let it work and still trust my plan.
+
+**FRs covered:** FR54 (activities), FR57
+
+**Depends on:** Stories 15.2, 15.3; Architect review of *provenance* and *stored AI changes*.
+
+**Context:** receipts are client-held today, so an edit made through the connector would have no undo. This story stores the receipt of every connector write on the server and shows it on the day. It also adds the KI/AI provenance marker.
+
+**Acceptance Criteria:**
+
+**Given** the migration
+**Then** activities, stays, travel legs, documents and images gain a nullable `aiChangedAt`, and a table `ai_changes` stores per connector write: id, trip, day (nullable), user, client, time, a one-line summary, the v3 receipt, and `undoneAt`
+
+**Given** the tools `create_activity`, `update_activity`, `delete_activity`, `move_activity` (earlier/later or to a position), `move_activity_to_day`, `park_activity`, `schedule_activity`
+**Then** each calls the same repository function as the matching UI route, so the day is recomputed under FR42 exactly as in the app
+**And** each takes plain text or simple Markdown for the description and stores it as the same rich-text JSON the editor writes
+**And** a place given by name only is geocoded through the existing geocoder; coordinates given are used as they are
+**And** `update_*` and `delete_*` accept the `updatedAt` read in 15.2 and refuse with "changed since you read it" on a mismatch
+**And** each sets `aiChangedAt` on every row it creates or changes, and records one `ai_changes` entry with its receipt
+**And** each returns the changed activity, the day's new order and times, the warnings, and the `ai_changes` id
+
+**Given** any UI write that changes a row
+**Then** it clears that row's `aiChangedAt` (R4)
+
+**Given** an entry with `aiChangedAt`
+**Then** the day timeline, the bucket list and the dialogs show a small *KI* (de) / *AI* (en) badge on it
+
+**Given** a day with connector changes not yet undone (from the last 14 days)
+**Then** the day view shows a notice "KI hat diesen Tag geändert" / "AI changed this day", with each change's summary and time, newest first, and *Rückgängig* / *Undo* on each
+**When** I choose *Rückgängig*
+**Then** the stored receipt is applied through the existing undo path; on a stale receipt (409) the notice says that the day has changed since and the change can no longer be undone
+**And** an undone change is marked `undoneAt` and leaves the notice
+
+**Given** the tools `list_ai_changes(tripId)` and `undo_ai_change(changeId)`
+**Then** the assistant can see and undo its own changes under the same stale rule
+
+**Given** `ai_changes` entries older than 14 days
+**Then** they are deleted (no undo after that)
+
+**Given** the test suite
+**Then** it covers every tool as owner and contributor, a viewer-only trip answering not found, recompute parity with the UI route (same input gives the same day), marker set by the tool and cleared by a UI edit, undo from the app, undo by the tool, stale undo, and concurrency refusal
+
+**Out of scope:** stays, legs, costs, links (15.6); files (15.7); bulk day plan (15.5).
+
+### Story 15.5: Take Over the Day Plan
+
+As someone who just planned tomorrow with Claude,
+I want Claude to put the whole day into TravelPlan in one go,
+So that the plan we agreed on is in the app in seconds and can be taken back in one step.
+
+**FRs covered:** FR55
+
+**Depends on:** Story 15.4.
+
+**Acceptance Criteria:**
+
+**Given** `apply_day_plan(tripId, dayId, mode: "append" | "replace", activities[], legs?)`
+**Then** each activity carries title, description, flexible duration or fixed start with end or duration, place, link and cost; legs carry a transport mode from the app's `TravelTransportType` between consecutive activities
+**And** in `append` the activities follow the day's last activity; in `replace` the day's existing activities and their legs are deleted first, in the same transaction
+**And** missing leg durations and distances are computed as the app computes them (route preview), falling back to no duration if routing fails
+**And** the day is recomputed once under FR42; the whole call is one `ai_changes` entry, undone in one step
+**And** every created row carries the KI/AI marker
+
+**Given** a plan that does not fit (fixed overlaps, past midnight)
+**Then** it is saved anyway and the tool returns the FR47 warnings, as the app would
+
+**Given** invalid input (more than 50 activities, a fixed time without duration or end, an unknown mode)
+**Then** nothing is written and the tool says which entry is wrong
+
+**Given** the test suite
+**Then** it covers append, replace with undo restoring the old day exactly, legs computed, a routing failure, warnings, and a rejected entry leaving the day untouched
+
+**Out of scope:** applying to several days in one call (Claude calls the tool once per day).
+
+### Story 15.6: Stays, Legs, Costs and Links
+
+As someone planning with Claude,
+I want Claude to also set the night's stay, the travel legs, costs and links,
+So that a planned day is complete and the budget is right.
+
+**FRs covered:** FR54 (stays, legs, costs, links)
+
+**Depends on:** Story 15.4.
+
+**Acceptance Criteria:**
+
+**Given** `set_stay` (create or update) and `delete_stay`
+**Then** they write the night's stay with name, status (planned/booked), check-in, check-out, place, link, cost and notes through the accommodation repository; a check-out change recomputes the next day as in the app (receipt included)
+
+**Given** `create_leg`, `update_leg`, `delete_leg`
+**Then** they write travel legs between two consecutive entries of a day through the travel-segment repository and recompute the day
+
+**Given** a cost on an activity or stay
+**Then** it can be given in EUR or in a foreign currency, converted at the ECB rate exactly as FR41 does, keeping amount, currency and rate; payments can be added, changed and removed as in the dialogs
+
+**Given** every write here
+**Then** it follows the 15.4 rules: KI/AI marker, one `ai_changes` entry, undo, `updatedAt` check, not found for non-writable trips
+
+**Given** the test suite
+**Then** it covers each tool, the next-day recompute on check-out change with undo, foreign currency conversion and an ECB failure answering with a clear error and writing nothing
+
+**Out of scope:** trip budget, trip name and dates (R7); day image and hero image.
+
+### Story 15.7: Documents and Images
+
+As someone planning with Claude,
+I want Claude to read my tickets and to attach new ones and pictures to the right activity or stay,
+So that the documents end up where the day packet and the day email find them.
+
+**FRs covered:** FR56
+
+**Depends on:** Story 15.4.
+
+**Acceptance Criteria:**
+
+**Given** `get_file(tripId, fileId)`
+**Then** it returns the document or image as an MCP embedded resource (MIME type and base64) up to 10 MB, and metadata only above that
+**And** media access follows the same managed-file rule as the app (no path outside the trip's folder)
+
+**Given** `attach_file(target: activity | stay, id, fileName, …)` with **either** `contentBase64` **or** `url`
+**Then** the file type must be PDF, JPEG, PNG or WebP, decided by the file's content, not its name or the server's header
+**And** inline content is limited to **1 MB decoded**, a URL download to **10 MB** (= import document limit)
+**And** the 10-documents-per-entry limit and the file-name sanitisation of the app apply
+**And** documents go to the same folders as UI uploads, so the packet (FR40) and the day email (FR51) include them
+**And** images are attached as activity or stay images, with the same processing as UI uploads
+
+**Given** a URL download
+**Then** only `https` is fetched, and the resolved address must not be loopback, private, link-local or otherwise non-public (checked after DNS resolution and on every redirect, at most 3 redirects)
+**And** the download stops at the size limit and after 15 s; cookies and credentials are never sent
+**And** failures answer with a short reason and write nothing
+
+**Given** `delete_file`
+**Then** it removes the document or image as the dialog does; the delete is undoable via `ai_changes` while the file is kept for undo (DW-187 rule)
+
+**Given** every write here
+**Then** it follows the 15.4 rules (marker, `ai_changes`, not found for non-writable trips)
+
+**Given** the test suite
+**Then** it covers inline and URL upload, a too-large file, a wrong type with a PDF name, SSRF to `127.0.0.1`, `10.x`, `169.254.169.254` and a redirect to a private address, the per-entry limit, and the packet including an uploaded document
+
+**Given** the production server
+**When** deployed (Tommy, manual)
+**Then** a ticket attached through Claude by URL appears on the activity with the KI badge and is part of the day packet
+
+**Out of scope:** day images and trip hero images; OCR or reading ticket contents server-side.
