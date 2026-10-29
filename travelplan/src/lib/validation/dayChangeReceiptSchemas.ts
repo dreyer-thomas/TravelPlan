@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { DayChangeTransportType } from "@/lib/trips/dayChangeReceipt";
 import { isTransportType } from "@/lib/trips/transportTypes";
+import { MAX_DAY_PLAN_APPLY_ACTIVITIES } from "@/lib/validation/dayPlanItemSchemas";
 import { MAX_SUGGESTIONS } from "@/lib/validation/daySuggestionSchemas";
 import { isSafeExternalUrl } from "@/lib/validation/safeExternalUrl";
 import { isSafeStoredImageUrl, MAX_STORED_IMAGE_URL_LENGTH } from "@/lib/validation/safeStoredImageUrl";
@@ -265,6 +266,23 @@ const editedSchema = z.discriminatedUnion("kind", [
       const total = edited.items.length + (edited.parkedItems?.length ?? 0);
       return total >= 1 && total <= MAX_APPLIED_SUGGESTIONS;
     }, `Between 1 and ${MAX_APPLIED_SUGGESTIONS} applied suggestions`),
+  // Story 15.5. One connector day plan: at least one activity, at most what one call writes, a leg into each
+  // at most; `deletedItems` is bounded like a day's media, as a body bound. `dayPlanChangeRepo.ts` checks
+  // every row against the day.
+  z
+    .object({
+      kind: z.literal("dayPlanApplied"),
+      mode: z.enum(["append", "replace"]),
+      items: z
+        .array(z.object({ itemId: idSchema, updatedAt: isoDateSchema }).strict())
+        .min(1)
+        .max(MAX_DAY_PLAN_APPLY_ACTIVITIES),
+      segments: z
+        .array(z.object({ segmentId: idSchema, updatedAt: isoDateSchema }).strict())
+        .max(MAX_DAY_PLAN_APPLY_ACTIVITIES),
+      deletedItems: z.array(deletedSnapshotSchema).max(MAX_MEDIA),
+    })
+    .strict(),
 ]);
 
 /** Story 11.2. Times are stored text (an import may hold odd ones); the stamps are what undo compares. */

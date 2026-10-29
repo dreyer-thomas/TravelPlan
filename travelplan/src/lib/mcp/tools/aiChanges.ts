@@ -27,6 +27,9 @@ const SUMMARIES: Record<string, (subject: string) => string> = {
   moved: (subject) => `Moved activity ${subject} within its day`,
   parked: (subject) => `Moved activity ${subject} to the bucket list`,
   scheduled: (subject) => `Scheduled activity ${subject} onto a day`,
+  // Story 15.5. The subject is the plan's titles, joined.
+  planAppended: (subject) => `Added a day plan: ${subject}`,
+  planReplaced: (subject) => `Replaced the day plan with ${subject}`,
 };
 
 /** The English one-liner from `action` + `subject`, e.g. `Created activity "Louvre"`. */
@@ -64,7 +67,8 @@ export const registerAiChangeTools = (server: McpServer) => {
       description:
         "Lists the changes made to a trip through this connector in the last 14 days, newest first, by any " +
         "connected app of any trip member: id, dayId (null for the bucket list), action (created, updated, " +
-        "deleted, moved, parked, scheduled), subject (the activity's title), summary (one English line), " +
+        "deleted, moved, parked, scheduled, planAppended, planReplaced), subject (the activity's title, or a " +
+        "day plan's titles joined by commas), summary (one English line), " +
         "createdAt and undoneAt (ISO 8601; undoneAt null = not undone), undoable (undo_ai_change can be tried) " +
         "and clientHost (the app that made it). At most the newest 100; truncated is true when there are more. " +
         "Give dayId for one day's changes only.",

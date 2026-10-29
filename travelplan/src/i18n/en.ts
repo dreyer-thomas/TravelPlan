@@ -754,6 +754,8 @@ const en: Dictionary = {
   "trips.aiChanges.moved": "“{title}” moved",
   "trips.aiChanges.parked": "“{title}” parked",
   "trips.aiChanges.scheduled": "“{title}” scheduled",
+  "trips.aiChanges.planAppended": "Day plan added: {title}",
+  "trips.aiChanges.planReplaced": "Day plan replaced: {title}",
   "trips.aiChanges.undo": "Undo",
   "trips.aiChanges.stale": "The day has changed since; this change can no longer be undone.",
   "trips.aiChanges.unavailable": "This change can no longer be undone.",

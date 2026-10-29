@@ -12,7 +12,12 @@ import {
   readDrawnSegmentKeysInTransaction,
   type TransactionClient,
 } from "@/lib/repositories/travelSegmentRepo";
-import type { DayChangeReceipt, DayPlanItemRow, DayPlanItemSnapshot } from "@/lib/trips/dayChangeReceipt";
+import type {
+  DayChangeReceipt,
+  DayPlanItemRow,
+  DayPlanItemSnapshot,
+  DeletedDayPlanItemSnapshot,
+} from "@/lib/trips/dayChangeReceipt";
 import { buildDrawnDaySegmentPairKeys } from "@/lib/trips/daySegmentPairs";
 import {
   getTripUploadDir,
@@ -94,6 +99,14 @@ import {
  * reverse writes and the post-condition, inside the same transaction (the connector marks its stored
  * change undone there); a throw rolls the undo back.
  *
+ * Story 15.5 adds `dayPlanApplied`: one connector `apply_day_plan`. Phase 1 refuses when a created activity
+ * or leg is gone or carries a new stamp, when a created activity gained an image, a document or a leg the
+ * plan did not create, or when an activity a `replace` deleted exists again. Phase 2 deletes the created
+ * legs, then the created activities (the same delete as the other kinds), recreates each deleted activity
+ * from its snapshot (the `deleted` kind's path, with its payments, images and documents; the files never
+ * left the disk, DW-187), and then restores the moved rows and the removed legs as for every kind, which
+ * the post-condition checks.
+ *
  * Any failure throws `UndoStaleError`, which rolls the transaction back and maps to `stale`. A `P2002`
  * while recreating a row maps there too: someone drew a new leg for the same pair, or reused the id.
  *
@@ -117,6 +130,9 @@ export class UndoStaleError extends Error {
     this.name = "UndoStaleError";
   }
 }
+
+/** Story 15.5. As long as `apply_day_plan`'s own transaction may take. */
+const UNDO_TRANSACTION_TIMEOUT_MS = 30000;
 
 /** `updatedAt` by epoch milliseconds, never by `Date` identity. SQLite stores milliseconds. */
 const sameInstant = (left: Date, right: Date) => left.getTime() === right.getTime();
@@ -145,8 +161,35 @@ const findWritableTripDay = (userId: string, tripId: string, tripDayId: string) 
     select: { id: true },
   });
 
-/** The ownership half of AC12; the shape half is `dayChangeReceiptSchemas.ts`. */
-const findInvalidity = (receipt: DayChangeReceipt, tripId: string): string | null => {
+/**
+ * A deleted activity's snapshot against the receipt's day and trip: its payments and media are its own, and
+ * every media path stays inside this trip's upload tree. Shared by `deleted` and (Story 15.5) the activities
+ * a `dayPlanApplied` replace deleted.
+ */
+const deletedSnapshotInvalidity = (
+  previous: DeletedDayPlanItemSnapshot,
+  tripDayId: string,
+  tripId: string,
+): string | null => {
+  if (previous.tripDayId !== tripDayId) return "item on another day";
+  if (previous.payments.some((payment) => payment.dayPlanItemId !== previous.id || payment.accommodationId !== null)) {
+    return "payment of another entry";
+  }
+  const { id, images, documents } = previous;
+  if (images.some((image) => image.dayPlanItemId !== id)) return "image of another item";
+  if (documents.some((document) => document.dayPlanItemId !== id)) return "document of another item";
+  if (images.some((image) => !isInsideTripUploadTree(image.imageUrl, tripId))) return "image outside the trip";
+  if (documents.some((document) => !isInsideTripUploadTree(document.documentUrl, tripId))) {
+    return "document outside the trip";
+  }
+  return null;
+};
+
+/**
+ * The ownership half of AC12; the shape half is `dayChangeReceiptSchemas.ts`. Exported for Story 15.5: a
+ * write that must keep its undo checks its receipt here before it commits.
+ */
+export const findInvalidity = (receipt: DayChangeReceipt, tripId: string): string | null => {
   const { tripDayId, edited } = receipt;
 
   const legIds = new Set<string>();
@@ -158,23 +201,18 @@ const findInvalidity = (receipt: DayChangeReceipt, tripId: string): string | nul
 
   if (edited.kind === "parked" && edited.previous.tripDayId !== tripDayId) return "item on another day";
 
-  if (edited.kind === "updated" || edited.kind === "deleted") {
+  if (edited.kind === "updated") {
     const previous = edited.previous;
     if (previous.tripDayId !== tripDayId) return "item on another day";
-    if (edited.kind === "updated" && previous.id !== edited.itemId) return "snapshot of another item";
+    if (previous.id !== edited.itemId) return "snapshot of another item";
     if (previous.payments.some((payment) => payment.dayPlanItemId !== previous.id || payment.accommodationId !== null)) {
       return "payment of another entry";
     }
   }
 
   if (edited.kind === "deleted") {
-    const { id, images, documents } = edited.previous;
-    if (images.some((image) => image.dayPlanItemId !== id)) return "image of another item";
-    if (documents.some((document) => document.dayPlanItemId !== id)) return "document of another item";
-    if (images.some((image) => !isInsideTripUploadTree(image.imageUrl, tripId))) return "image outside the trip";
-    if (documents.some((document) => !isInsideTripUploadTree(document.documentUrl, tripId))) {
-      return "document outside the trip";
-    }
+    const invalidity = deletedSnapshotInvalidity(edited.previous, tripDayId, tripId);
+    if (invalidity) return invalidity;
   }
 
   // Story 11.2: the push never moves the edited activity, and moves each other one at most once.
@@ -231,6 +269,25 @@ const findInvalidity = (receipt: DayChangeReceipt, tripId: string): string | nul
     if (new Set(edited.imageIds).size !== edited.imageIds.length) return "duplicate image";
   }
 
+  if (edited.kind === "dayPlanApplied") {
+    // Story 15.5: every snapshot as a `deleted` one's; each id once, a created id never moved or deleted, a
+    // deleted one never moved (it is not on the day after the write), and no leg both created and removed.
+    if (edited.mode === "append" && edited.deletedItems.length > 0) return "append that deleted activities";
+    for (const previous of edited.deletedItems) {
+      const invalidity = deletedSnapshotInvalidity(previous, tripDayId, tripId);
+      if (invalidity) return invalidity;
+    }
+    const createdIds = new Set(edited.items.map((item) => item.itemId));
+    const deletedIds = new Set(edited.deletedItems.map((previous) => previous.id));
+    if (createdIds.size !== edited.items.length) return "duplicate item";
+    if (deletedIds.size !== edited.deletedItems.length) return "duplicate deleted item";
+    if ([...createdIds].some((id) => deletedIds.has(id))) return "applied item listed as deleted";
+    if (receipt.movedItems.some((moved) => createdIds.has(moved.itemId))) return "applied item listed as moved";
+    if (receipt.movedItems.some((moved) => deletedIds.has(moved.itemId))) return "deleted item listed as moved";
+    if (new Set(edited.segments.map((segment) => segment.segmentId)).size !== edited.segments.length) return "duplicate leg";
+    if (edited.segments.some((segment) => legIds.has(segment.segmentId))) return "leg both created and removed";
+  }
+
   // Story 14.1: a schedule appends, which can un-draw the leg from the day's last activity to tonight's
   // stay; like a create's, that leg is in `removedTravelSegments` and phase 2 recreates it.
   // Story 14.2: a park removes the legs naming the activity (to either stay too); phase 2 recreates them.
@@ -250,6 +307,19 @@ const restorePayments = async (tx: TransactionClient, snapshot: DayPlanItemSnaps
   if (snapshot.payments.length > 0) {
     await tx.costPayment.createMany({ data: snapshot.payments });
   }
+};
+
+/**
+ * A deleted activity back from its snapshot, with its id, stamps, marker, payments and media rows. Story
+ * 14.1: the receipt row has no `tripId`; it is the trip the undo was asked on (the day is on it). Story
+ * 15.5: shared by `deleted` and a `dayPlanApplied` replace.
+ */
+const recreateDeletedItem = async (tx: TransactionClient, tripId: string, previous: DeletedDayPlanItemSnapshot) => {
+  const { images, documents, ...snapshot } = previous;
+  await tx.dayPlanItem.create({ data: { ...itemColumns(snapshot), tripId } });
+  await restorePayments(tx, snapshot);
+  if (images.length > 0) await tx.dayPlanItemImage.createMany({ data: images });
+  if (documents.length > 0) await tx.dayPlanItemDocument.createMany({ data: documents });
 };
 
 /**
@@ -320,6 +390,62 @@ const checkSuggestionsAppliedInTransaction = async (
   return images.map((image) => ({ dayPlanItemId: image.dayPlanItemId, imageUrl: image.imageUrl }));
 };
 
+/**
+ * Story 15.5, phase 1 for `dayPlanApplied`. Every created activity and leg must still be on the day with the
+ * stamp the plan gave it; nothing may have been added to the activities since (the plan creates no image or
+ * document, and no leg but its own); and no activity a `replace` deleted may exist again.
+ */
+const checkDayPlanAppliedInTransaction = async (
+  tx: TransactionClient,
+  tripDayId: string,
+  edited: Extract<DayChangeReceipt["edited"], { kind: "dayPlanApplied" }>,
+): Promise<void> => {
+  const itemIds = edited.items.map((item) => item.itemId);
+  const segmentIds = new Set(edited.segments.map((segment) => segment.segmentId));
+
+  const items = await tx.dayPlanItem.findMany({ where: { id: { in: itemIds }, tripDayId }, select: { id: true, updatedAt: true } });
+  const itemStamps = new Map(items.map((item) => [item.id, item.updatedAt]));
+  for (const item of edited.items) {
+    const stamp = itemStamps.get(item.itemId);
+    if (!stamp || !sameInstant(stamp, item.updatedAt)) throw new UndoStaleError("planned item changed");
+  }
+
+  const segments = await tx.travelSegment.findMany({
+    where: { id: { in: [...segmentIds] }, tripDayId },
+    select: { id: true, updatedAt: true },
+  });
+  const segmentStamps = new Map(segments.map((segment) => [segment.id, segment.updatedAt]));
+  for (const segment of edited.segments) {
+    const stamp = segmentStamps.get(segment.segmentId);
+    if (!stamp || !sameInstant(stamp, segment.updatedAt)) throw new UndoStaleError("planned leg changed");
+  }
+
+  const [images, documents, referencing, reappeared] = await Promise.all([
+    tx.dayPlanItemImage.count({ where: { dayPlanItemId: { in: itemIds } } }),
+    tx.dayPlanItemDocument.count({ where: { dayPlanItemId: { in: itemIds } } }),
+    tx.travelSegment.findMany({
+      where: {
+        OR: [
+          { fromItemType: "DAY_PLAN_ITEM", fromItemId: { in: itemIds } },
+          { toItemType: "DAY_PLAN_ITEM", toItemId: { in: itemIds } },
+        ],
+      },
+      select: { id: true },
+    }),
+    tx.dayPlanItem.count({ where: { id: { in: edited.deletedItems.map((previous) => previous.id) } } }),
+  ]);
+  if (images > 0) throw new UndoStaleError("planned item gained an image");
+  if (documents > 0) throw new UndoStaleError("planned item gained a document");
+  if (referencing.some((leg) => !segmentIds.has(leg.id))) throw new UndoStaleError("planned item gained a leg");
+  if (reappeared > 0) throw new UndoStaleError("deleted item exists again");
+  // A replace left only its own activities on the day; one added since would sit among the restored rows
+  // with a clashing order and times, so it refuses like any later edit.
+  if (edited.mode === "replace") {
+    const others = await tx.dayPlanItem.count({ where: { tripDayId, id: { notIn: itemIds } } });
+    if (others > 0) throw new UndoStaleError("day gained an activity since the replace");
+  }
+};
+
 const undoInTransaction = async (
   tx: TransactionClient,
   tripId: string,
@@ -336,6 +462,8 @@ const undoInTransaction = async (
   if (edited.kind === "legCreated" || edited.kind === "legUpdated") receiptLegIds.add(edited.segmentId);
   // Story 12.4: the legs an apply created are the undo's own to delete.
   if (edited.kind === "suggestionsApplied") edited.segments.forEach((segment) => receiptLegIds.add(segment.segmentId));
+  // Story 15.5: so are the legs a connector day plan created.
+  if (edited.kind === "dayPlanApplied") edited.segments.forEach((segment) => receiptLegIds.add(segment.segmentId));
   const protectedLegs = (await tx.travelSegment.findMany({ where: { tripDayId } })).filter(
     (leg) => !receiptLegIds.has(leg.id) && drawnBeforeUndo.has(buildStoredSegmentPairKey(leg)),
   );
@@ -438,6 +566,9 @@ const undoInTransaction = async (
       if (!item || !sameInstant(item.updatedAt, edited.updatedAt)) throw new UndoStaleError("parked item changed");
       break;
     }
+    case "dayPlanApplied":
+      await checkDayPlanAppliedInTransaction(tx, tripDayId, edited);
+      break;
     default: {
       const unhandled: never = edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
@@ -474,15 +605,9 @@ const undoInTransaction = async (
       await restorePayments(tx, edited.previous);
       break;
     }
-    case "deleted": {
-      const { images, documents, ...snapshot } = edited.previous;
-      // Story 14.1: the receipt row has no `tripId`; it is the trip the undo was asked on (the day is on it).
-      await tx.dayPlanItem.create({ data: { ...itemColumns(snapshot), tripId } });
-      await restorePayments(tx, snapshot);
-      if (images.length > 0) await tx.dayPlanItemImage.createMany({ data: images });
-      if (documents.length > 0) await tx.dayPlanItemDocument.createMany({ data: documents });
+    case "deleted":
+      await recreateDeletedItem(tx, tripId, edited.previous);
       break;
-    }
     case "reordered":
       // No edited-item write: both of its rows are restored as moved items below.
       break;
@@ -579,6 +704,27 @@ const undoInTransaction = async (
       }
       break;
     }
+    case "dayPlanApplied": {
+      // As `suggestionsApplied`: the created legs, each conditional on its stamp, then the created activities
+      // through the shared delete, which must find nothing more to sweep. Then the activities a replace
+      // deleted, each as a `deleted` undo recreates it.
+      for (const segment of edited.segments) {
+        const removed = await tx.travelSegment.deleteMany({
+          where: { id: segment.segmentId, tripDayId, updatedAt: segment.updatedAt },
+        });
+        if (removed.count !== 1) throw new UndoStaleError("planned leg changed");
+      }
+      for (const item of edited.items) {
+        const deleted = await deleteDayPlanItemInTransaction(tx, { tripId, tripDayId, itemId: item.itemId });
+        if (deleted.status !== "deleted" || deleted.removedTravelSegments.length > 0) {
+          throw new UndoStaleError("planned item could not be removed cleanly");
+        }
+      }
+      for (const previous of edited.deletedItems) {
+        await recreateDeletedItem(tx, tripId, previous);
+      }
+      break;
+    }
     default: {
       const unhandled: never = edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
@@ -664,7 +810,11 @@ export const undoDayPlanChangeForTrip = async (params: {
 
   let removedImageFiles: UndoneImageFile[];
   try {
-    removedImageFiles = await prisma.$transaction((tx) => undoInTransaction(tx, tripId, receipt, inTransaction));
+    // Story 15.5: a plan's undo deletes and recreates up to 50 activities each with its sweeps, well past
+    // Prisma's 5 s default on a slow disk; the apply itself has the same budget.
+    removedImageFiles = await prisma.$transaction((tx) => undoInTransaction(tx, tripId, receipt, inTransaction), {
+      timeout: UNDO_TRANSACTION_TIMEOUT_MS,
+    });
   } catch (error) {
     if (error instanceof UndoStaleError) return { status: "stale" };
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return { status: "stale" };

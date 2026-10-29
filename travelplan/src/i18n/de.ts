@@ -698,6 +698,8 @@ const de: Dictionary = {
   "trips.aiChanges.moved": "„{title}“ verschoben",
   "trips.aiChanges.parked": "„{title}“ geparkt",
   "trips.aiChanges.scheduled": "„{title}“ eingeplant",
+  "trips.aiChanges.planAppended": "Tagesplan ergänzt: {title}",
+  "trips.aiChanges.planReplaced": "Tagesplan ersetzt: {title}",
   "trips.aiChanges.undo": "Rückgängig",
   "trips.aiChanges.stale": "Der Tag hat sich seitdem geändert; diese Änderung kann nicht mehr rückgängig gemacht werden.",
   "trips.aiChanges.unavailable": "Diese Änderung lässt sich nicht mehr rückgängig machen.",

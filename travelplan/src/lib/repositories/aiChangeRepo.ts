@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import { UndoStaleError } from "@/lib/repositories/dayPlanChangeRepo";
+import { findInvalidity, UndoStaleError } from "@/lib/repositories/dayPlanChangeRepo";
 import type { TransactionClient } from "@/lib/repositories/travelSegmentRepo";
 import {
   fromDayChangeReceiptWire,
@@ -27,7 +27,19 @@ import { storedDayChangeReceiptSchema } from "@/lib/validation/dayChangeReceiptS
 
 export const AI_CHANGE_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 
-export type AiChangeAction = "created" | "updated" | "deleted" | "moved" | "parked" | "scheduled";
+/**
+ * Story 15.5 adds `planAppended` and `planReplaced` (`apply_day_plan`), whose `subject` is the new activities'
+ * titles joined by ", ", capped at 120 characters.
+ */
+export type AiChangeAction =
+  | "created"
+  | "updated"
+  | "deleted"
+  | "moved"
+  | "parked"
+  | "scheduled"
+  | "planAppended"
+  | "planReplaced";
 
 export type AiChangeEntry = {
   id: string;
@@ -90,13 +102,33 @@ const toEntry = (row: {
 });
 
 /**
- * The receipt's wire form as stored, or `null` when there is none or it would not parse back: a stored
- * receipt the undo cannot read must not make the list claim "undoable".
+ * Story 15.5. A write that must not commit without its undo (a plan's `replace` deletes a whole day) asked
+ * for a receipt the stored schema refuses, or one the undo would refuse as invalid (e.g. an image stored as
+ * an external address). Thrown inside the write's transaction, so nothing is written.
  */
-const storableReceiptJson = (receipt: DayChangeReceipt | null): string | null => {
+export class UnstorableReceiptError extends Error {
+  constructor() {
+    super("The change's receipt cannot be stored");
+    this.name = "UnstorableReceiptError";
+  }
+}
+
+/**
+ * The receipt's wire form as stored, or `null` when there is none or it would not parse back: a stored
+ * receipt the undo cannot read must not make the list claim "undoable". With `requireReceipt` (Story 15.5)
+ * the second case throws `UnstorableReceiptError` instead, as does a receipt the undo would refuse as
+ * invalid for this trip.
+ */
+const storableReceiptJson = (
+  receipt: DayChangeReceipt | null,
+  tripId: string,
+  requireReceipt = false,
+): string | null => {
   if (!receipt) return null;
+  if (requireReceipt && findInvalidity(receipt, tripId) !== null) throw new UnstorableReceiptError();
   const wire = toDayChangeReceiptWire(receipt);
   if (!storedDayChangeReceiptSchema.safeParse(wire).success) {
+    if (requireReceipt) throw new UnstorableReceiptError();
     console.error(`ai-changes: receipt kind=${receipt.edited.kind} failed the stored schema; stored without receipt`);
     return null;
   }
@@ -117,6 +149,8 @@ export const insertAiChangeInTransaction = async (
     action: AiChangeAction;
     subject: string | null;
     receipt: DayChangeReceipt | null;
+    /** Story 15.5. Refuse (throw, rolling the write back) rather than store a receipt the undo cannot read. */
+    requireReceipt?: boolean;
     now?: Date;
   },
 ): Promise<string> => {
@@ -130,7 +164,7 @@ export const insertAiChangeInTransaction = async (
       clientId: params.clientId,
       action: params.action,
       subject: params.subject,
-      receiptJson: storableReceiptJson(params.receipt),
+      receiptJson: storableReceiptJson(params.receipt, params.tripId, params.requireReceipt),
       createdAt: now,
     },
     select: { id: true },

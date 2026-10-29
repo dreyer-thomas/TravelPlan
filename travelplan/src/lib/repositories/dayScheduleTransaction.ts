@@ -21,8 +21,9 @@ import { scheduleInputFor, toScheduleItem, toScheduleLeg } from "@/lib/trips/pla
 /**
  * Story 13.1 (FR42). The transaction half of the schedule rule, shared by every write that can change a
  * day's times or order: the activity writes (`dayPlanItemRepo.ts`), the leg writes (`travelSegmentRepo.ts`)
- * and last night's check-out (`accommodationRepo.ts`), and since Story 13.4 the apply of suggestions
- * (`daySuggestionApplyRepo.ts`). It replaces Story 11.4's `dayPlanPushTransaction.ts`.
+ * and last night's check-out (`accommodationRepo.ts`), since Story 13.4 the apply of suggestions
+ * (`daySuggestionApplyRepo.ts`), and since Story 15.5 the connector's day plan (`dayPlanApplyRepo.ts`). It
+ * replaces Story 11.4's `dayPlanPushTransaction.ts`.
  *
  * Each write keeps the shape Epic 11 gave it, inside one `prisma.$transaction`:
  *
@@ -161,6 +162,11 @@ export type ScheduleEdit =
   /**
    * Story 13.4. Applied suggestions: each item FLEXIBLE, appended in the given order after the day's last
    * row; `legs` are put first so they win their pair, as a leg save's are.
+   *
+   * Story 15.5 (`apply_day_plan`). The items are added one by one, in the given order, as that many single
+   * creates would add them: a FLEXIBLE one after the day's last row, a FIXED one with a readable start
+   * placed by its time (rule 4, `placeFixedItem`) among what is there by then. Epic 12 sends FLEXIBLE only,
+   * so its plans are unchanged.
    */
   | { kind: "append"; items: ScheduleItem[]; legs: ScheduleLeg[] };
 
@@ -274,9 +280,17 @@ export const planDaySchedule = (state: ScheduleDayState, edit: ScheduleEdit): Da
       stay = beforeStay ? { ...beforeStay, checkOutTime: edit.checkOutTime } : beforeStay;
       break;
     case "append":
-      items.push(...edit.items);
       legs = [...edit.legs, ...state.legs];
-      for (const item of edit.items) appendedIds.add(item.id);
+      for (const item of edit.items) {
+        items.push(item);
+        appendedIds.add(item.id);
+        // Story 15.5: a FIXED row goes where a single create would put it, by its time among the rows so far.
+        if (item.scheduleMode === "FIXED" && timeToMinutes(item.fromTime) !== null) {
+          const index = placeFixedItem({ ...scheduleInputFor({ items, legs, previousStay: stay }), itemId: item.id });
+          items = items.filter((entry) => entry.id !== item.id);
+          items.splice(index, 0, item);
+        }
+      }
       break;
     default: {
       const unhandled: never = edit;

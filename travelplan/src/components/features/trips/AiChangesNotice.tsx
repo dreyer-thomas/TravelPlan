@@ -30,6 +30,9 @@ const ACTION_KEYS = {
   moved: "trips.aiChanges.moved",
   parked: "trips.aiChanges.parked",
   scheduled: "trips.aiChanges.scheduled",
+  // Story 15.5. `apply_day_plan`; the subject is the plan's titles, joined.
+  planAppended: "trips.aiChanges.planAppended",
+  planReplaced: "trips.aiChanges.planReplaced",
 } as const;
 
 const ROW_STATUS_KEYS = {

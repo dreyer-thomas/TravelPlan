@@ -103,8 +103,9 @@ const toPrismaItemType = (value: TravelSegmentItemTypeInput): TravelSegmentItemT
 
 // Both directions are exhaustive rather than `default`-terminated: a `default` here would have
 // quietly stored every mode added after FLIGHT *as* FLIGHT. Story 6.16 added two, so the compiler
-// has to be the one that notices the next one.
-const toPrismaTransportType = (value: TransportTypeInput): TravelTransportType => {
+// has to be the one that notices the next one. Story 15.5: exported for the connector's day plan, which
+// creates its legs in its own transaction (`dayPlanApplyRepo.ts`).
+export const toPrismaTransportType = (value: TransportTypeInput): TravelTransportType => {
   switch (value) {
     case "car":
       return "CAR";

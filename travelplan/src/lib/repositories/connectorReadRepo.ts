@@ -202,7 +202,8 @@ export const getPlannerDayForUser = async (params: {
           },
         },
         travelSegments: {
-          orderBy: { createdAt: "asc" },
+          // Story 15.5: `id` breaks a `createdAt` tie, so a leg an undo recreated reads where it did before.
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
           select: {
             id: true,
             fromItemType: true,

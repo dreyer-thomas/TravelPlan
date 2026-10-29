@@ -487,8 +487,10 @@ const sameInstant = (left: Date, right: Date) => left.getTime() === right.getTim
 /**
  * Story 13.1. The schedule fields a write stores, from what the caller sent (see
  * `DayPlanItemMutationParams`). For FIXED the duration is always the true `toTime − fromTime`.
+ * Story 15.5: exported, so the connector's day plan (`dayPlanApplyRepo.ts`) stores each activity's
+ * schedule exactly as a single create would, the start + duration → end rule included.
  */
-const scheduleFieldsOf = (params: Pick<DayPlanItemMutationParams, "scheduleMode" | "durationMinutes" | "fromTime" | "toTime">) => {
+export const scheduleFieldsOf = (params: Pick<DayPlanItemMutationParams, "scheduleMode" | "durationMinutes" | "fromTime" | "toTime">) => {
   const scheduleMode: ScheduleMode = params.scheduleMode ?? "FIXED";
   if (scheduleMode === "FLEXIBLE") {
     return {

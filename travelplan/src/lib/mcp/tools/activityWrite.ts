@@ -54,6 +54,9 @@ import {
  * entry carries the KI/AI badge, and an `inTransaction` hook that records the change in `ai_changes` in the
  * write's own transaction. Only trips the user may plan exist here (ruling R1): anything else is
  * `Trip not found`, an activity outside the trip `Activity not found`.
+ *
+ * Story 15.5: the input fields and the write helpers are exported for `apply_day_plan` (`dayPlanApply.ts`),
+ * which writes a whole day through the same gate, geocoder, change record and error mapping.
  */
 
 export const ACTIVITY_NOT_FOUND = "Activity not found";
@@ -61,18 +64,18 @@ export const CHANGED_SINCE_READ =
   "This activity changed since you read it; read it again with get_day or get_bucket_list and retry with the new updatedAt.";
 export const DAY_CHANGED_WHILE_SAVING =
   "The day changed while this was being saved; read it again with get_day and retry.";
-const GEOCODE_NOT_FOUND =
+export const GEOCODE_NOT_FOUND =
   "No place was found for that name. Give place.lat and place.lng (decimal degrees) together with place.name.";
-const GEOCODE_UNAVAILABLE =
+export const GEOCODE_UNAVAILABLE =
   "The place search is unavailable right now. Give place.lat and place.lng (decimal degrees), or try again later.";
 const PARKED_IS_FLEXIBLE =
   "A bucket-list activity is always flexible, with no times and no position. Leave out mode fixed, startTime, " +
   "endTime and afterActivityId, or give a dayId to put the activity on a day.";
 
-const TIMES_NEED_FIXED =
+export const TIMES_NEED_FIXED =
   "startTime and endTime are for fixed activities only: pass mode \"fixed\" with them, or leave them out " +
   "for a flexible activity (its times are computed from the day's order).";
-const DESCRIPTION_EMPTY = "description must not be empty (the app requires text).";
+export const DESCRIPTION_EMPTY = "description must not be empty (the app requires text).";
 const NOTHING_TO_CHANGE = "Nothing to change.";
 /** The longest description a tool accepts, in characters. */
 const MAX_DESCRIPTION_LENGTH = 10_000;
@@ -103,14 +106,14 @@ export const activityWriteDeps = { geocode: geocodePlaceName };
 // ---------------------------------------------------------------------------------------------------------
 // Inputs
 
-const tripIdField = idSchema.describe("The trip's id, from list_trips.");
+export const tripIdField = idSchema.describe("The trip's id, from list_trips.");
 const activityIdField = idSchema.describe("The activity's id, from get_day or get_bucket_list.");
 
-const timeField = z
+export const timeField = z
   .string()
   .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use HH:MM (24-hour, 00:00 to 23:59)");
 
-const placeField = z
+export const placeField = z
   .object({
     name: z.string().trim().min(1).max(200).optional().describe("The place's name or address; also its label."),
     lat: z.number().min(-90).max(90).optional().describe("Latitude in decimal degrees."),
@@ -123,7 +126,7 @@ const placeField = z
     message: "Give place.name, or place.lat and place.lng.",
   });
 
-const activityFields = {
+export const activityFields = {
   title: z.string().trim().min(1).max(120).describe("The activity's title, at most 120 characters."),
   description: z
     .string()
@@ -222,25 +225,31 @@ const activityOnlyInput = z.object({ tripId: tripIdField, activityId: activityId
 // ---------------------------------------------------------------------------------------------------------
 // Helpers
 
-type Caller = { userId: string; tripId: string; clientId: string };
+export type Caller = { userId: string; tripId: string; clientId: string };
 
 /**
  * Every write tool's first step: a change is never recorded without the client that made it (a token
  * without one is refused as unauthenticated), and only a trip the user may plan exists (ruling R1).
  */
-const startWrite = async (userId: string, tripId: string, clientId: string | null): Promise<Caller | CallToolResult> => {
+export const startWrite = async (userId: string, tripId: string, clientId: string | null): Promise<Caller | CallToolResult> => {
   if (!clientId) return toolError(NOT_AUTHENTICATED);
   const gate = await requireWritableTrip(userId, tripId);
   return gate === true ? { userId, tripId, clientId } : gate;
 };
 
-const isCaller = (value: Caller | CallToolResult): value is Caller => "clientId" in value;
+export const isCaller = (value: Caller | CallToolResult): value is Caller => "clientId" in value;
 
 /**
  * The hook that records one change, in the write's transaction. The id is read after the write; a write
  * whose hook did not run (a refusal) has none.
  */
-const recordChange = (caller: Caller, action: AiChangeAction, tripDayId: string | null, title: string | null) => {
+export const recordChange = (
+  caller: Caller,
+  action: AiChangeAction,
+  tripDayId: string | null,
+  title: string | null,
+  options: { requireReceipt?: boolean } = {},
+) => {
   // The activity's title at write time; never an empty string.
   const subject = title?.trim() || null;
   let id: string | null = null;
@@ -253,37 +262,49 @@ const recordChange = (caller: Caller, action: AiChangeAction, tripDayId: string 
       action,
       subject,
       receipt: outcome.receipt,
+      requireReceipt: options.requireReceipt,
     });
   };
   return { hook, id: () => id };
 };
 
 /** The refusals a write can throw that the model can act on; anything else is runTool's generic error. */
-const writeErrorResult = (error: unknown): CallToolResult => {
+export const writeErrorResult = (error: unknown): CallToolResult => {
   if (error instanceof ChangedSinceReadError) return toolError(CHANGED_SINCE_READ);
   if (error instanceof DayPlanChangedError) return toolError(DAY_CHANGED_WHILE_SAVING);
   throw error;
 };
 
-const invalid = (issues: { message: string }[]) =>
+export const invalid = (issues: { message: string }[]) =>
   toolError(`Invalid activity: ${[...new Set(issues.map((issue) => issue.message))].join("; ")}.`);
 
-type ResolvedLocation = { lat: number; lng: number; label: string | null } | null;
+export type ResolvedLocation = { lat: number; lng: number; label: string | null } | null;
 
-/** A place input as the stored location; a name without coordinates is geocoded. */
-const resolvePlace = async (
+/**
+ * A place input as the stored location; a name without coordinates is geocoded. Story 15.5: the refusal
+ * as plain text, so `apply_day_plan` can name the activity it belongs to.
+ */
+export const lookUpPlace = async (
   place: z.infer<typeof placeField> | null,
-): Promise<{ location: ResolvedLocation } | CallToolResult> => {
+): Promise<{ location: ResolvedLocation } | { refusal: string }> => {
   if (place === null) return { location: null };
   const label = place.name ?? null;
   if (place.lat !== undefined && place.lng !== undefined) return { location: { lat: place.lat, lng: place.lng, label } };
   try {
     const found = await activityWriteDeps.geocode(place.name!);
-    return found ? { location: { ...found, label } } : toolError(GEOCODE_NOT_FOUND);
+    return found ? { location: { ...found, label } } : { refusal: GEOCODE_NOT_FOUND };
   } catch (error) {
-    if (error instanceof GeocodingError) return toolError(GEOCODE_UNAVAILABLE);
+    if (error instanceof GeocodingError) return { refusal: GEOCODE_UNAVAILABLE };
     throw error;
   }
+};
+
+/** `lookUpPlace` with its refusal as the tool error. */
+const resolvePlace = async (
+  place: z.infer<typeof placeField> | null,
+): Promise<{ location: ResolvedLocation } | CallToolResult> => {
+  const result = await lookUpPlace(place);
+  return "refusal" in result ? toolError(result.refusal) : result;
 };
 
 const isToolResult = (value: object): value is CallToolResult => "content" in value;
@@ -293,7 +314,7 @@ const needsGeocoding = (place: z.infer<typeof placeField> | null | undefined) =>
   place != null && (place.lat === undefined || place.lng === undefined);
 
 /** One day, in the read tools' shape (order, computed times, warnings). */
-const readDay = async (userId: string, tripId: string, tripDayId: string) => {
+export const readDay = async (userId: string, tripId: string, tripDayId: string) => {
   const result = await getPlannerDayForUser({ userId, tripId, day: { id: tripDayId } });
   return result?.day ? toPlannerDay(result.day) : null;
 };
@@ -350,7 +371,7 @@ type ScheduleInput = {
 /** The day-activity payload `dayPlanItemMutationSchema` checks, exactly as the app's routes do. */
 const validateDayPayload = (payload: Record<string, unknown>) => dayPlanItemMutationSchema.safeParse(payload);
 
-const scheduleOfCreate = (args: ScheduleInput) =>
+export const scheduleOfCreate = (args: ScheduleInput) =>
   args.mode === "fixed"
     ? {
         scheduleMode: "FIXED" as const,

@@ -131,6 +131,8 @@ export const MIN_ACTIVITY_DURATION_MINUTES = 5;
 /** `HH:MM` ends at 23:59, so no activity can last longer than this within one day. */
 export const MAX_ACTIVITY_DURATION_MINUTES = 23 * 60 + 59;
 const LAST_MINUTE_OF_DAY = 23 * 60 + 59;
+/** Story 15.5. The most activities one `apply_day_plan` writes, and so one `dayPlanApplied` receipt holds. */
+export const MAX_DAY_PLAN_APPLY_ACTIVITIES = 50;
 
 /** Story 13.1's duration bounds, shared with the parked activity (Story 14.1). `false` when it reported. */
 export const refineDurationInRange = (minutes: number, context: z.RefinementCtx) => {

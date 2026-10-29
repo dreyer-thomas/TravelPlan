@@ -349,3 +349,42 @@ describe("AiChangesNotice (Story 15.4)", () => {
     expect(within(next).queryByText(en["trips.aiChanges.stale"])).not.toBeInTheDocument();
   });
 });
+
+describe("AiChangesNotice, day plans (Story 15.5)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const planChanges: Change[] = [
+    { id: "p2", action: "planReplaced", subject: "Old Town walk, Concert", createdAt: "2026-10-20T11:00:00.000Z", undoable: true },
+    { id: "p1", action: "planAppended", subject: "Castle, Lunch", createdAt: "2026-10-20T10:00:00.000Z", undoable: true },
+  ];
+
+  it.each([
+    ["en", en, "Day plan replaced: Old Town walk, Concert", "Day plan added: Castle, Lunch"],
+    ["de", de, "Tagesplan ersetzt: Old Town walk, Concert", "Tagesplan ergänzt: Castle, Lunch"],
+  ] as const)("labels a replaced and an appended day plan in %s", async (language, dictionary, replaced, appended) => {
+    stubFetch(
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (requestUrl(input).includes("/ai-changes")) return mockFetchResponse({ data: { changes: planChanges }, error: null });
+        return mockFetchResponse({ data: null, error: null });
+      }),
+    );
+    renderWithProviders(
+      <AiChangesNotice
+        tripId="trip-1"
+        dayId="day-1"
+        refreshKey={0}
+        ensureCsrfToken={async () => "csrf-token"}
+        onDayChanged={() => undefined}
+        onBucketChanged={() => undefined}
+      />,
+      { language },
+    );
+    const notice = await screen.findByTestId("ai-changes-notice");
+    await userEvent.click(within(notice).getByRole("button", { name: dictionary["trips.aiChanges.expand"] }));
+    const rows = within(notice).getAllByTestId("ai-change-row");
+    expect(rows[0]).toHaveTextContent(replaced);
+    expect(rows[1]).toHaveTextContent(appended);
+  });
+});

@@ -64,6 +64,13 @@
  * 3: a receipt issued before the deploy lacks the keys and is refused by the `.strict()` schema (400,
  * "undo unavailable"), as after Epic 14. Since 15.4 a connector write's receipt is also stored
  * server-side (`ai_changes`), unsigned and trusted.
+ *
+ * Story 15.5 adds `dayPlanApplied`: one connector call (`apply_day_plan`) that wrote a whole day. `items` and
+ * `segments` are the activities and legs it created, each with its post-write stamp; `deletedItems` are
+ * the activities a `replace` deleted first, as full snapshots with their payments, images and documents
+ * (the `deleted` kind's shape). The legs those deletes took, and every leg the plan swept, are in
+ * `removedTravelSegments` as usual. Undo deletes the created rows, recreates the deleted ones and restores
+ * the rest like every kind. Additive, so the version stays 3. It is only ever stored server-side.
  */
 
 import { formatMessage } from "@/i18n";
@@ -153,6 +160,9 @@ export type DeletedDayPlanItemSnapshot<T extends Date | string = Date> = DayPlan
   documents: DayPlanItemDocumentRow<T>[];
 };
 
+/** Story 15.5. `append` adds after the day's last activity; `replace` deletes the day's activities first. */
+export type DayPlanApplyMode = "append" | "replace";
+
 /** The `updatedAt` on `created` and `updated` is the item *after* the write: what undo compares against. */
 export type DayChangeEdited<T extends Date | string = Date> =
   | { kind: "created"; itemId: string; updatedAt: T }
@@ -212,6 +222,17 @@ export type DayChangeEdited<T extends Date | string = Date> =
       imageIds: string[];
       /** Story 14.3. The ones parked to the bucket list in the same apply; absent when none was. */
       parkedItems?: { itemId: string; updatedAt: T }[];
+    }
+  /**
+   * Story 15.5. One `apply_day_plan`: the activities (in input order) and legs it created, and in `replace`
+   * mode the activities it deleted first.
+   */
+  | {
+      kind: "dayPlanApplied";
+      mode: DayPlanApplyMode;
+      items: { itemId: string; updatedAt: T }[];
+      segments: { segmentId: string; updatedAt: T }[];
+      deletedItems: DeletedDayPlanItemSnapshot<T>[];
     };
 
 /**
@@ -283,6 +304,11 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
     ...mapMarked(previous, convert),
     payments: previous.payments.map((payment) => mapStamps(payment, convert)),
   });
+  const deletedSnapshot = (previous: DeletedDayPlanItemSnapshot<A>): DeletedDayPlanItemSnapshot<B> => ({
+    ...snapshot(previous),
+    images: previous.images.map((image) => mapMarked(image, convert)),
+    documents: previous.documents.map((document) => mapMarked(document, convert)),
+  });
 
   let edited: DayChangeEdited<B>;
   switch (receipt.edited.kind) {
@@ -297,14 +323,7 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
       };
       break;
     case "deleted":
-      edited = {
-        kind: "deleted",
-        previous: {
-          ...snapshot(receipt.edited.previous),
-          images: receipt.edited.previous.images.map((image) => mapMarked(image, convert)),
-          documents: receipt.edited.previous.documents.map((document) => mapMarked(document, convert)),
-        },
-      };
+      edited = { kind: "deleted", previous: deletedSnapshot(receipt.edited.previous) };
       break;
     case "reordered":
       edited = { ...receipt.edited, previousAiChangedAt: mapNullable(receipt.edited.previousAiChangedAt, convert) };
@@ -360,6 +379,15 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
           : {}),
       };
       break;
+    case "dayPlanApplied":
+      edited = {
+        kind: "dayPlanApplied",
+        mode: receipt.edited.mode,
+        items: receipt.edited.items.map((item) => ({ ...item, updatedAt: convert(item.updatedAt) })),
+        segments: receipt.edited.segments.map((segment) => ({ ...segment, updatedAt: convert(segment.updatedAt) })),
+        deletedItems: receipt.edited.deletedItems.map(deletedSnapshot),
+      };
+      break;
     default: {
       const unhandled: never = receipt.edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
@@ -400,12 +428,14 @@ const movedTimes = <T extends Date | string>(row: MovedItemRow<T>) =>
  * Story 14.1: scheduling an idea always has one: it left the bucket list, and its notice is the only
  * way to take that back, even when nothing on the day moved.
  * Story 14.2: so does parking one, for the same reason in the other direction.
+ * Story 15.5: so does a connector day plan, which writes a whole day at once.
  */
 export const receiptHasSideEffects = <T extends Date | string>(receipt: DayChangeReceipt<T>): boolean =>
   receipt.edited.kind === "reordered" ||
   receipt.edited.kind === "scheduled" ||
   receipt.edited.kind === "parked" ||
   receipt.edited.kind === "suggestionsApplied" ||
+  receipt.edited.kind === "dayPlanApplied" ||
   receipt.removedTravelSegments.length > 0 ||
   receipt.movedItems.some(movedTimes) ||
   (receipt.planConflicts?.length ?? 0) > 0;

@@ -174,6 +174,8 @@ describe("whoami", () => {
       "park_activity",
       "list_ai_changes",
       "undo_ai_change",
+      // Story 15.5.
+      "apply_day_plan",
     ]);
 
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);

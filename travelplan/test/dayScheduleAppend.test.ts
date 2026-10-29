@@ -114,3 +114,48 @@ describe("planDaySchedule append (Story 13.4)", () => {
     expect(plan.appended.map((row) => row.id)).toEqual(["S0"]);
   });
 });
+
+describe("planDaySchedule append with FIXED items (Story 15.5)", () => {
+  const fixed = (id: string, fromTime: string, toTime: string): ScheduleItem => ({
+    id,
+    title: null,
+    scheduleMode: "FIXED",
+    durationMinutes: 60,
+    fromTime,
+    toTime,
+  });
+
+  it("places a FIXED item by its start among the rows added so far, as a single create would", () => {
+    const plan = planDaySchedule(state([stored("A", "FLEXIBLE", 60, "09:00", "10:00", 0)]), {
+      kind: "append",
+      items: [flexible("S0", 60), flexible("S1", 60), fixed("F", "10:30", "11:00"), flexible("S2", 30)],
+      legs: [],
+    });
+
+    // F goes after S0 (starts 10:00 ≤ 10:30) and before S1; S2, added after it, is appended at the end.
+    expect(plan.order.map((row) => row.id)).toEqual(["A", "S0", "F", "S1", "S2"]);
+    expect(times(plan.appended)).toEqual(["S0 10:00–11:00", "F 10:30–11:00", "S1 11:00–12:00", "S2 12:00–12:30"]);
+    expect(plan.changes).toEqual([]);
+  });
+
+  it("puts a FIXED item before stored rows it starts ahead of, and moves those rows (they are changes)", () => {
+    const plan = planDaySchedule(
+      state([stored("A", "FLEXIBLE", 60, "09:00", "10:00", 0), stored("B", "FLEXIBLE", 60, "10:00", "11:00", 1)]),
+      { kind: "append", items: [fixed("F", "09:30", "10:30")], legs: [] },
+    );
+
+    expect(plan.order.map((row) => row.id)).toEqual(["A", "F", "B"]);
+    expect(plan.appended.map((row) => [row.id, row.sortOrder])).toEqual([["F", 1]]);
+    expect(plan.changes.map((change) => [change.id, change.sortOrder, change.fromTime])).toEqual([["B", 2, "10:30"]]);
+  });
+
+  it("leaves an all-FLEXIBLE append (Epic 12's) exactly as before: in the given order, at the end", () => {
+    const plan = planDaySchedule(state([stored("A", "FLEXIBLE", 60, "09:00", "10:00", 0)]), {
+      kind: "append",
+      items: [flexible("S0", 30), flexible("S1", 30)],
+      legs: [],
+    });
+
+    expect(plan.order.map((row) => row.id)).toEqual(["A", "S0", "S1"]);
+  });
+});

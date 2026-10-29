@@ -13,7 +13,7 @@ import {
 } from "@/lib/trips/dayChangeReceipt";
 import { fromPrismaItemType } from "@/lib/repositories/travelSegmentRepo";
 import { signDayChangeReceipt, verifyDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
-import { dayChangeReceiptSchema } from "@/lib/validation/dayChangeReceiptSchemas";
+import { dayChangeReceiptSchema, storedDayChangeReceiptSchema } from "@/lib/validation/dayChangeReceiptSchemas";
 
 const BINDING = { tripId: "trip-1", userId: "user-1" };
 
@@ -745,5 +745,86 @@ describe("dayChangeReceipt, version 3 (Story 13.1 AC5, AC12)", () => {
       "Fähre starts at 12:00, reachable only at 12:40",
     );
     expect(planConflictText(receiptWith([]), dictionary(en))).toBeUndefined();
+  });
+});
+
+describe("dayChangeReceipt, dayPlanApplied (Story 15.5)", () => {
+  const stamp = (ms: number) => at(`2026-04-01T00:00:00.${String(ms).padStart(3, "0")}Z`);
+  const deletedItem = {
+    ...itemRow,
+    payments: [payment],
+    images: [
+      {
+        id: "img-1",
+        dayPlanItemId: "item-1",
+        imageUrl: "/uploads/trips/t/x.webp",
+        sortOrder: 0,
+        createdAt: stamp(1),
+        updatedAt: stamp(2),
+        aiChangedAt: null,
+      },
+    ],
+    documents: [
+      {
+        id: "doc-1",
+        dayPlanItemId: "item-1",
+        documentUrl: "/uploads/trips/t/doc.pdf",
+        fileName: "Ticket.pdf",
+        sortOrder: 0,
+        createdAt: stamp(3),
+        updatedAt: stamp(4),
+        aiChangedAt: stamp(5),
+      },
+    ],
+  };
+  const applied = (mode: "append" | "replace", itemCount: number): DayChangeReceipt => ({
+    version: 3,
+    tripDayId: "day-1",
+    edited: {
+      kind: "dayPlanApplied",
+      mode,
+      items: Array.from({ length: itemCount }, (_value, index) => ({ itemId: `new-${index}`, updatedAt: stamp(100 + index) })),
+      segments: [{ segmentId: "seg-new", updatedAt: stamp(200) }],
+      deletedItems: mode === "replace" ? [deletedItem] : [],
+    },
+    removedTravelSegments: mode === "replace" ? [leg("s1")] : [],
+    movedItems: mode === "append" ? [moved("item-old")] : [],
+  });
+
+  it("round-trips both modes through the wire form at version 3, and both schemas accept them", () => {
+    for (const receipt of [applied("append", 3), applied("replace", 2)]) {
+      const wire = toDayChangeReceiptWire(receipt);
+      expect(wire.version).toBe(3);
+      expect(fromDayChangeReceiptWire(wire)).toEqual(receipt);
+      expect(storedDayChangeReceiptSchema.safeParse(wire).success).toBe(true);
+      expect(dayChangeReceiptSchema.safeParse(signDayChangeReceipt(wire, BINDING)).success).toBe(true);
+    }
+  });
+
+  it("refuses an unknown key or mode, no items, more than 50 items or legs, and a snapshot without its media", () => {
+    const wire = toDayChangeReceiptWire(applied("replace", 2));
+    if (wire.edited.kind !== "dayPlanApplied") throw new Error("fixture");
+    const edited = wire.edited;
+    const parse = (next: unknown) => storedDayChangeReceiptSchema.safeParse({ ...wire, edited: next }).success;
+    expect(parse(edited)).toBe(true);
+    expect(parse({ ...edited, extra: 1 })).toBe(false);
+    expect(parse({ ...edited, mode: "merge" })).toBe(false);
+    expect(parse({ ...edited, items: [] })).toBe(false);
+    expect(parse({ ...edited, items: Array.from({ length: 51 }, () => edited.items[0]) })).toBe(false);
+    expect(parse({ ...edited, segments: Array.from({ length: 51 }, () => edited.segments[0]) })).toBe(false);
+    const { images: _images, ...withoutImages } = edited.deletedItems[0];
+    void _images;
+    expect(parse({ ...edited, deletedItems: [withoutImages] })).toBe(false);
+  });
+
+  it("always has side effects", () => {
+    expect(receiptHasSideEffects({ ...applied("append", 1), movedItems: [] })).toBe(true);
+  });
+
+  it("has the notice's plan keys in both dictionaries", () => {
+    for (const key of ["trips.aiChanges.planAppended", "trips.aiChanges.planReplaced"]) {
+      expect(de[key as keyof typeof de], key).toContain("{title}");
+      expect(en[key as keyof typeof en], key).toContain("{title}");
+    }
   });
 });
