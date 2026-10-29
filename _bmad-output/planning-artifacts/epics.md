@@ -4685,8 +4685,8 @@ So that Claude can act for me in TravelPlan without ever seeing my password.
 
 **Given** an unauthenticated request to `POST /api/mcp`
 **Then** it answers 401 with `WWW-Authenticate: Bearer resource_metadata="<APP_BASE_URL>/.well-known/oauth-protected-resource"`
-**And** the protected-resource metadata (RFC 9728) names exactly `<APP_BASE_URL>/api/mcp` as the resource (the URL as the user enters it in Claude), TravelPlan as its only authorization server, and `scopes_supported` with the one trip scope and `offline_access`
-**And** the authorization-server metadata (RFC 8414) lists the authorize, token and revocation endpoints, `code` as the only response type, `authorization_code` and `refresh_token` as grant types, `S256` as the only PKCE method, `client_id_metadata_document_supported: true`, `token_endpoint_auth_methods_supported: ["none"]`, and **no** `registration_endpoint`
+**And** the protected-resource metadata (RFC 9728) names exactly `<APP_BASE_URL>/api/mcp` as the resource (the URL as the user enters it in Claude), TravelPlan as its only authorization server, and `scopes_supported` with the one trip scope (`offline_access` is listed only in the authorization-server metadata)
+**And** the authorization-server metadata (RFC 8414) lists the authorize, token and revocation endpoints, `code` as the only response type, `authorization_code` and `refresh_token` as grant types, `S256` as the only PKCE method, `client_id_metadata_document_supported: true`, `token_endpoint_auth_methods_supported: ["none"]`, `scopes_supported` with the trip scope and `offline_access`, `authorization_response_iss_parameter_supported: true`, and **no** `registration_endpoint`
 
 **Given** a client identifies itself (MCP authorization spec 2026-07-28: Client ID Metadata Documents; Dynamic Client Registration is deprecated there and not offered)
 **Then** its `client_id` must be an `https` URL whose host is in `MCP_CLIENT_ID_HOSTS` (default `claude.ai`, which covers the hosted Claude apps and Claude Code; Tommy, 2026-10-29: Claude only for now); any other client is refused before anything is fetched
