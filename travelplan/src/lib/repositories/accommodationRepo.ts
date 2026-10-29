@@ -151,6 +151,8 @@ export type AccommodationImageDetail = {
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
+  /** Story 15.7. When the connector attached the row (the day view's badge); `null` for an app upload. */
+  aiChangedAt: Date | null;
 };
 
 type AccommodationImageScopeParams = {
@@ -192,6 +194,8 @@ export type AccommodationDocumentDetail = {
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
+  /** Story 15.7. When the connector attached the row (the day view's badge); `null` for an app upload. */
+  aiChangedAt: Date | null;
 };
 
 type AccommodationDocumentCreateParams = AccommodationImageScopeParams & {
@@ -281,6 +285,7 @@ const toImageDetail = (image: {
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
+  aiChangedAt: Date | null;
 }): AccommodationImageDetail => ({
   id: image.id,
   accommodationId: image.accommodationId,
@@ -288,6 +293,7 @@ const toImageDetail = (image: {
   sortOrder: image.sortOrder,
   createdAt: image.createdAt,
   updatedAt: image.updatedAt,
+  aiChangedAt: image.aiChangedAt,
 });
 
 const toDocumentDetail = (document: {
@@ -298,6 +304,7 @@ const toDocumentDetail = (document: {
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
+  aiChangedAt: Date | null;
 }): AccommodationDocumentDetail => ({
   id: document.id,
   accommodationId: document.accommodationId,
@@ -306,6 +313,7 @@ const toDocumentDetail = (document: {
   sortOrder: document.sortOrder,
   createdAt: document.createdAt,
   updatedAt: document.updatedAt,
+  aiChangedAt: document.aiChangedAt,
 });
 
 const toStatus = (status: string): AccommodationStatus => (status === "BOOKED" ? "booked" : "planned");

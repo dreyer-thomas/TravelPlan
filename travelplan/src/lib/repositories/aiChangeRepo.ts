@@ -1,5 +1,11 @@
 import { prisma } from "@/lib/db/prisma";
-import { findInvalidity, UndoStaleError } from "@/lib/repositories/dayPlanChangeRepo";
+import {
+  deletedFileParentId,
+  deletedFileUrl,
+  findInvalidity,
+  resolveFileParentDir,
+  UndoStaleError,
+} from "@/lib/repositories/dayPlanChangeRepo";
 import type { TransactionClient } from "@/lib/repositories/travelSegmentRepo";
 import {
   fromDayChangeReceiptWire,
@@ -7,6 +13,8 @@ import {
   type DayChangeReceipt,
 } from "@/lib/trips/dayChangeReceipt";
 import { runDayChangeUndo } from "@/lib/trips/dayChangeUndo";
+import { removeManagedMediaFile } from "@/lib/trips/mediaCleanup";
+import { isExternalMediaUrl } from "@/lib/trips/uploadPaths";
 import { storedDayChangeReceiptSchema } from "@/lib/validation/dayChangeReceiptSchemas";
 
 /**
@@ -19,7 +27,11 @@ import { storedDayChangeReceiptSchema } from "@/lib/validation/dayChangeReceiptS
  * its wire form, or `null` for a write the app cannot undo (a parked activity's create, edit or delete).
  * Stored receipts are trusted and unsigned; client-held receipts stay HMAC-signed.
  *
- * Retention is 14 days: every read and undo ignores older rows, and every insert deletes them.
+ * Retention is 14 days: every read and undo ignores older rows, and every insert deletes them. Story 15.7:
+ * except a `fileDeleted` change that is still undoable, whose file stayed on disk for its undo. Deleting the
+ * row there would orphan the file for good, and unlinking inside the insert's transaction would break a
+ * still-valid undo if that transaction rolled back, so those rows wait for `sweepExpiredFileDeletions`,
+ * which every connector write runs first.
  *
  * No access check here: the routes and tools gate the trip (writer, 404 otherwise) before calling, and the
  * undo core adds the writer clause on the receipt's day.
@@ -33,6 +45,8 @@ export const AI_CHANGE_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
  *
  * Story 15.6 adds the stay actions (`subject`: the stay's name) and the leg actions (`subject`: "<from> →
  * <to>", the endpoints' titles or names, "?" when untitled, capped at 120 code points).
+ *
+ * Story 15.7 adds `fileAttached` and `fileDeleted` (`subject`: the file's name, capped at 120 code points).
  */
 export type AiChangeAction =
   | "created"
@@ -48,7 +62,9 @@ export type AiChangeAction =
   | "stayDeleted"
   | "legCreated"
   | "legUpdated"
-  | "legDeleted";
+  | "legDeleted"
+  | "fileAttached"
+  | "fileDeleted";
 
 export type AiChangeEntry = {
   id: string;
@@ -72,6 +88,9 @@ export type AiChangeUndoResult =
   | { status: "stale" };
 
 const retentionCutoff = (now: Date) => new Date(now.getTime() - AI_CHANGE_RETENTION_MS);
+
+/** Story 15.7. A `fileDeleted` change whose undo may still need its kept file: only the sweep removes it. */
+const keptFileWhere = { action: "fileDeleted", undoneAt: null, receiptJson: { not: null } };
 
 const entrySelect = {
   id: true,
@@ -146,7 +165,8 @@ const storableReceiptJson = (
 
 /**
  * Inside the write's transaction. Deletes every row past retention first (all trips: the table has no
- * other housekeeping), then inserts this one and returns its id.
+ * other housekeeping) except the ones keeping a deleted file (Story 15.7, the sweep's), then inserts this
+ * one and returns its id.
  */
 export const insertAiChangeInTransaction = async (
   tx: TransactionClient,
@@ -164,7 +184,7 @@ export const insertAiChangeInTransaction = async (
   },
 ): Promise<string> => {
   const now = params.now ?? new Date();
-  await tx.aiChange.deleteMany({ where: { createdAt: { lt: retentionCutoff(now) } } });
+  await tx.aiChange.deleteMany({ where: { createdAt: { lt: retentionCutoff(now) }, NOT: keptFileWhere } });
   const row = await tx.aiChange.create({
     data: {
       tripId: params.tripId,
@@ -227,6 +247,70 @@ const parseStoredReceipt = (receiptJson: string): DayChangeReceipt | null => {
   }
   const parsed = storedDayChangeReceiptSchema.safeParse(raw);
   return parsed.success ? fromDayChangeReceiptWire(parsed.data) : null;
+};
+
+/** Story 15.7. Whether any of the four media tables names this stored URL (again). */
+const mediaRowNamesUrl = async (url: string) => {
+  const counts = await Promise.all([
+    prisma.dayPlanItemDocument.count({ where: { documentUrl: url } }),
+    prisma.dayPlanItemImage.count({ where: { imageUrl: url } }),
+    prisma.accommodationDocument.count({ where: { documentUrl: url } }),
+    prisma.accommodationImage.count({ where: { imageUrl: url } }),
+  ]);
+  return counts.some((count) => count > 0);
+};
+
+/**
+ * Story 15.7. The housekeeping the retention delete leaves out: every `fileDeleted` change past retention
+ * that was never undone. Each row is deleted first (conditional on still being not undone), and only then
+ * its kept file unlinked, so a crash in between leaves an orphaned file, never a row whose file is gone.
+ * A file a media row names again (an import or a copy reusing the URL) is kept; each unlink is confined to
+ * the parent's own folder, as the undo's is. Returns how many rows it removed. Failures to unlink are
+ * logged by `removeManagedMediaFile` and never thrown.
+ *
+ * It runs on a connector write's request path, so one call takes at most `SWEEP_BATCH` rows, oldest first;
+ * a backlog drains over the following writes. A receipt that no longer parses is read before its row goes,
+ * and logged with the change id, because the row is the only record of where its kept file is.
+ */
+const SWEEP_BATCH = 25;
+
+export const sweepExpiredFileDeletions = async (now: Date = new Date()): Promise<number> => {
+  const rows = await prisma.aiChange.findMany({
+    where: { ...keptFileWhere, createdAt: { lt: retentionCutoff(now) } },
+    select: { id: true, tripId: true, receiptJson: true },
+    orderBy: { createdAt: "asc" },
+    take: SWEEP_BATCH,
+  });
+  let removed = 0;
+  for (const row of rows) {
+    const receipt = row.receiptJson === null ? null : parseStoredReceipt(row.receiptJson);
+    const deleted = await prisma.aiChange.deleteMany({ where: { id: row.id, undoneAt: null } });
+    if (deleted.count !== 1) continue;
+    removed += 1;
+    if (!receipt || receipt.edited.kind !== "fileDeleted") {
+      console.error("ai-changes sweep: kept file's receipt no longer reads; file left on disk", {
+        tripId: row.tripId,
+        changeId: row.id,
+      });
+      continue;
+    }
+    const { edited } = receipt;
+    const storedUrl = deletedFileUrl(edited);
+    if (isExternalMediaUrl(storedUrl) || (await mediaRowNamesUrl(storedUrl))) continue;
+    const allowedDir = resolveFileParentDir({
+      storedUrl,
+      tripId: row.tripId,
+      target: edited.target,
+      media: edited.media,
+      parentId: deletedFileParentId(edited),
+    });
+    if (!allowedDir) {
+      console.error("ai-changes sweep: kept file url names no folder of its entry", { tripId: row.tripId, changeId: row.id });
+      continue;
+    }
+    await removeManagedMediaFile({ storedUrl, allowedDir, context: "ai-changes sweep" });
+  }
+  return removed;
 };
 
 /**

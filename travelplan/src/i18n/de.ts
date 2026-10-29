@@ -706,6 +706,8 @@ const de: Dictionary = {
   "trips.aiChanges.legCreated": "Fahrt hinzugefügt: {title}",
   "trips.aiChanges.legUpdated": "Fahrt geändert: {title}",
   "trips.aiChanges.legDeleted": "Fahrt gelöscht: {title}",
+  "trips.aiChanges.fileAttached": "Datei angehängt: {title}",
+  "trips.aiChanges.fileDeleted": "Datei gelöscht: {title}",
   "trips.aiChanges.undo": "Rückgängig",
   "trips.aiChanges.stale": "Der Tag hat sich seitdem geändert; diese Änderung kann nicht mehr rückgängig gemacht werden.",
   "trips.aiChanges.unavailable": "Diese Änderung lässt sich nicht mehr rückgängig machen.",

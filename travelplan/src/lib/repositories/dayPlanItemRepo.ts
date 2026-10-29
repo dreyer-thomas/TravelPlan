@@ -193,6 +193,8 @@ export type DayPlanItemImageDetail = {
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
+  /** Story 15.7. When the connector attached the row (the day view's badge); `null` for an app upload. */
+  aiChangedAt: Date | null;
 };
 
 /**
@@ -238,6 +240,8 @@ export type DayPlanItemDocumentDetail = {
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
+  /** Story 15.7. When the connector attached the row (the day view's badge); `null` for an app upload. */
+  aiChangedAt: Date | null;
 };
 
 type DayPlanItemDocumentCreateParams = DayPlanItemImageScopeParams & {
@@ -444,6 +448,7 @@ const toImageDetail = (item: {
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
+  aiChangedAt: Date | null;
 }): DayPlanItemImageDetail => ({
   id: item.id,
   dayPlanItemId: item.dayPlanItemId,
@@ -451,6 +456,7 @@ const toImageDetail = (item: {
   sortOrder: item.sortOrder,
   createdAt: item.createdAt,
   updatedAt: item.updatedAt,
+  aiChangedAt: item.aiChangedAt,
 });
 
 const toDocumentDetail = (item: {
@@ -461,6 +467,7 @@ const toDocumentDetail = (item: {
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
+  aiChangedAt: Date | null;
 }): DayPlanItemDocumentDetail => ({
   id: item.id,
   dayPlanItemId: item.dayPlanItemId,
@@ -469,6 +476,7 @@ const toDocumentDetail = (item: {
   sortOrder: item.sortOrder,
   createdAt: item.createdAt,
   updatedAt: item.updatedAt,
+  aiChangedAt: item.aiChangedAt,
 });
 
 /** Payments in the order PATCH wrote them (`sortOrder`), which is the order undo writes them back in. */

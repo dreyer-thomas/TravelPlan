@@ -237,6 +237,26 @@ const stayDocumentRowSchema = z
   })
   .strict();
 
+/**
+ * Story 15.7. A file the connector deleted, by its parent and list (nested on `target`, then `media`), so
+ * `previous` must be the row type those two name. The URL rules are each row schema's own; containment in
+ * this trip's tree is the repository's check.
+ */
+const fileDeletedSchema = z.discriminatedUnion("target", [
+  z.discriminatedUnion("media", [
+    z.object({ kind: z.literal("fileDeleted"), target: z.literal("activity"), media: z.literal("image"), previous: imageRowSchema }).strict(),
+    z
+      .object({ kind: z.literal("fileDeleted"), target: z.literal("activity"), media: z.literal("document"), previous: documentRowSchema })
+      .strict(),
+  ]),
+  z.discriminatedUnion("media", [
+    z.object({ kind: z.literal("fileDeleted"), target: z.literal("stay"), media: z.literal("image"), previous: stayImageRowSchema }).strict(),
+    z
+      .object({ kind: z.literal("fileDeleted"), target: z.literal("stay"), media: z.literal("document"), previous: stayDocumentRowSchema })
+      .strict(),
+  ]),
+]);
+
 const deletedStaySnapshotSchema = z
   .object({
     ...stayColumns,
@@ -379,6 +399,23 @@ const editedSchema = z.discriminatedUnion("kind", [
       nextDayLegs: z.array(travelSegmentRowSchema).max(MAX_LEGS),
     })
     .strict(),
+  // Story 15.7. The connector's file kinds. `url` is a stored upload path (the attach writes nothing else);
+  // `dayPlanChangeRepo.ts` checks it lies inside this trip's tree.
+  z
+    .object({
+      kind: z.literal("fileAttached"),
+      target: z.enum(["activity", "stay"]),
+      media: z.enum(["document", "image"]),
+      parentId: idSchema,
+      fileId: idSchema,
+      url: z
+        .string()
+        .max(MAX_STORED_IMAGE_URL_LENGTH)
+        .refine((value) => value.startsWith("/uploads/"), "File URL must be a stored upload path"),
+      updatedAt: isoDateSchema,
+    })
+    .strict(),
+  fileDeletedSchema,
 ]);
 
 /** Story 11.2. Times are stored text (an import may hold odd ones); the stamps are what undo compares. */

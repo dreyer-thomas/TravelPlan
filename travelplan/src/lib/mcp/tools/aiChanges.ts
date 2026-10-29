@@ -37,6 +37,9 @@ const SUMMARIES: Record<string, (subject: string) => string> = {
   legCreated: (subject) => `Added leg ${subject}`,
   legUpdated: (subject) => `Updated leg ${subject}`,
   legDeleted: (subject) => `Deleted leg ${subject}`,
+  // Story 15.7. The subject is the file's name.
+  fileAttached: (subject) => `Attached file ${subject}`,
+  fileDeleted: (subject) => `Deleted file ${subject}`,
 };
 
 /** The English one-liner from `action` + `subject`, e.g. `Created activity "Louvre"`. */
@@ -75,8 +78,9 @@ export const registerAiChangeTools = (server: McpServer) => {
         "Lists the changes made to a trip through this connector in the last 14 days, newest first, by any " +
         "connected app of any trip member: id, dayId (null for the bucket list), action (created, updated, " +
         "deleted, moved, parked, scheduled, planAppended, planReplaced, stayCreated, stayUpdated, stayDeleted, " +
-        "legCreated, legUpdated, legDeleted), subject (the activity's title, a day plan's titles joined by " +
-        "commas, a stay's name, or a leg's \"from → to\"), summary (one English line), " +
+        "legCreated, legUpdated, legDeleted, fileAttached, fileDeleted), subject (the activity's title, a day " +
+        "plan's titles joined by commas, a stay's name, a leg's \"from → to\", or a file's name), summary (one " +
+        "English line), " +
         "createdAt and undoneAt (ISO 8601; undoneAt null = not undone), undoable (undo_ai_change can be tried) " +
         "and clientHost (the app that made it). At most the newest 100; truncated is true when there are more. " +
         "Give dayId for one day's changes only.",

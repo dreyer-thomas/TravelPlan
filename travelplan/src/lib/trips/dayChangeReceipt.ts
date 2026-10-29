@@ -80,6 +80,13 @@
  * payments, images and documents, and the legs the delete took: the ones on the stay's own day (into
  * tonight's stay) in `removedTravelSegments` as usual, the ones on the next day (out of last night's stay)
  * in `nextDayLegs`, with `nextDayId`. A leg that was already undrawn before the delete is not recorded.
+ *
+ * Story 15.7 adds the connector's file kinds, again additively and only ever stored server-side.
+ * `fileAttached` names the new document or image row (`fileId`), its parent (an activity or a stay), its
+ * stored URL and its post-write stamp; the receipt's `tripDayId` is the parent's day. `fileDeleted` carries
+ * the deleted row in full (`previous`, the media row type matching `target` and `media`); its file stays on
+ * disk for the undo, and the expiry sweep (`aiChangeRepo.ts`) removes it once the change has left the
+ * 14-day window. Neither moves a row or removes a leg, so neither has a side effect for the day notice.
  */
 
 import { formatMessage } from "@/i18n";
@@ -219,6 +226,20 @@ export type DeletedStaySnapshot<T extends Date | string = Date> = StaySnapshot<T
   documents: StayDocumentRow<T>[];
 };
 
+/** Story 15.7. What a connector file belongs to, and which of the entry's two lists it is in. */
+export type DayChangeFileTarget = "activity" | "stay";
+export type DayChangeFileMedia = "document" | "image";
+
+/**
+ * Story 15.7. A deleted file row, typed by its parent and list: the four media tables share no row type
+ * (an activity's rows name `dayPlanItemId`, a stay's `accommodationId`; only documents carry `fileName`).
+ */
+export type DeletedFileRow<T extends Date | string = Date> =
+  | { target: "activity"; media: "image"; previous: DayPlanItemImageRow<T> }
+  | { target: "activity"; media: "document"; previous: DayPlanItemDocumentRow<T> }
+  | { target: "stay"; media: "image"; previous: StayImageRow<T> }
+  | { target: "stay"; media: "document"; previous: StayDocumentRow<T> };
+
 /** Story 15.5. `append` adds after the day's last activity; `replace` deletes the day's activities first. */
 export type DayPlanApplyMode = "append" | "replace";
 
@@ -310,7 +331,22 @@ export type DayChangeEdited<T extends Date | string = Date> =
       previous: DeletedStaySnapshot<T>;
       nextDayId: string | null;
       nextDayLegs: TravelSegmentRow<T>[];
-    };
+    }
+  /**
+   * Story 15.7. A file the connector attached to an activity or a stay on the receipt's day. `url` is the
+   * stored address (the undo removes that file), `updatedAt` the row's post-write stamp.
+   */
+  | {
+      kind: "fileAttached";
+      target: DayChangeFileTarget;
+      media: DayChangeFileMedia;
+      parentId: string;
+      fileId: string;
+      url: string;
+      updatedAt: T;
+    }
+  /** Story 15.7. A file row the connector deleted, in full; its file stayed on disk for the undo. */
+  | ({ kind: "fileDeleted" } & DeletedFileRow<T>);
 
 /**
  * Story 11.2. An activity the write moved: its times before the change, and its `updatedAt` before and
@@ -395,6 +431,18 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
     images: previous.images.map((image) => mapMarked(image, convert)),
     documents: previous.documents.map((document) => mapMarked(document, convert)),
   });
+
+  // Story 15.7. One branch per row type, so each `previous` keeps the shape its target and list name.
+  const deletedFile = (row: DeletedFileRow<A>): DeletedFileRow<B> => {
+    if (row.target === "activity") {
+      return row.media === "image"
+        ? { target: "activity", media: "image", previous: mapMarked(row.previous, convert) }
+        : { target: "activity", media: "document", previous: mapMarked(row.previous, convert) };
+    }
+    return row.media === "image"
+      ? { target: "stay", media: "image", previous: mapMarked(row.previous, convert) }
+      : { target: "stay", media: "document", previous: mapMarked(row.previous, convert) };
+  };
 
   let edited: DayChangeEdited<B>;
   switch (receipt.edited.kind) {
@@ -493,6 +541,12 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
         nextDayLegs: receipt.edited.nextDayLegs.map((segment) => mapMarked(segment, convert)),
       };
       break;
+    case "fileAttached":
+      edited = { ...receipt.edited, updatedAt: convert(receipt.edited.updatedAt) };
+      break;
+    case "fileDeleted":
+      edited = { kind: "fileDeleted", ...deletedFile(receipt.edited) };
+      break;
     default: {
       const unhandled: never = receipt.edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
@@ -534,6 +588,8 @@ const movedTimes = <T extends Date | string>(row: MovedItemRow<T>) =>
  * way to take that back, even when nothing on the day moved.
  * Story 14.2: so does parking one, for the same reason in the other direction.
  * Story 15.5: so does a connector day plan, which writes a whole day at once.
+ * Story 15.7: a connector file attach or delete has none (it moves nothing and takes no leg); the stored
+ * change lists it in the AI notice under its own label, and the summary below has no part for it.
  */
 export const receiptHasSideEffects = <T extends Date | string>(receipt: DayChangeReceipt<T>): boolean =>
   receipt.edited.kind === "reordered" ||

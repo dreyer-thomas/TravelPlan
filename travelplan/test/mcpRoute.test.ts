@@ -182,6 +182,10 @@ describe("whoami", () => {
       "create_leg",
       "update_leg",
       "delete_leg",
+      // Story 15.7.
+      "get_file",
+      "attach_file",
+      "delete_file",
     ]);
 
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);

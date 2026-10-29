@@ -11,6 +11,7 @@ import {
   type MovedItemRow,
   type TravelSegmentRow,
 } from "@/lib/trips/dayChangeReceipt";
+import { findInvalidity } from "@/lib/repositories/dayPlanChangeRepo";
 import { fromPrismaItemType } from "@/lib/repositories/travelSegmentRepo";
 import { signDayChangeReceipt, verifyDayChangeReceipt } from "@/lib/trips/dayChangeReceiptSignature";
 import { dayChangeReceiptSchema, storedDayChangeReceiptSchema } from "@/lib/validation/dayChangeReceiptSchemas";
@@ -942,6 +943,144 @@ describe("dayChangeReceipt, stay kinds (Story 15.6)", () => {
       "trips.aiChanges.legUpdated",
       "trips.aiChanges.legDeleted",
     ]) {
+      expect(de[key as keyof typeof de], key).toContain("{title}");
+      expect(en[key as keyof typeof en], key).toContain("{title}");
+    }
+  });
+});
+
+describe("dayChangeReceipt, file kinds (Story 15.7)", () => {
+  const stamp = (ms: number) => at(`2026-06-01T00:00:00.${String(ms).padStart(3, "0")}Z`);
+  const tripId = "trip-files";
+  const inTrip = (rest: string) => `/uploads/trips/${tripId}/days/day-1/${rest}`;
+  const fileReceipt = (edited: DayChangeReceipt["edited"]): DayChangeReceipt => ({
+    version: 3,
+    tripDayId: "day-1",
+    edited,
+    removedTravelSegments: [],
+    movedItems: [],
+  });
+  const attached = fileReceipt({
+    kind: "fileAttached",
+    target: "activity",
+    media: "document",
+    parentId: "item-1",
+    fileId: "doc-1",
+    url: inTrip("day-plan-items/item-1/documents/doc-1.pdf"),
+    updatedAt: stamp(1),
+  });
+  const deletedItemImage = fileReceipt({
+    kind: "fileDeleted",
+    target: "activity",
+    media: "image",
+    previous: {
+      id: "img-1",
+      dayPlanItemId: "item-1",
+      imageUrl: inTrip("day-plan-items/item-1/img-1.webp"),
+      sortOrder: 2,
+      createdAt: stamp(2),
+      updatedAt: stamp(3),
+      aiChangedAt: null,
+    },
+  });
+  const deletedItemDocument = fileReceipt({
+    kind: "fileDeleted",
+    target: "activity",
+    media: "document",
+    previous: {
+      id: "doc-2",
+      dayPlanItemId: "item-1",
+      documentUrl: inTrip("day-plan-items/item-1/documents/doc-2.pdf"),
+      fileName: "Ticket.pdf",
+      sortOrder: 0,
+      createdAt: stamp(4),
+      updatedAt: stamp(5),
+      aiChangedAt: stamp(5),
+    },
+  });
+  const deletedStayImage = fileReceipt({
+    kind: "fileDeleted",
+    target: "stay",
+    media: "image",
+    previous: {
+      id: "simg-1",
+      accommodationId: "stay-1",
+      imageUrl: inTrip("accommodations/stay-1/img-1.png"),
+      sortOrder: 1,
+      createdAt: stamp(6),
+      updatedAt: stamp(7),
+      aiChangedAt: null,
+    },
+  });
+  const deletedStayDocument = fileReceipt({
+    kind: "fileDeleted",
+    target: "stay",
+    media: "document",
+    previous: {
+      id: "sdoc-1",
+      accommodationId: "stay-1",
+      documentUrl: inTrip("accommodations/stay-1/documents/doc-3.pdf"),
+      fileName: "Booking.pdf",
+      sortOrder: 3,
+      createdAt: stamp(8),
+      updatedAt: stamp(9),
+      aiChangedAt: stamp(9),
+    },
+  });
+  const receipts = [attached, deletedItemImage, deletedItemDocument, deletedStayImage, deletedStayDocument];
+
+  it("round-trips both kinds, for every target and list, through the wire form at version 3, and both schemas accept them", () => {
+    for (const receipt of receipts) {
+      const wire = toDayChangeReceiptWire(receipt);
+      expect(wire.version).toBe(3);
+      expect(fromDayChangeReceiptWire(wire)).toEqual(receipt);
+      expect(storedDayChangeReceiptSchema.safeParse(wire).success).toBe(true);
+      expect(dayChangeReceiptSchema.safeParse(signDayChangeReceipt(wire, BINDING)).success).toBe(true);
+      expect(findInvalidity(receipt, tripId)).toBeNull();
+    }
+  });
+
+  it("refuses an unknown key, a row of another list or entry type, an unknown target and an external attached URL", () => {
+    const parse = (receipt: DayChangeReceipt, edited: unknown) =>
+      storedDayChangeReceiptSchema.safeParse({ ...toDayChangeReceiptWire(receipt), edited }).success;
+    const attachedWire = toDayChangeReceiptWire(attached).edited;
+    expect(parse(attached, { ...attachedWire, extra: 1 })).toBe(false);
+    expect(parse(attached, { ...attachedWire, target: "day" })).toBe(false);
+    expect(parse(attached, { ...attachedWire, url: "https://files.example/ticket.pdf" })).toBe(false);
+    const imageWire = toDayChangeReceiptWire(deletedItemImage).edited;
+    if (imageWire.kind !== "fileDeleted") throw new Error("fixture");
+    // An activity image row under `media: "document"`, or under a stay: the row type must match both.
+    expect(parse(deletedItemImage, { ...imageWire, media: "document" })).toBe(false);
+    expect(parse(deletedItemImage, { ...imageWire, target: "stay" })).toBe(false);
+    expect(parse(deletedItemImage, { ...imageWire, previous: { ...imageWire.previous, extra: 1 } })).toBe(false);
+    const { aiChangedAt: _marker, ...withoutMarker } = imageWire.previous;
+    void _marker;
+    expect(parse(deletedItemImage, { ...imageWire, previous: withoutMarker })).toBe(false);
+  });
+
+  it("is invalid with a moved row, a removed leg, or a file outside the trip; a deleted external image is not", () => {
+    expect(findInvalidity({ ...attached, movedItems: [moved("item-2")] }, tripId)).toBe("side effect a file save never has");
+    expect(findInvalidity({ ...deletedItemDocument, removedTravelSegments: [leg("l1")] }, tripId)).toBe(
+      "side effect a file save never has",
+    );
+    expect(findInvalidity(attached, "another-trip")).toBe("file outside the trip");
+    const traversal = { ...attached, edited: { ...attached.edited, url: `/uploads/trips/${tripId}/../other/doc.pdf` } } as DayChangeReceipt;
+    expect(findInvalidity(traversal, tripId)).toBe("file outside the trip");
+    expect(findInvalidity(deletedStayDocument, "another-trip")).toBe("file outside the trip");
+    if (deletedItemImage.edited.kind !== "fileDeleted" || deletedItemImage.edited.media !== "image") throw new Error("fixture");
+    const external = {
+      ...deletedItemImage,
+      edited: { ...deletedItemImage.edited, previous: { ...deletedItemImage.edited.previous, imageUrl: "https://images.example/x.jpg" } },
+    } as DayChangeReceipt;
+    expect(findInvalidity(external, tripId)).toBeNull();
+  });
+
+  it("has no side effect and no summary part of its own, and the notice's file keys are in both dictionaries", () => {
+    for (const receipt of receipts) {
+      expect(receiptHasSideEffects(receipt)).toBe(false);
+      expect(summarizeDayChangeReceipt(receipt, (key) => en[key as keyof typeof en] ?? key)).toBe("");
+    }
+    for (const key of ["trips.aiChanges.fileAttached", "trips.aiChanges.fileDeleted"]) {
       expect(de[key as keyof typeof de], key).toContain("{title}");
       expect(en[key as keyof typeof en], key).toContain("{title}");
     }

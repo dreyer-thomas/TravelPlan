@@ -15,7 +15,11 @@ import {
   TRIP_NOT_FOUND,
   WRITE_TOOL_ANNOTATIONS,
 } from "@/lib/mcp/toolRuntime";
-import { insertAiChangeInTransaction, type AiChangeAction } from "@/lib/repositories/aiChangeRepo";
+import {
+  insertAiChangeInTransaction,
+  sweepExpiredFileDeletions,
+  type AiChangeAction,
+} from "@/lib/repositories/aiChangeRepo";
 import {
   createParkedDayPlanItem,
   deleteParkedDayPlanItem,
@@ -260,11 +264,18 @@ export type Caller = { userId: string; tripId: string; clientId: string };
 /**
  * Every write tool's first step: a change is never recorded without the client that made it (a token
  * without one is refused as unauthenticated), and only a trip the user may plan exists (ruling R1).
+ *
+ * Story 15.7: a write that passes the gate first runs the expiry sweep of deleted files kept for undo
+ * (`sweepExpiredFileDeletions`), best-effort: a failure is logged by name and never fails the tool.
  */
 export const startWrite = async (userId: string, tripId: string, clientId: string | null): Promise<Caller | CallToolResult> => {
   if (!clientId) return toolError(NOT_AUTHENTICATED);
   const gate = await requireWritableTrip(userId, tripId);
-  return gate === true ? { userId, tripId, clientId } : gate;
+  if (gate !== true) return gate;
+  await sweepExpiredFileDeletions().catch((error: unknown) => {
+    console.error("mcp: file expiry sweep failed", error instanceof Error ? error.name : "unknown error");
+  });
+  return { userId, tripId, clientId };
 };
 
 export const isCaller = (value: Caller | CallToolResult): value is Caller => "clientId" in value;

@@ -23,7 +23,7 @@ const structured = <T = Record<string, unknown>>(body: ToolCallBody): T => {
   expect(body.result?.isError).toBeFalsy();
   // AC 11: the same JSON as structuredContent and as the one text item.
   expect(body.result?.content).toHaveLength(1);
-  expect(JSON.parse(body.result!.content![0].text)).toEqual(body.result?.structuredContent);
+  expect(JSON.parse(body.result!.content![0].text!)).toEqual(body.result?.structuredContent);
   return body.result!.structuredContent as T;
 };
 
@@ -209,8 +209,8 @@ describe("get_day", () => {
         link: null,
         cost: null,
         payments: [],
-        documents: [{ id: expect.any(String), fileName: "menu.pdf" }],
-        images: [{ id: expect.any(String), fileName: "table.webp" }],
+        documents: [{ id: expect.any(String), fileName: "menu.pdf", updatedAt: expect.any(String) }],
+        images: [{ id: expect.any(String), fileName: "table.webp", updatedAt: expect.any(String) }],
         updatedAt: iso,
         aiChangedAt: null,
       },
@@ -254,8 +254,8 @@ describe("get_day", () => {
         { amountEurCents: 5000, dueDate: "2027-04-15", amountOriginalMinor: 125000 },
         { amountEurCents: 15000, dueDate: "2027-05-02", amountOriginalMinor: 375000 },
       ],
-      documents: [{ id: expect.any(String), fileName: "booking.pdf" }],
-      images: [{ id: expect.any(String), fileName: "front.jpg" }],
+      documents: [{ id: expect.any(String), fileName: "booking.pdf", updatedAt: expect.any(String) }],
+      images: [{ id: expect.any(String), fileName: "front.jpg", updatedAt: expect.any(String) }],
       updatedAt: iso,
       aiChangedAt: null,
     });
@@ -311,8 +311,8 @@ describe("get_bucket_list", () => {
         link: null,
         cost: { eurCents: 2000, original: { amountMinor: 50000, currency: "CZK", rate: 25, rateDate: "2027-04-01" } },
         payments: [{ amountEurCents: 2000, dueDate: "2027-05-03", amountOriginalMinor: 50000 }],
-        documents: [{ id: expect.any(String), fileName: "ticket.pdf" }],
-        images: [{ id: expect.any(String), fileName: "view.jpg" }],
+        documents: [{ id: expect.any(String), fileName: "ticket.pdf", updatedAt: expect.any(String) }],
+        images: [{ id: expect.any(String), fileName: "view.jpg", updatedAt: expect.any(String) }],
         updatedAt: expect.any(String),
         aiChangedAt: null,
       },

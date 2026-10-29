@@ -84,9 +84,18 @@ export const fileNameOfUrl = (url: string) => {
   }
 };
 
+/** Story 15.7: each file's `updatedAt` (ISO), which `delete_file` takes back; `get_file` takes the id. */
 export const toFiles = (media: PlannerMedia) => ({
-  documents: media.documents.map((document) => ({ id: document.id, fileName: document.fileName })),
-  images: media.images.map((image) => ({ id: image.id, fileName: fileNameOfUrl(image.imageUrl) })),
+  documents: media.documents.map((document) => ({
+    id: document.id,
+    fileName: document.fileName,
+    updatedAt: document.updatedAt.toISOString(),
+  })),
+  images: media.images.map((image) => ({
+    id: image.id,
+    fileName: fileNameOfUrl(image.imageUrl),
+    updatedAt: image.updatedAt.toISOString(),
+  })),
 });
 
 const toPlace = (location: PlannerLocation) =>

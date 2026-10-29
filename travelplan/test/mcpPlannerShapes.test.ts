@@ -55,11 +55,15 @@ describe("plannerShapes (Story 15.2)", () => {
       updatedAt: new Date("2027-01-01T08:00:00.000Z"),
       aiChangedAt: null as Date | null,
     };
-    const media = { documents: [], images: [{ id: "img", imageUrl: "/uploads/x/y.jpg" }] };
+    const media = {
+      documents: [],
+      images: [{ id: "img", imageUrl: "/uploads/x/y.jpg", updatedAt: new Date("2027-01-02T09:00:00.000Z") }],
+    };
     const parked = toActivity(item, media, { withTimes: false });
     expect(parked).not.toHaveProperty("startTime");
     expect(parked).toMatchObject({ title: null, description: "Hi", place: { label: null, lat: 1, lng: 2 } });
-    expect(parked.images).toEqual([{ id: "img", fileName: "y.jpg" }]);
+    // Story 15.7: the file's stamp, which `delete_file` takes back.
+    expect(parked.images).toEqual([{ id: "img", fileName: "y.jpg", updatedAt: "2027-01-02T09:00:00.000Z" }]);
     expect(JSON.stringify(parked)).not.toContain("/uploads/");
     expect(toActivity(item, undefined, { withTimes: true })).toMatchObject({
       startTime: "09:00",

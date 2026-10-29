@@ -42,7 +42,8 @@ export const rpc = (body: unknown, headers: Record<string, string> = {}) =>
 export type ToolCallBody = {
   result?: {
     structuredContent?: Record<string, unknown>;
-    content?: { type: string; text: string }[];
+    /** Story 15.7: `get_file` adds an embedded resource block after the text one. */
+    content?: { type: string; text?: string; resource?: { uri: string; mimeType?: string; blob?: string } }[];
     isError?: boolean;
   };
   error?: { code: number; message: string };

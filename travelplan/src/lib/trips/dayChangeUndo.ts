@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import {
   undoDayPlanChangeForTrip,
   type DayPlanChangeUndoResult,
+  type UndoneFile,
   type UndoneImageFile,
 } from "@/lib/repositories/dayPlanChangeRepo";
 import type { TransactionClient } from "@/lib/repositories/travelSegmentRepo";
@@ -20,6 +21,10 @@ import { resolveManagedItemMediaDir } from "@/lib/trips/uploadPaths";
  * unlinked here, after the transaction has committed and only for the rows it read, each confined to its
  * activity's own directory, and then that directory itself once it is empty. A failed unlink is logged
  * and never turns the undo into an error.
+ *
+ * Story 15.7: undoing a connector `fileAttached` deletes the file row; its file goes the same way, after
+ * the commit, confined to the folder the repository named for it (the parent's own). No directory is
+ * removed: an activity's or stay's folder usually holds its other media.
  */
 
 export type DayChangeUndoOutcome =
@@ -55,6 +60,13 @@ const removeUndoneImageFiles = async (tripId: string, removedFiles: UndoneImageF
   }
 };
 
+/** Story 15.7. Each file a `fileAttached` undo took away, from its parent's own folder; failures are logged. */
+const removeUndoneFiles = async (removedFiles: UndoneFile[], logContext: string) => {
+  for (const file of removedFiles) {
+    await removeManagedMediaFile({ storedUrl: file.storedUrl, allowedDir: file.allowedDir, context: logContext });
+  }
+};
+
 export const runDayChangeUndo = async (params: {
   userId: string;
   tripId: string;
@@ -68,5 +80,6 @@ export const runDayChangeUndo = async (params: {
   const result = await undoDayPlanChangeForTrip({ userId, tripId, receipt, inTransaction });
   if (result.status !== "undone") return result;
   await removeUndoneImageFiles(tripId, result.removedImageFiles ?? [], logContext);
+  await removeUndoneFiles(result.removedFiles ?? [], logContext);
   return { status: "undone" };
 };

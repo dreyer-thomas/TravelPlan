@@ -5,6 +5,7 @@ import { type PaymentDetail, toPaymentDetails } from "@/lib/repositories/payment
 import { buildStoredSegmentPairKey } from "@/lib/repositories/travelSegmentRepo";
 import { compareDayPlanItemsByOrder } from "@/lib/trips/dayPlanItemOrder";
 import { buildDrawnDaySegmentPairKeys } from "@/lib/trips/daySegmentPairs";
+import { fileNameOfUrl } from "@/lib/mcp/plannerShapes";
 import { buildScheduleInput, derivePlanConflicts, type DayPlanConflict } from "@/lib/trips/planConflicts";
 
 /**
@@ -39,14 +40,15 @@ const costSelect = {
   payments: paymentsSelect,
 };
 
+/** Story 15.7: each file's `updatedAt` too, which `delete_file` compares. */
 const mediaSelect = {
-  images: { select: { id: true, imageUrl: true }, orderBy: mediaOrder },
-  documents: { select: { id: true, fileName: true }, orderBy: mediaOrder },
+  images: { select: { id: true, imageUrl: true, updatedAt: true }, orderBy: mediaOrder },
+  documents: { select: { id: true, fileName: true, updatedAt: true }, orderBy: mediaOrder },
 };
 
 export type PlannerMedia = {
-  documents: { id: string; fileName: string }[];
-  images: { id: string; imageUrl: string }[];
+  documents: { id: string; fileName: string; updatedAt: Date }[];
+  images: { id: string; imageUrl: string; updatedAt: Date }[];
 };
 
 export type PlannerCost = {
@@ -333,12 +335,12 @@ export const listParkedItemMediaForPlanner = async (params: {
     prisma.dayPlanItemDocument.findMany({
       where,
       orderBy: [{ dayPlanItemId: "asc" }, ...mediaOrder],
-      select: { id: true, dayPlanItemId: true, fileName: true },
+      select: { id: true, dayPlanItemId: true, fileName: true, updatedAt: true },
     }),
     prisma.dayPlanItemImage.findMany({
       where,
       orderBy: [{ dayPlanItemId: "asc" }, ...mediaOrder],
-      select: { id: true, dayPlanItemId: true, imageUrl: true },
+      select: { id: true, dayPlanItemId: true, imageUrl: true, updatedAt: true },
     }),
   ]);
   const entry = (itemId: string) => {
@@ -349,8 +351,12 @@ export const listParkedItemMediaForPlanner = async (params: {
     }
     return value;
   };
-  for (const document of documents) entry(document.dayPlanItemId).documents.push({ id: document.id, fileName: document.fileName });
-  for (const image of images) entry(image.dayPlanItemId).images.push({ id: image.id, imageUrl: image.imageUrl });
+  for (const document of documents) {
+    entry(document.dayPlanItemId).documents.push({ id: document.id, fileName: document.fileName, updatedAt: document.updatedAt });
+  }
+  for (const image of images) {
+    entry(image.dayPlanItemId).images.push({ id: image.id, imageUrl: image.imageUrl, updatedAt: image.updatedAt });
+  }
   return media;
 };
 
@@ -565,4 +571,149 @@ export const findLegForPlanner = async (params: {
     },
   });
   return { leg };
+};
+
+/**
+ * Story 15.7. One file of a trip the user may plan, by the id `get_day` or `get_bucket_list` gave it: a row of
+ * any of the four media tables (an activity's or a stay's documents and images). `media` and `target` say
+ * which; `tripDayId` is the parent's day (`null` for a parked activity); `url` is the stored address, for the
+ * file tools only (never handed to the model). An image has no name of its own, so `fileName` is its URL's
+ * last segment, as `get_day` shows it. `null` when there is no such file on a trip this user may plan; the
+ * caller has already answered the trip itself.
+ */
+export type PlannerFileRow = {
+  id: string;
+  media: "document" | "image";
+  target: "activity" | "stay";
+  parentId: string;
+  parentTitle: string | null;
+  tripDayId: string | null;
+  url: string;
+  fileName: string;
+  updatedAt: Date;
+  aiChangedAt: Date | null;
+};
+
+export const findFileForPlanner = async (params: {
+  userId: string;
+  tripId: string;
+  fileId: string;
+}): Promise<PlannerFileRow | null> => {
+  const { userId, tripId, fileId } = params;
+  const itemWhere = { tripId, trip: writerTripWhere(userId, tripId) };
+  const stayWhere = { tripDay: { tripId, trip: writerTripWhere(userId, tripId) } };
+  const stamps = { id: true, updatedAt: true, aiChangedAt: true } as const;
+  const item = { select: { id: true, title: true, tripDayId: true } } as const;
+  const stay = { select: { id: true, name: true, tripDayId: true } } as const;
+  // Ids are cuids, unique across tables in practice; the four reads are one indexed lookup each.
+  const [itemDocument, itemImage, stayDocument, stayImage] = await Promise.all([
+    prisma.dayPlanItemDocument.findFirst({
+      where: { id: fileId, dayPlanItem: itemWhere },
+      select: { ...stamps, documentUrl: true, fileName: true, dayPlanItem: item },
+    }),
+    prisma.dayPlanItemImage.findFirst({
+      where: { id: fileId, dayPlanItem: itemWhere },
+      select: { ...stamps, imageUrl: true, dayPlanItem: item },
+    }),
+    prisma.accommodationDocument.findFirst({
+      where: { id: fileId, accommodation: stayWhere },
+      select: { ...stamps, documentUrl: true, fileName: true, accommodation: stay },
+    }),
+    prisma.accommodationImage.findFirst({
+      where: { id: fileId, accommodation: stayWhere },
+      select: { ...stamps, imageUrl: true, accommodation: stay },
+    }),
+  ]);
+  const base = (row: { id: string; updatedAt: Date; aiChangedAt: Date | null }) => ({
+    id: row.id,
+    updatedAt: row.updatedAt,
+    aiChangedAt: row.aiChangedAt,
+  });
+  if (itemDocument) {
+    const parent = itemDocument.dayPlanItem;
+    return {
+      ...base(itemDocument),
+      media: "document",
+      target: "activity",
+      parentId: parent.id,
+      parentTitle: parent.title,
+      tripDayId: parent.tripDayId,
+      url: itemDocument.documentUrl,
+      fileName: itemDocument.fileName,
+    };
+  }
+  if (itemImage) {
+    const parent = itemImage.dayPlanItem;
+    return {
+      ...base(itemImage),
+      media: "image",
+      target: "activity",
+      parentId: parent.id,
+      parentTitle: parent.title,
+      tripDayId: parent.tripDayId,
+      url: itemImage.imageUrl,
+      fileName: fileNameOfUrl(itemImage.imageUrl),
+    };
+  }
+  if (stayDocument) {
+    const parent = stayDocument.accommodation;
+    return {
+      ...base(stayDocument),
+      media: "document",
+      target: "stay",
+      parentId: parent.id,
+      parentTitle: parent.name,
+      tripDayId: parent.tripDayId,
+      url: stayDocument.documentUrl,
+      fileName: stayDocument.fileName,
+    };
+  }
+  if (stayImage) {
+    const parent = stayImage.accommodation;
+    return {
+      ...base(stayImage),
+      media: "image",
+      target: "stay",
+      parentId: parent.id,
+      parentTitle: parent.name,
+      tripDayId: parent.tripDayId,
+      url: stayImage.imageUrl,
+      fileName: fileNameOfUrl(stayImage.imageUrl),
+    };
+  }
+  return null;
+};
+
+/**
+ * Story 15.7. The entry `attach_file` attaches to: an activity (on a day or parked) or a stay of a trip the
+ * user may plan, with its current day (`null` for a parked activity: the folder the file goes to), its title
+ * or name, and how many documents it holds (the cap is checked before any download). `null` when there is
+ * no such entry on a trip this user may plan.
+ */
+export type PlannerFileParent = {
+  id: string;
+  tripDayId: string | null;
+  title: string | null;
+  documentCount: number;
+};
+
+export const findFileParentForPlanner = async (params: {
+  userId: string;
+  tripId: string;
+  target: "activity" | "stay";
+  parentId: string;
+}): Promise<PlannerFileParent | null> => {
+  const { userId, tripId, target, parentId } = params;
+  if (target === "activity") {
+    const item = await prisma.dayPlanItem.findFirst({
+      where: { id: parentId, tripId, trip: writerTripWhere(userId, tripId) },
+      select: { id: true, tripDayId: true, title: true, _count: { select: { documents: true } } },
+    });
+    return item && { id: item.id, tripDayId: item.tripDayId, title: item.title, documentCount: item._count.documents };
+  }
+  const stay = await prisma.accommodation.findFirst({
+    where: { id: parentId, tripDay: { tripId, trip: writerTripWhere(userId, tripId) } },
+    select: { id: true, tripDayId: true, name: true, _count: { select: { documents: true } } },
+  });
+  return stay && { id: stay.id, tripDayId: stay.tripDayId, title: stay.name, documentCount: stay._count.documents };
 };

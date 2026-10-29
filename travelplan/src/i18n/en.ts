@@ -762,6 +762,8 @@ const en: Dictionary = {
   "trips.aiChanges.legCreated": "Leg added: {title}",
   "trips.aiChanges.legUpdated": "Leg changed: {title}",
   "trips.aiChanges.legDeleted": "Leg deleted: {title}",
+  "trips.aiChanges.fileAttached": "File attached: {title}",
+  "trips.aiChanges.fileDeleted": "File deleted: {title}",
   "trips.aiChanges.undo": "Undo",
   "trips.aiChanges.stale": "The day has changed since; this change can no longer be undone.",
   "trips.aiChanges.unavailable": "This change can no longer be undone.",

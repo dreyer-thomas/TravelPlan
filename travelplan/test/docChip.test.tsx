@@ -102,4 +102,22 @@ describe("DocChip", () => {
     expect(emotionDeclarations(label, "white-space").base).toContain("nowrap");
     expect(emotionDeclarations(label, "overflow").base).toContain("hidden");
   });
+
+  it("shows the KI/AI badge after the label only for a document the connector attached (Story 15.7)", () => {
+    const { unmount } = renderWithProviders(
+      <DocChip documentUrl={DOCUMENT_URL} fileName="Ticket Rom.pdf" index={0} total={1} aiChanged />,
+    );
+
+    const chip = screen.getByRole("link");
+    const badge = screen.getByTestId("ai-badge");
+    expect(chip).toContainElement(badge);
+    // After the label: the label stays the chip's first text, the badge follows it.
+    expect(chip.textContent).toBe(`Ticket Rom${badge.textContent}`);
+    expect(badge.textContent).not.toBe("");
+    unmount();
+
+    renderWithProviders(<DocChip documentUrl={DOCUMENT_URL} fileName="Ticket Rom.pdf" index={0} total={1} />);
+    expect(screen.queryByTestId("ai-badge")).toBeNull();
+    expect(screen.getByRole("link").textContent).toBe("Ticket Rom");
+  });
 });

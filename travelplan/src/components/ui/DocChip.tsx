@@ -4,6 +4,7 @@ import { Box, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material/styles";
 import { useTheme } from "@mui/material/styles";
 import { DocumentIcon } from "@/components/features/trips/TripIcons";
+import AiBadge from "@/components/ui/AiBadge";
 import { formatMessage } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 import { documentDisplayName } from "@/lib/trips/documentUploads";
@@ -51,11 +52,16 @@ export type DocChipProps = {
   index: number;
   /** How many documents the entry carries, for the "{index} of {total}" half of the name. */
   total: number;
+  /**
+   * Story 15.7. The connector attached this document (`aiChangedAt` set): the generic KI/AI badge follows
+   * the label. The ticket is what a traveller checks before leaving, so the chip is where the marker shows.
+   */
+  aiChanged?: boolean;
   /** Layout only — margins and flex behaviour belong to whoever is arranging the chips. */
   sx?: SxProps<Theme>;
 };
 
-export default function DocChip({ documentUrl, fileName, index, total, sx }: DocChipProps) {
+export default function DocChip({ documentUrl, fileName, index, total, aiChanged = false, sx }: DocChipProps) {
   const { tokens } = useTheme().palette;
   const { t } = useI18n();
   const label = documentDisplayName(fileName);
@@ -121,6 +127,7 @@ export default function DocChip({ documentUrl, fileName, index, total, sx }: Doc
       >
         {label}
       </Typography>
+      {aiChanged ? <AiBadge sx={{ padding: "1px 6px" }} /> : null}
     </Box>
   );
 }

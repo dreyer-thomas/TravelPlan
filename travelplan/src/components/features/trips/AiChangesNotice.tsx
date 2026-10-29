@@ -40,6 +40,9 @@ const ACTION_KEYS = {
   legCreated: "trips.aiChanges.legCreated",
   legUpdated: "trips.aiChanges.legUpdated",
   legDeleted: "trips.aiChanges.legDeleted",
+  // Story 15.7. The subject is the file's name.
+  fileAttached: "trips.aiChanges.fileAttached",
+  fileDeleted: "trips.aiChanges.fileDeleted",
 } as const;
 
 const ROW_STATUS_KEYS = {

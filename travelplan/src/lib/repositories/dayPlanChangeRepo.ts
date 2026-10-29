@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db/prisma";
@@ -13,7 +14,10 @@ import {
   type TransactionClient,
 } from "@/lib/repositories/travelSegmentRepo";
 import type {
+  DayChangeFileMedia,
+  DayChangeFileTarget,
   DayChangeReceipt,
+  DeletedFileRow,
   DayPlanItemRow,
   DayPlanItemSnapshot,
   DeletedDayPlanItemSnapshot,
@@ -22,10 +26,15 @@ import type {
   StaySnapshot,
 } from "@/lib/trips/dayChangeReceipt";
 import { buildDrawnDaySegmentPairKeys } from "@/lib/trips/daySegmentPairs";
+import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
 import {
+  getAccommodationDocumentUploadDir,
+  getAccommodationImageUploadDir,
   getTripUploadDir,
   isExternalMediaUrl,
   mediaPathIsInside,
+  readStoredMediaDayId,
+  resolveManagedItemMediaDir,
   resolveStoredMediaPath,
 } from "@/lib/trips/uploadPaths";
 
@@ -121,6 +130,15 @@ import {
  * of those is drawn on the next day, as the generic check does for the stay's own day. A stay restored on
  * its own day comes back last in the timeline and on the next day first, so it cannot un-draw another leg.
  *
+ * Story 15.7 adds the connector's file kinds. `fileAttached`: phase 1 refuses when the row is gone, carries a
+ * new stamp or names another parent (or its parent left the trip); phase 2 deletes it, conditional on the
+ * stamp, and the result names its file (`removedFiles`, each with the parent's own folder), which the undo
+ * core unlinks after the commit. `fileDeleted`: phase 1 refuses when the parent is gone, the row's id
+ * exists again, a document's parent already holds the maximum of documents, or the kept file is no longer
+ * on disk (an external image URL has no file to check); phase 2 recreates the row with its id, stamps,
+ * marker and name, at its old place in the order when that is free and after the last one otherwise.
+ * Neither moves a row or takes a leg, so a receipt listing one is a forgery.
+ *
  * Any failure throws `UndoStaleError`, which rolls the transaction back and maps to `stale`. A `P2002`
  * while recreating a row maps there too: someone drew a new leg for the same pair, or reused the id.
  *
@@ -131,12 +149,22 @@ import {
 /** Story 12.4. An image row the undo deleted: its file is the route's to remove after the commit. */
 export type UndoneImageFile = { dayPlanItemId: string; imageUrl: string };
 
+/**
+ * Story 15.7. A file row the undo deleted, with the folder its file must sit directly in: the parent's own
+ * (`resolveManagedItemMediaDir` for an activity, the stay's folder on the day its URL names for a stay).
+ * The undo core unlinks it after the commit.
+ */
+export type UndoneFile = { storedUrl: string; allowedDir: string };
+
 export type DayPlanChangeUndoResult =
   | { status: "not_found" }
   | { status: "invalid"; reason: string }
   | { status: "stale" }
-  /** `removedImageFiles` only when the undo deleted image rows (Story 12.4); every other kind answers as before. */
-  | { status: "undone"; removedImageFiles?: UndoneImageFile[] };
+  /**
+   * `removedImageFiles` only when the undo deleted image rows (Story 12.4), `removedFiles` only when it
+   * deleted a connector-attached file (Story 15.7); every other kind answers as before.
+   */
+  | { status: "undone"; removedImageFiles?: UndoneImageFile[]; removedFiles?: UndoneFile[] };
 
 export class UndoStaleError extends Error {
   constructor(reason: string) {
@@ -257,6 +285,43 @@ const stayInvalidity = (receipt: DayChangeReceipt, tripId: string): string | nul
 };
 
 /**
+ * Story 15.7. The stored URL of a deleted file row, whichever of the four tables it came from. Exported, with
+ * the parent's id below, for the expiry sweep (`aiChangeRepo.ts`).
+ */
+export const deletedFileUrl = (edited: DeletedFileRow) =>
+  edited.media === "image"
+    ? (edited.previous as { imageUrl: string }).imageUrl
+    : (edited.previous as { documentUrl: string }).documentUrl;
+
+/** Story 15.7. The parent a deleted file row names: an activity's or a stay's id. */
+export const deletedFileParentId = (edited: DeletedFileRow) =>
+  edited.target === "activity"
+    ? (edited.previous as { dayPlanItemId: string }).dayPlanItemId
+    : (edited.previous as { accommodationId: string }).accommodationId;
+
+/**
+ * Story 15.7. The file kinds against the receipt's trip. Neither moves a row or takes a leg. An attached
+ * file's URL is inside this trip's upload tree (the attach writes nothing else); so is a deleted one's,
+ * except an image stored as an external address, which names no file here.
+ */
+const fileInvalidity = (receipt: DayChangeReceipt, tripId: string): string | null => {
+  const { edited } = receipt;
+  if (receipt.removedTravelSegments.length > 0 || receipt.movedItems.length > 0) return "side effect a file save never has";
+  if (edited.kind === "fileAttached") {
+    if (!isInsideTripUploadTree(edited.url, tripId)) return "file outside the trip";
+    return null;
+  }
+  if (edited.kind === "fileDeleted") {
+    const parentId = deletedFileParentId(edited);
+    if (!parentId) return "file of no entry";
+    const url = deletedFileUrl(edited);
+    const externalImage = edited.media === "image" && isExternalMediaUrl(url);
+    if (!externalImage && !isInsideTripUploadTree(url, tripId)) return "file outside the trip";
+  }
+  return null;
+};
+
+/**
  * The ownership half of AC12; the shape half is `dayChangeReceiptSchemas.ts`. Exported for Story 15.5: a
  * write that must keep its undo checks its receipt here before it commits.
  */
@@ -361,6 +426,11 @@ export const findInvalidity = (receipt: DayChangeReceipt, tripId: string): strin
 
   if (edited.kind === "stayCreated" || edited.kind === "stayUpdated" || edited.kind === "stayDeleted") {
     const invalidity = stayInvalidity(receipt, tripId);
+    if (invalidity) return invalidity;
+  }
+
+  if (edited.kind === "fileAttached" || edited.kind === "fileDeleted") {
+    const invalidity = fileInvalidity(receipt, tripId);
     if (invalidity) return invalidity;
   }
 
@@ -558,12 +628,187 @@ const checkDayPlanAppliedInTransaction = async (
   }
 };
 
+/** Story 15.7. One file row of any of the four media tables, with what the undo compares and removes. */
+type StoredFileRow = { id: string; parentId: string; url: string; updatedAt: Date };
+
+/**
+ * Story 15.7. The file row `fileId` of the table `target` and `media` name, with its parent still on this
+ * trip; `null` when there is none.
+ */
+const findFileRowInTransaction = async (
+  tx: TransactionClient,
+  tripId: string,
+  target: DayChangeFileTarget,
+  media: DayChangeFileMedia,
+  fileId: string,
+): Promise<StoredFileRow | null> => {
+  const select = { id: true, updatedAt: true } as const;
+  if (target === "activity") {
+    const where = { id: fileId, dayPlanItem: { tripId } };
+    if (media === "image") {
+      const row = await tx.dayPlanItemImage.findFirst({ where, select: { ...select, dayPlanItemId: true, imageUrl: true } });
+      return row && { id: row.id, parentId: row.dayPlanItemId, url: row.imageUrl, updatedAt: row.updatedAt };
+    }
+    const row = await tx.dayPlanItemDocument.findFirst({ where, select: { ...select, dayPlanItemId: true, documentUrl: true } });
+    return row && { id: row.id, parentId: row.dayPlanItemId, url: row.documentUrl, updatedAt: row.updatedAt };
+  }
+  const where = { id: fileId, accommodation: { tripDay: { tripId } } };
+  if (media === "image") {
+    const row = await tx.accommodationImage.findFirst({ where, select: { ...select, accommodationId: true, imageUrl: true } });
+    return row && { id: row.id, parentId: row.accommodationId, url: row.imageUrl, updatedAt: row.updatedAt };
+  }
+  const row = await tx.accommodationDocument.findFirst({ where, select: { ...select, accommodationId: true, documentUrl: true } });
+  return row && { id: row.id, parentId: row.accommodationId, url: row.documentUrl, updatedAt: row.updatedAt };
+};
+
+/**
+ * Story 15.7. The folder a file of this parent must sit directly in, from its own stored URL: an activity's
+ * media stay where they were uploaded while it moves between days (`resolveManagedItemMediaDir`), a stay's
+ * live under the day its URL names. `null` when the URL names no folder of this parent under this trip.
+ * Exported for the expiry sweep (`aiChangeRepo.ts`), which removes the files a `fileDeleted` kept.
+ */
+export const resolveFileParentDir = (params: {
+  storedUrl: string;
+  tripId: string;
+  target: DayChangeFileTarget;
+  media: DayChangeFileMedia;
+  parentId: string;
+}): string | null => {
+  const { storedUrl, tripId, target, media, parentId } = params;
+  if (target === "activity") return resolveManagedItemMediaDir({ storedUrl, tripId, itemId: parentId, kind: media });
+  if (isExternalMediaUrl(storedUrl)) return null;
+  const dayId = readStoredMediaDayId(storedUrl, tripId);
+  if (!dayId) return null;
+  return media === "image"
+    ? getAccommodationImageUploadDir(tripId, dayId, parentId)
+    : getAccommodationDocumentUploadDir(tripId, dayId, parentId);
+};
+
+/** Story 15.7, phase 1 for `fileAttached`: the row the attach created, unchanged and on its parent. */
+const checkFileAttachedInTransaction = async (
+  tx: TransactionClient,
+  tripId: string,
+  edited: Extract<DayChangeReceipt["edited"], { kind: "fileAttached" }>,
+): Promise<StoredFileRow> => {
+  const row = await findFileRowInTransaction(tx, tripId, edited.target, edited.media, edited.fileId);
+  if (!row || !sameInstant(row.updatedAt, edited.updatedAt)) throw new UndoStaleError("attached file changed");
+  if (row.parentId !== edited.parentId) throw new UndoStaleError("attached file on another entry");
+  return row;
+};
+
+/** Story 15.7, phase 2 for `fileAttached`: the row, conditional on the stamp phase 1 just checked. */
+const removeAttachedFileInTransaction = async (
+  tx: TransactionClient,
+  edited: Extract<DayChangeReceipt["edited"], { kind: "fileAttached" }>,
+) => {
+  const where = { id: edited.fileId, updatedAt: edited.updatedAt };
+  let removed: { count: number };
+  if (edited.target === "activity") {
+    const scoped = { ...where, dayPlanItemId: edited.parentId };
+    removed =
+      edited.media === "image"
+        ? await tx.dayPlanItemImage.deleteMany({ where: scoped })
+        : await tx.dayPlanItemDocument.deleteMany({ where: scoped });
+  } else {
+    const scoped = { ...where, accommodationId: edited.parentId };
+    removed =
+      edited.media === "image"
+        ? await tx.accommodationImage.deleteMany({ where: scoped })
+        : await tx.accommodationDocument.deleteMany({ where: scoped });
+  }
+  if (removed.count !== 1) throw new UndoStaleError("attached file changed");
+};
+
+/**
+ * Story 15.7, phase 1 for `fileDeleted`. The parent is still on this trip, the id is still free, a document
+ * still fits (`MAX_DOCUMENTS_PER_ENTRY`), and the kept file is still on disk (findInvalidity has already
+ * shown its URL is inside this trip's tree; an external image URL names no file to check).
+ */
+const checkFileDeletedInTransaction = async (
+  tx: TransactionClient,
+  tripId: string,
+  edited: Extract<DayChangeReceipt["edited"], { kind: "fileDeleted" }>,
+) => {
+  const parentId = deletedFileParentId(edited);
+  const parent =
+    edited.target === "activity"
+      ? await tx.dayPlanItem.findFirst({ where: { id: parentId, tripId }, select: { id: true } })
+      : await tx.accommodation.findFirst({ where: { id: parentId, tripDay: { tripId } }, select: { id: true } });
+  if (!parent) throw new UndoStaleError("file's entry is gone");
+
+  const id = edited.previous.id;
+  const [sameId, documentCount] = await Promise.all([
+    edited.target === "activity"
+      ? edited.media === "image"
+        ? tx.dayPlanItemImage.count({ where: { id } })
+        : tx.dayPlanItemDocument.count({ where: { id } })
+      : edited.media === "image"
+        ? tx.accommodationImage.count({ where: { id } })
+        : tx.accommodationDocument.count({ where: { id } }),
+    edited.media !== "document"
+      ? Promise.resolve(0)
+      : edited.target === "activity"
+        ? tx.dayPlanItemDocument.count({ where: { dayPlanItemId: parentId } })
+        : tx.accommodationDocument.count({ where: { accommodationId: parentId } }),
+  ]);
+  if (sameId > 0) throw new UndoStaleError("deleted file exists again");
+  if (documentCount >= MAX_DOCUMENTS_PER_ENTRY) throw new UndoStaleError("entry holds the maximum of documents");
+
+  const url = deletedFileUrl(edited);
+  if (!isExternalMediaUrl(url)) {
+    const onDisk = await fs
+      .stat(resolveStoredMediaPath(url))
+      .then((stat) => stat.isFile())
+      .catch(() => false);
+    if (!onDisk) throw new UndoStaleError("kept file is gone");
+  }
+};
+
+/**
+ * Story 15.7, phase 2 for `fileDeleted`: the row back with its id, stamps, marker and name, at its old place
+ * in the order when that is still free (the order is unique per entry) and after the last one otherwise.
+ */
+const recreateDeletedFileInTransaction = async (
+  tx: TransactionClient,
+  edited: Extract<DayChangeReceipt["edited"], { kind: "fileDeleted" }>,
+) => {
+  const nextFree = (taken: { sortOrder: number }[], wanted: number) =>
+    taken.some((row) => row.sortOrder === wanted) ? Math.max(...taken.map((row) => row.sortOrder)) + 1 : wanted;
+  const orderSelect = { select: { sortOrder: true } } as const;
+  switch (edited.target) {
+    case "activity": {
+      const where = { dayPlanItemId: edited.previous.dayPlanItemId };
+      if (edited.media === "image") {
+        const taken = await tx.dayPlanItemImage.findMany({ where, ...orderSelect });
+        await tx.dayPlanItemImage.create({ data: { ...edited.previous, sortOrder: nextFree(taken, edited.previous.sortOrder) } });
+      } else {
+        const taken = await tx.dayPlanItemDocument.findMany({ where, ...orderSelect });
+        await tx.dayPlanItemDocument.create({ data: { ...edited.previous, sortOrder: nextFree(taken, edited.previous.sortOrder) } });
+      }
+      return;
+    }
+    case "stay": {
+      const where = { accommodationId: edited.previous.accommodationId };
+      if (edited.media === "image") {
+        const taken = await tx.accommodationImage.findMany({ where, ...orderSelect });
+        await tx.accommodationImage.create({ data: { ...edited.previous, sortOrder: nextFree(taken, edited.previous.sortOrder) } });
+      } else {
+        const taken = await tx.accommodationDocument.findMany({ where, ...orderSelect });
+        await tx.accommodationDocument.create({ data: { ...edited.previous, sortOrder: nextFree(taken, edited.previous.sortOrder) } });
+      }
+      return;
+    }
+  }
+};
+
+type UndoneFiles = { removedImageFiles: UndoneImageFile[]; removedFiles: UndoneFile[] };
+
 const undoInTransaction = async (
   tx: TransactionClient,
   tripId: string,
   receipt: DayChangeReceipt,
   inTransaction?: (tx: TransactionClient) => Promise<void>,
-): Promise<UndoneImageFile[]> => {
+): Promise<UndoneFiles> => {
   const { tripDayId, edited } = receipt;
 
   // What the day draws before the undo, and which of its legs the receipt does not own. The second set
@@ -582,6 +827,7 @@ const undoInTransaction = async (
 
   // Phase 1: staleness, before any write. One branch per kind; none falls into another's.
   let removedImageFiles: UndoneImageFile[] = [];
+  const removedFiles: UndoneFile[] = [];
   switch (edited.kind) {
     case "created": {
       const item = await tx.dayPlanItem.findFirst({ where: { id: edited.itemId, tripDayId } });
@@ -730,6 +976,23 @@ const undoInTransaction = async (
       }
       break;
     }
+    case "fileAttached": {
+      // The row read here is the one phase 2 deletes, so the file removed after the commit is its own.
+      const row = await checkFileAttachedInTransaction(tx, tripId, edited);
+      const allowedDir = resolveFileParentDir({
+        storedUrl: row.url,
+        tripId,
+        target: edited.target,
+        media: edited.media,
+        parentId: row.parentId,
+      });
+      if (allowedDir) removedFiles.push({ storedUrl: row.url, allowedDir });
+      else console.error("day-plan-changes undo: attached file url names no folder of its entry", { tripId, fileId: row.id });
+      break;
+    }
+    case "fileDeleted":
+      await checkFileDeletedInTransaction(tx, tripId, edited);
+      break;
     default: {
       const unhandled: never = edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
@@ -912,6 +1175,12 @@ const undoInTransaction = async (
         await tx.travelSegment.create({ data: leg });
       }
       break;
+    case "fileAttached":
+      await removeAttachedFileInTransaction(tx, edited);
+      break;
+    case "fileDeleted":
+      await recreateDeletedFileInTransaction(tx, edited);
+      break;
     default: {
       const unhandled: never = edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
@@ -979,7 +1248,7 @@ const undoInTransaction = async (
   // Story 15.4: the caller's own write, committed with the undo or not at all.
   if (inTransaction) await inTransaction(tx);
 
-  return removedImageFiles;
+  return { removedImageFiles, removedFiles };
 };
 
 export const undoDayPlanChangeForTrip = async (params: {
@@ -1002,11 +1271,11 @@ export const undoDayPlanChangeForTrip = async (params: {
   const invalidity = findInvalidity(receipt, tripId);
   if (invalidity) return { status: "invalid", reason: invalidity };
 
-  let removedImageFiles: UndoneImageFile[];
+  let undone: UndoneFiles;
   try {
     // Story 15.5: a plan's undo deletes and recreates up to 50 activities each with its sweeps, well past
     // Prisma's 5 s default on a slow disk; the apply itself has the same budget.
-    removedImageFiles = await prisma.$transaction((tx) => undoInTransaction(tx, tripId, receipt, inTransaction), {
+    undone = await prisma.$transaction((tx) => undoInTransaction(tx, tripId, receipt, inTransaction), {
       timeout: UNDO_TRANSACTION_TIMEOUT_MS,
     });
   } catch (error) {
@@ -1015,5 +1284,10 @@ export const undoDayPlanChangeForTrip = async (params: {
     throw error;
   }
 
-  return removedImageFiles.length > 0 ? { status: "undone", removedImageFiles } : { status: "undone" };
+  const { removedImageFiles, removedFiles } = undone;
+  return {
+    status: "undone",
+    ...(removedImageFiles.length > 0 ? { removedImageFiles } : {}),
+    ...(removedFiles.length > 0 ? { removedFiles } : {}),
+  };
 };

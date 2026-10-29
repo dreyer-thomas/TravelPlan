@@ -138,6 +138,8 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
       documentUrl: document.documentUrl,
       fileName: document.fileName,
       sortOrder: document.sortOrder,
+      // Story 15.7. When the connector attached it (the chip's KI/AI badge); `null` for an app upload.
+      aiChangedAt: document.aiChangedAt ? document.aiChangedAt.toISOString() : null,
     })),
   });
 };

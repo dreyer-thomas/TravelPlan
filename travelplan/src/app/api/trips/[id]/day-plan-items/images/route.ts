@@ -95,6 +95,8 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
       dayPlanItemId: image.dayPlanItemId,
       imageUrl: image.imageUrl,
       sortOrder: image.sortOrder,
+      // Story 15.7. When the connector attached it; the marker undo restores (thumbnails show no badge).
+      aiChangedAt: image.aiChangedAt ? image.aiChangedAt.toISOString() : null,
     })),
   });
 };

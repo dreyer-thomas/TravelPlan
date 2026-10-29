@@ -467,6 +467,8 @@ type GalleryDocument = {
   /** The stored `file_name` column, extension and all. `DocChip` strips the extension for display. */
   fileName: string;
   sortOrder: number;
+  /** Story 15.7. ISO time the connector attached it (the chip's badge); optional for older fixtures. */
+  aiChangedAt?: string | null;
 };
 
 type TravelSegment = NonNullable<TripDay["travelSegments"]>[number];
@@ -2891,6 +2893,8 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                 // `sortOrder`, not on the name), and this is what keeps their accessible names apart.
                 index={index}
                 total={documents.length}
+                // Story 15.7. A document the connector attached carries the KI/AI badge after its label.
+                aiChanged={Boolean(documentRow.aiChangedAt)}
                 // No cache-buster on the href. `withImageCacheBuster` exists because the hero and
                 // day-image routes write a *stable* filename, so a replacement keeps a byte-identical
                 // URL (DW-23). A document's name carries a timestamp and a random suffix and is never

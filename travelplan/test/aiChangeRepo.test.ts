@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db/prisma";
 import {
@@ -5,10 +7,13 @@ import {
   findAiChangeForTrip,
   insertAiChangeInTransaction,
   listAiChangesForTrip,
+  sweepExpiredFileDeletions,
   undoAiChange,
 } from "@/lib/repositories/aiChangeRepo";
 import { createParkedDayPlanItem } from "@/lib/repositories/bucketListRepo";
 import { createDayPlanItemForTripDay, updateDayPlanItemForTripDay } from "@/lib/repositories/dayPlanItemRepo";
+import { toDayChangeReceiptWire, type DayChangeReceipt } from "@/lib/trips/dayChangeReceipt";
+import { getDayPlanItemDocumentUploadDir, resolveStoredMediaPath } from "@/lib/trips/uploadPaths";
 import type { InTransactionHook } from "@/lib/trips/writeOrigin";
 
 /**
@@ -286,5 +291,143 @@ describe("aiChangeRepo (Story 15.4)", () => {
     ).rejects.toThrow("after the insert");
     expect(await prisma.dayPlanItem.count()).toBe(0);
     expect(await prisma.aiChange.count()).toBe(0);
+  });
+});
+
+describe("the expiry of files kept for a fileDeleted undo (Story 15.7)", () => {
+  beforeEach(resetDatabase);
+
+  const exists = (url: string) =>
+    fs
+      .stat(resolveStoredMediaPath(url))
+      .then(() => true)
+      .catch(() => false);
+
+  /** A kept ticket on disk, and the stored `fileDeleted` change naming it, `ageDays` old. */
+  const seedKeptFile = async (seeded: Seeded, ageDays: number, options: { undone?: boolean } = {}) => {
+    const item = await prisma.dayPlanItem.create({
+      data: { tripId: seeded.trip.id, tripDayId: seeded.day.id, title: "Train", contentJson: doc("Train"), sortOrder: 0 },
+    });
+    const dir = getDayPlanItemDocumentUploadDir(seeded.trip.id, seeded.day.id, item.id);
+    const diskName = `doc-${count}-${ageDays}.pdf`;
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, diskName), "%PDF-1.7 kept");
+    const url = `/uploads/trips/${seeded.trip.id}/days/${seeded.day.id}/day-plan-items/${item.id}/documents/${diskName}`;
+    const createdAt = new Date(Date.now() - ageDays * DAY_MS);
+    const receipt: DayChangeReceipt = {
+      version: 3,
+      tripDayId: seeded.day.id,
+      edited: {
+        kind: "fileDeleted",
+        target: "activity",
+        media: "document",
+        previous: {
+          id: `kept-${count}-${ageDays}`,
+          dayPlanItemId: item.id,
+          documentUrl: url,
+          fileName: "Ticket.pdf",
+          sortOrder: 0,
+          createdAt,
+          updatedAt: createdAt,
+          aiChangedAt: createdAt,
+        },
+      },
+      removedTravelSegments: [],
+      movedItems: [],
+    };
+    const change = await prisma.aiChange.create({
+      data: {
+        tripId: seeded.trip.id,
+        tripDayId: seeded.day.id,
+        userId: seeded.user.id,
+        clientId: CLIENT_ID,
+        action: "fileDeleted",
+        subject: "Ticket.pdf",
+        receiptJson: JSON.stringify(toDayChangeReceiptWire(receipt)),
+        createdAt,
+        undoneAt: options.undone ? createdAt : null,
+      },
+    });
+    return { item, url, change };
+  };
+
+  it("keeps an expired, not undone file deletion through the insert's retention delete, for the sweep", async () => {
+    const seeded = await seedTrip();
+    const kept = await seedKeptFile(seeded, 15);
+    const undone = await seedKeptFile(seeded, 16, { undone: true });
+
+    await createByAi(seeded, "Next write");
+
+    const ids = (await prisma.aiChange.findMany({ select: { id: true } })).map((row) => row.id);
+    expect(ids).toContain(kept.change.id);
+    // An undone one put its row back, which names the file: the generic delete takes it as before.
+    expect(ids).not.toContain(undone.change.id);
+    expect(await exists(kept.url)).toBe(true);
+    expect(await exists(undone.url)).toBe(true);
+  });
+
+  it("deletes the expired row first and then unlinks its kept file; a fresh one and a file named again stay", async () => {
+    const seeded = await seedTrip();
+    const expired = await seedKeptFile(seeded, 15);
+    const fresh = await seedKeptFile(seeded, 3);
+    const reused = await seedKeptFile(seeded, 20);
+    // A media row names the reused URL again (an import, say): its file is not the sweep's to remove.
+    await prisma.dayPlanItemDocument.create({
+      data: { dayPlanItemId: reused.item.id, documentUrl: reused.url, fileName: "Again.pdf", sortOrder: 5 },
+    });
+
+    expect(await sweepExpiredFileDeletions()).toBe(2);
+
+    const ids = (await prisma.aiChange.findMany({ select: { id: true } })).map((row) => row.id);
+    expect(ids).toEqual([fresh.change.id]);
+    expect(await exists(expired.url)).toBe(false);
+    expect(await exists(fresh.url)).toBe(true);
+    expect(await exists(reused.url)).toBe(true);
+    expect(await sweepExpiredFileDeletions()).toBe(0);
+  });
+
+  it("refuses to unlink a kept file outside its entry's own folder, and logs it", async () => {
+    const seeded = await seedTrip();
+    const kept = await seedKeptFile(seeded, 15);
+    const other = await prisma.dayPlanItem.create({
+      data: { tripId: seeded.trip.id, tripDayId: seeded.day.id, title: "Other", contentJson: doc("Other"), sortOrder: 1 },
+    });
+    // The receipt claims the file belongs to another activity: no folder of that one holds it.
+    const receipt = JSON.parse(kept.change.receiptJson!) as { edited: { previous: { dayPlanItemId: string } } };
+    receipt.edited.previous.dayPlanItemId = other.id;
+    await prisma.aiChange.update({ where: { id: kept.change.id }, data: { receiptJson: JSON.stringify(receipt) } });
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    expect(await sweepExpiredFileDeletions()).toBe(1);
+    expect(await exists(kept.url)).toBe(true);
+    expect(error).toHaveBeenCalledWith("ai-changes sweep: kept file url names no folder of its entry", expect.any(Object));
+    error.mockRestore();
+  });
+
+  it("logs a kept file whose receipt no longer reads, by change id, and still drops the row", async () => {
+    const seeded = await seedTrip();
+    const kept = await seedKeptFile(seeded, 15);
+    await prisma.aiChange.update({ where: { id: kept.change.id }, data: { receiptJson: "{\"version\":99}" } });
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    expect(await sweepExpiredFileDeletions()).toBe(1);
+    expect(await exists(kept.url)).toBe(true);
+    expect(error).toHaveBeenCalledWith("ai-changes sweep: kept file's receipt no longer reads; file left on disk", {
+      tripId: seeded.trip.id,
+      changeId: kept.change.id,
+    });
+    error.mockRestore();
+  });
+
+  it("takes at most a batch per call, oldest first, so a backlog drains over later writes", async () => {
+    const seeded = await seedTrip();
+    const kept = [];
+    for (let index = 0; index < 27; index += 1) kept.push(await seedKeptFile(seeded, 15 + index));
+
+    expect(await sweepExpiredFileDeletions()).toBe(25);
+    const left = (await prisma.aiChange.findMany({ select: { id: true } })).map((row) => row.id).sort();
+    // The two youngest (15 and 16 days) wait for the next call.
+    expect(left).toEqual([kept[0].change.id, kept[1].change.id].sort());
+    expect(await sweepExpiredFileDeletions()).toBe(2);
   });
 });
