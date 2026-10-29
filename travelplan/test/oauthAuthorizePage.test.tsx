@@ -89,7 +89,7 @@ describe("/oauth/authorize page", () => {
       clientHost: "claude.ai",
       redirectHost: "claude.ai",
       email: user.email,
-      loopbackOnly: false,
+      loopbackWarning: false,
     });
     expect(new URLSearchParams(props.query as string).get("state")).toBe("state-123");
   });
@@ -100,7 +100,7 @@ describe("/oauth/authorize page", () => {
     const props = propsOf(
       await render(authorizeQuery({ client_id: CLAUDE_CODE_CLIENT_ID, redirect_uri: "http://127.0.0.1:43123/callback" })),
     );
-    expect(props).toMatchObject({ mode: "consent", redirectHost: "127.0.0.1:43123", loopbackOnly: true });
+    expect(props).toMatchObject({ mode: "consent", redirectHost: "127.0.0.1:43123", loopbackWarning: true });
     expect(ISSUER).toBe("https://plan.example.test");
   });
 });

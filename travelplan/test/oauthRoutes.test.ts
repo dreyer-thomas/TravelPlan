@@ -148,11 +148,20 @@ describe("POST /api/oauth/authorize/decision", () => {
     expect(await prisma.oAuthAuthorizationCode.count()).toBe(0);
   });
 
+  it("refuses an oversized body with 413", async () => {
+    const user = await createUser();
+    const response = await postDecision(
+      decisionRequest({ query: "x".repeat(20 * 1024), decision: "allow" }, await sessionCookieFor(user)),
+    );
+    expect(response.status).toBe(413);
+  });
+
   it("allows with a single-use code bound to the request", async () => {
     const user = await createUser();
     const response = await postDecision(
       decisionRequest({ query: authorizeQuery().toString(), decision: "allow" }, await sessionCookieFor(user)),
     );
+    expect(response.headers.get("cache-control")).toBe("no-store");
     const body = (await response.json()) as { data: { redirectUrl: string } };
     const url = new URL(body.data.redirectUrl);
     const code = url.searchParams.get("code");
@@ -270,13 +279,29 @@ describe("POST /api/oauth/token (refresh_token)", () => {
     expect(families).toHaveLength(1);
   });
 
-  it("does not revoke on a parallel refresh inside the 30 s grace window", async () => {
+  it("answers a parallel refresh inside the 30 s grace window with a sibling pair (review D2)", async () => {
     const user = await createUser();
     const first = await exchange(user.id);
     const second = (await (await postToken(refreshGrant(first.refresh_token))).json()) as TokenBody;
     const race = await postToken(refreshGrant(first.refresh_token));
-    expect(((await race.json()) as TokenBody).error).toBe("invalid_grant");
+    expect(race.status).toBe(200);
+    const sibling = (await race.json()) as TokenBody;
+    expect(sibling.access_token).not.toBe(second.access_token);
     expect(await findActiveAccessToken(second.access_token)).not.toBeNull();
+    expect(await findActiveAccessToken(sibling.access_token)).not.toBeNull();
+    expect(await prisma.oAuthToken.groupBy({ by: ["familyId"] })).toHaveLength(1);
+    // Both refresh tokens keep working on their own.
+    expect((await postToken(refreshGrant(second.refresh_token))).status).toBe(200);
+    expect((await postToken(refreshGrant(sibling.refresh_token))).status).toBe(200);
+  });
+
+  it("does not hand a sibling pair to a family revoked in the meantime", async () => {
+    const user = await createUser();
+    const first = await exchange(user.id);
+    await postToken(refreshGrant(first.refresh_token));
+    await postRevoke(formRequest(`${ISSUER}/api/oauth/revoke`, { token: first.access_token }));
+    const race = await postToken(refreshGrant(first.refresh_token));
+    expect(((await race.json()) as TokenBody).error).toBe("invalid_grant");
   });
 
   it("revokes the whole family on reuse after the grace window", async () => {
@@ -316,6 +341,26 @@ describe("POST /api/oauth/token (refresh_token)", () => {
     const second = (await (await postToken(refreshGrant(first.refresh_token))).json()) as TokenBody;
     const row = await prisma.oAuthToken.findUnique({ where: { tokenHash: hashOpaqueToken(second.refresh_token) } });
     expect(row?.expiresAt.getTime()).toBe(familyEnd.getTime());
+    // The access token is capped too, and expires_in says so.
+    const access = await prisma.oAuthToken.findUnique({ where: { tokenHash: hashOpaqueToken(second.access_token) } });
+    expect(access?.expiresAt.getTime()).toBe(familyEnd.getTime());
+    expect(second.expires_in).toBeLessThanOrEqual(60);
+  });
+
+  it("answers a failing transaction with an RFC server_error, uncached", async () => {
+    const user = await createUser();
+    const code = await issueCode(user.id);
+    // Restoring a spy on the Prisma client's `$transaction` loses its binding, so the spy stays and
+    // delegates to the bound original after the one rejection.
+    const original = prisma.$transaction.bind(prisma);
+    const spy = vi.spyOn(prisma, "$transaction").mockImplementation(original as never);
+    spy.mockRejectedValueOnce(new Error("database is locked"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const response = await postToken(codeGrant(code));
+    expect(response.status).toBe(500);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(((await response.json()) as TokenBody).error).toBe("server_error");
+    error.mockRestore();
   });
 });
 
@@ -328,6 +373,18 @@ describe("POST /api/oauth/revoke", () => {
     expect(await findActiveAccessToken(tokens.access_token)).toBeNull();
     const unknown = await postRevoke(formRequest(`${ISSUER}/api/oauth/revoke`, { token: "nothing" }));
     expect(unknown.status).toBe(200);
+  });
+
+  it("does not revoke a token of another client but still answers 200", async () => {
+    const user = await createUser();
+    const tokens = await exchange(user.id);
+    const response = await postRevoke(
+      formRequest(`${ISSUER}/api/oauth/revoke`, { token: tokens.access_token, client_id: "https://claude.ai/oauth/other" }),
+    );
+    expect(response.status).toBe(200);
+    expect(await findActiveAccessToken(tokens.access_token)).not.toBeNull();
+    await postRevoke(formRequest(`${ISSUER}/api/oauth/revoke`, { token: tokens.access_token, client_id: HOSTED_CLIENT_ID }));
+    expect(await findActiveAccessToken(tokens.access_token)).toBeNull();
   });
 });
 

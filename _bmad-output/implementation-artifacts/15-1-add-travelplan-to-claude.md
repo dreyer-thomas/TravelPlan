@@ -4,7 +4,7 @@ baseline_commit: c244d2c
 
 # Story 15.1: Add TravelPlan to Claude
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -242,6 +242,50 @@ so that Claude can act for me in TravelPlan without ever seeing my password.
   - [x] `deploy/travelplan.env.example`: `MCP_ENABLED=` and `MCP_CLIENT_ID_HOSTS=claude.ai`, with comments.
   - [x] `deploy/README.md`: a *Connector* section covering the connector URL, the switch, the allowlist, that Nginx must pass `/.well-known/*` and `/api/mcp` (no buffering change needed, since JSON responses), and the `claude mcp add` command for testing.
 - [x] **Task 12: Tests and gates** (AC: 23, 24). See *Testing*.
+
+### Review Findings
+
+Code review 2026-10-29 (blind, edge case, acceptance), diff `c3b7231..f981ede`.
+
+- [x] [Review][Decision] D1 Client allowlist granularity — **resolved (Tommy): (b) host + path prefix, default `claude.ai/oauth/`, plus the JSON content-type check; applied**: whole host or host + path prefix
+  - Today a bare host is trusted (`MCP_CLIENT_ID_HOSTS=claude.ai`). Any JSON a third party can place at any https path on claude.ai would pass as a client, and the consent card would show "claude.ai" as its identity.
+  - Exact client-ID URLs are not possible, because the hosted apps' CIMD URL is unpublished.
+  - Options:
+    - (a) keep the host and add only a `Content-Type: application/json` check
+    - (b) entries may be `host` or `host/path-prefix`, default `claude.ai/oauth/`; the host-only log line still reveals the hosted apps' document if it lives elsewhere
+- [x] [Review][Decision] D2 Refresh grace window — **resolved (Tommy): (a) sibling pair inside 30 s; applied**: what a duplicate refresh inside 30 s gets
+  - AC 15 says `invalid_grant` without revoking, and the code does exactly that.
+  - But a client that processes the losing response last will treat `invalid_grant` as "grant dead" and drop the connection, which defeats the window's purpose.
+  - Options:
+    - (a) inside the window, issue a fresh sibling pair in the same family
+    - (b) keep `invalid_grant` as specified
+- [x] [Review][Decision] D3 Confirm — **resolved (Tommy): keep; recorded in architecture.md**: an authorization code is consumed only by a successful exchange (declared deviation from AC 13)
+  - A failed attempt (wrong verifier, client, redirect or resource) leaves the code usable for its remaining 60 s, so an attacker holding a stolen code cannot lock out the real client.
+  - A second *successful* use still revokes the family.
+- [x] [Review][Patch] Redirect URIs from the metadata document are not restricted to `https:` or loopback `http:`. A `javascript:` URI would run in the TravelPlan origin via `assignLocation`; `http:` non-loopback sends the code in cleartext. Restrict them in the schema, defend in `assignLocation`, add tests [travelplan/src/lib/oauth/clientMetadata.ts:36]
+- [x] [Review][Patch] Unbounded outbound CIMD fetches from the unauthenticated authorize page: no negative cache, no single-flight, no minimum lifetime, no global budget [travelplan/src/lib/oauth/clientMetadata.ts:97]
+- [x] [Review][Patch] Revocation can race a running refresh and leave a fresh unrevoked pair. Run revoke inside `$transaction` (the adapter mutex) [travelplan/src/lib/repositories/oauthRepo.ts:245]
+- [x] [Review][Patch] Token and revoke routes answer a generic 500 (no RFC body, no no-store) when a transaction throws. Map it to `server_error` [travelplan/src/app/api/oauth/token/route.ts:50]
+- [x] [Review][Patch] An authorize query over 8 KB renders the consent card, but the decision route refuses it (Zod max 8 KB). Refuse it at validation [travelplan/src/lib/oauth/authorizeRequest.ts:60]
+- [x] [Review][Patch] Consent page can be framed (no `frame-ancestors` / `X-Frame-Options`): clickjacking on *Erlauben*. Add the headers for `/oauth/*` [travelplan/next.config.ts]
+- [x] [Review][Patch] Loopback warning is based on the registered list, not on the requested redirect. Warn when the requested URI is loopback [travelplan/src/lib/oauth/authorizeRequest.ts:127]
+- [x] [Review][Patch] Decision route reads an unbounded JSON body. Use `readJsonBodyWithinLimit` [travelplan/src/app/api/oauth/authorize/decision/route.ts:45]
+- [x] [Review][Patch] Decision response carries a live code without `Cache-Control: no-store` [travelplan/src/app/api/oauth/authorize/decision/route.ts:88]
+- [x] [Review][Patch] Rate limit is skipped when the client IP is "unknown". Use a shared bucket instead [travelplan/src/app/api/oauth/token/route.ts:29]
+- [x] [Review][Patch] Access token can outlive its family by up to 1 h. Cap it at `familyExpiresAt` [travelplan/src/lib/repositories/oauthRepo.ts:76]
+- [x] [Review][Patch] Housekeeping runs two `deleteMany` on every token issue. Throttle it to once per 10 minutes per process [travelplan/src/lib/repositories/oauthRepo.ts:255]
+- [x] [Review][Patch] Revoke ignores a supplied `client_id`. Do not revoke another client's token (still answer 200) [travelplan/src/app/api/oauth/revoke/route.ts:30]
+- [x] [Review][Patch] Missing bearer token gets `error="invalid_token"` in the challenge (RFC 6750 §3.1: no error code without credentials) [travelplan/src/app/api/mcp/route.ts:62]
+- [x] [Review][Patch] Non-canonical `client_id` (e.g. `https://Claude.ai/...`) is refused without the AC 6 host log line [travelplan/src/lib/oauth/clientMetadata.ts:80]
+- [x] [Review][Patch] `MCP_CLIENT_ID_HOSTS` entries are not normalised (scheme, port, trailing dot, IDN), and a list that ends up empty does not fall back to the default [travelplan/src/lib/oauth/config.ts:49]
+- [x] [Review][Patch] IPv4-compatible IPv6 (`::/96`, e.g. `::7f00:1`) passes as public [travelplan/src/lib/http/guardedFetch.ts:66]
+- [x] [Review][Patch] Consent card stays disabled with no message when the CSRF fetch fails [travelplan/src/components/features/oauth/OAuthConsentCard.tsx:43]
+- [x] [Review][Patch] Counted 2 MB limit on `/api/mcp` (chunked body, no `Content-Length`) is untested [travelplan/test/mcpRoute.test.ts]
+- [x] [Review][Patch] Record the declared deviations in `architecture.md`: own JSON legacy leg with `legacy: 'reject'` (SDK fallback answers SSE); 2 MB counted by the SDK's `maxRequestBodySize` [_bmad-output/planning-artifacts/architecture.md]
+- [x] [Review][Defer] Connector tokens survive password reset, first-login change and an admin-forced `mustChangePassword` [travelplan/src/lib/mcp/verifier.ts:11] — deferred to Story 15.3 (DW-416)
+- [x] [Review][Defer] Rate-limit keys trust the first `X-Forwarded-For` entry, spoofable if Nginx appends; the same pattern exists in the login, first-login and reset routes [travelplan/src/lib/http/clientIp.ts:7] — deferred, pre-existing pattern, needs the Nginx config (DW-417)
+- [x] [Review][Defer] Forced first-login password change drops the connector's `returnTo` [travelplan/src/app/(auth)/auth/login/page.tsx:129] — deferred, documented limitation in AC 10 (DW-418)
+- [x] [Review][Defer] AC 24 gate not demonstrated green: 8 tests fail on Windows (symlink EPERM, POSIX mode, shell scripts), identical on the baseline; needs a rerun on macOS/Linux — deferred, environment (DW-419)
 
 ## Dev Notes
 
@@ -613,3 +657,14 @@ Claude Opus 5.5 (claude-opus-5-5), as Amelia via `bmad-dev-story`, 2026-10-29.
   - migration `20261029120000_add_oauth_connector`
 
   Status → review.
+- 2026-10-29: Code review (blind, edge case, acceptance): 3 decisions resolved by Tommy, 20 patches plus the 3 resulting from the decisions applied, 4 deferred (DW-416..DW-419), 7 dismissed. Changes:
+  - client allowlist by host + path prefix (default `claude.ai/oauth/`), with normalised entries
+  - documents must be `application/json`; non-https and non-loopback redirect URIs are dropped, and `assignLocation` follows only http(s)
+  - CIMD fetches are single-flight, with minimum and failure caching and a process budget
+  - refresh grace issues a sibling pair; no pair for a revoked family; revoke runs inside a transaction and honours `client_id`
+  - access tokens capped at the family end; `server_error` on a failed transaction; throttled housekeeping; the unknown IP shares one rate-limit bucket
+  - decision route body bounded and no-store; authorize query capped at 8 KB; loopback warning on the requested redirect; CSRF failure shown on the consent card
+  - `/oauth/*` framing forbidden; no-credentials 401 without an error code; IPv4-compatible IPv6 refused
+  - architecture and deploy docs updated
+  - new tests in `oauthHardening`, plus additions to the authorize-request, route, mcp, consent and primitives suites
+- 2026-10-29: Gates after the review patches: tsc clean, lint 0/80, `next build` ok; full suite (4 forks) 3649 passed / 9 failed. The 8 known Windows failures (DW-419) plus `tripDayPlanDialog` "drops a tab's marker", a focus assertion that failed once under parallel load and passes alone (126/126, twice). Status → done; AC 25 production acceptance pending Tommy.

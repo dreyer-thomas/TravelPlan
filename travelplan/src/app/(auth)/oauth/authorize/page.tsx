@@ -69,7 +69,7 @@ export default async function OAuthAuthorizePage({ searchParams }: PageProps) {
       clientHost={new URL(request.client.clientId).host}
       redirectHost={new URL(request.redirectUri).host}
       email={user.email}
-      loopbackOnly={request.loopbackOnly}
+      loopbackWarning={request.loopbackWarning}
     />
   );
 }

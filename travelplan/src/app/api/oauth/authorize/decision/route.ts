@@ -3,10 +3,12 @@ import { z } from "zod";
 import { requireSession } from "@/lib/auth/sessionGuard";
 import { prisma } from "@/lib/db/prisma";
 import { apiError } from "@/lib/errors/apiError";
+import { readJsonBodyWithinLimit } from "@/lib/http/bodyLimit";
 import { fail, ok } from "@/lib/http/response";
 import {
   buildAuthorizationResponseUrl,
   buildErrorRedirectUrl,
+  MAX_AUTHORIZE_QUERY_LENGTH,
   validateAuthorizeRequest,
 } from "@/lib/oauth/authorizeRequest";
 import { isMcpEnabled } from "@/lib/oauth/config";
@@ -17,8 +19,12 @@ import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const MAX_DECISION_BODY_BYTES = 16 * 1024;
+/** The answer can carry a live authorization code; it must never be cached. */
+const NO_STORE = { headers: { "Cache-Control": "no-store", Pragma: "no-cache" } };
+
 const decisionSchema = z.object({
-  query: z.string().max(8 * 1024),
+  query: z.string().max(MAX_AUTHORIZE_QUERY_LENGTH),
   decision: z.enum(["allow", "deny"]),
 });
 
@@ -39,13 +45,13 @@ export const POST = async (request: NextRequest) => {
   const auth = await requireSession(request);
   if (auth.response) return auth.response;
 
-  let raw: unknown;
-  try {
-    raw = await request.json();
-  } catch {
-    return fail(apiError("invalid_json", "Invalid JSON"), 400);
+  const body = await readJsonBodyWithinLimit(request.body, MAX_DECISION_BODY_BYTES);
+  if (!body.ok) {
+    return body.reason === "too_large"
+      ? fail(apiError("payload_too_large", "Request body too large"), 413)
+      : fail(apiError("invalid_json", "Invalid JSON"), 400);
   }
-  const parsed = decisionSchema.safeParse(raw);
+  const parsed = decisionSchema.safeParse(body.raw);
   if (!parsed.success) {
     return fail(apiError("validation_error", "Invalid decision", parsed.error.flatten()), 400);
   }
@@ -60,7 +66,7 @@ export const POST = async (request: NextRequest) => {
     return fail(apiError("invalid_request", "Invalid authorization request", { reason: validation.reason }), 400);
   }
   if (validation.kind === "redirectError") {
-    return ok({ redirectUrl: buildErrorRedirectUrl(validation) });
+    return ok({ redirectUrl: buildErrorRedirectUrl(validation) }, NO_STORE);
   }
 
   const authorization = validation.request;
@@ -71,7 +77,7 @@ export const POST = async (request: NextRequest) => {
         error_description: "The user denied the request",
         state: authorization.state,
       }),
-    });
+    }, NO_STORE);
   }
 
   const code = await createAuthorizationCode({
@@ -85,5 +91,5 @@ export const POST = async (request: NextRequest) => {
   });
   return ok({
     redirectUrl: buildAuthorizationResponseUrl(authorization.redirectUri, { code, state: authorization.state }),
-  });
+  }, NO_STORE);
 };

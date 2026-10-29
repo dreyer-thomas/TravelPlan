@@ -16,27 +16,7 @@ export const dynamic = "force-dynamic";
 const RATE_LIMIT_MAX = 60;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 
-/**
- * Story 15.1, AC 14-15, 21. The token endpoint: authorization-code and refresh-token grants for public
- * clients (no client authentication; PKCE and the stored bindings carry the proof). RFC 6749 shapes only.
- *
- * Claude allows 10 s here (30 s for refresh); everything below is one SQLite transaction.
- */
-export const POST = async (request: Request) => {
-  if (!isMcpEnabled()) return connectorDisabled();
-
-  const ip = getClientIp(request);
-  if (ip !== "unknown" && !checkRateLimit(`oauth-token:${ip}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS).ok) {
-    return oauthError("slow_down", "Too many token requests", 429);
-  }
-
-  const form = await readFormBody(request);
-  if (!form.ok) return oauthError("invalid_request", form.description);
-  const params = form.params;
-  const clientId = params.get("client_id");
-  if (!clientId) return oauthError("invalid_request", "client_id is required");
-
-  let result: TokenGrantResult;
+const runGrant = (params: URLSearchParams, clientId: string): Promise<TokenGrantResult> | Response => {
   switch (params.get("grant_type")) {
     case "authorization_code": {
       const code = params.get("code");
@@ -47,14 +27,7 @@ export const POST = async (request: Request) => {
         return oauthError("invalid_request", "code, redirect_uri, code_verifier and resource are required");
       }
       if (!isMcpResource(resource)) return oauthError("invalid_target", "resource must be the TravelPlan MCP endpoint");
-      result = await exchangeAuthorizationCode({
-        code,
-        clientId,
-        redirectUri,
-        codeVerifier,
-        resource: getMcpResourceUrl(),
-      });
-      break;
+      return exchangeAuthorizationCode({ code, clientId, redirectUri, codeVerifier, resource: getMcpResourceUrl() });
     }
     case "refresh_token": {
       const refreshToken = params.get("refresh_token");
@@ -63,19 +36,44 @@ export const POST = async (request: Request) => {
       if (resource !== null && !isMcpResource(resource)) {
         return oauthError("invalid_target", "resource must be the TravelPlan MCP endpoint");
       }
-      result = await rotateRefreshToken({
-        refreshToken,
-        clientId,
-        resource: resource === null ? null : getMcpResourceUrl(),
-      });
-      break;
+      return rotateRefreshToken({ refreshToken, clientId, resource: resource === null ? null : getMcpResourceUrl() });
     }
     case null:
       return oauthError("invalid_request", "grant_type is required");
     default:
       return oauthError("unsupported_grant_type", "Only authorization_code and refresh_token are supported");
   }
+};
 
+/**
+ * Story 15.1, AC 14-15, 21. The token endpoint: authorization-code and refresh-token grants for public
+ * clients (no client authentication; PKCE and the stored bindings carry the proof). RFC 6749 shapes only,
+ * including when a transaction fails (`server_error`, uncached) rather than a framework 500.
+ *
+ * Claude allows 10 s here (30 s for refresh); everything below is one SQLite transaction.
+ */
+export const POST = async (request: Request) => {
+  if (!isMcpEnabled()) return connectorDisabled();
+
+  // An unknown address shares one bucket rather than skipping the limit.
+  if (!checkRateLimit(`oauth-token:${getClientIp(request)}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS).ok) {
+    return oauthError("slow_down", "Too many token requests", 429);
+  }
+
+  const form = await readFormBody(request);
+  if (!form.ok) return oauthError("invalid_request", form.description);
+  const clientId = form.params.get("client_id");
+  if (!clientId) return oauthError("invalid_request", "client_id is required");
+
+  let result: TokenGrantResult | Response;
+  try {
+    result = await runGrant(form.params, clientId);
+  } catch (error) {
+    // A failed transaction (lock wait, a user deleted mid-exchange) still answers in RFC shape and uncached.
+    console.error("oauth/token: grant failed", error instanceof Error ? error.message : "unknown error");
+    return oauthError("server_error", "Temporary failure, try again", 500);
+  }
+  if (result instanceof Response) return result;
   if (!result.ok) return oauthError(result.error, result.description);
 
   await deleteExpiredOAuthRows().catch((error) => console.error("oauth/token: housekeeping failed", error));

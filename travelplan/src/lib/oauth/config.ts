@@ -20,7 +20,7 @@ export const LAST_USED_WRITE_INTERVAL_MS = 5 * 60 * 1000;
 /** Codes and tokens are deleted this long after they expired. */
 export const EXPIRED_ROW_RETENTION_MS = 24 * 60 * 60 * 1000;
 
-const DEFAULT_CLIENT_ID_HOSTS = ["claude.ai"];
+const DEFAULT_CLIENT_ID_RULES = [{ host: "claude.ai", pathPrefix: "/oauth/" }];
 const DEV_FALLBACK_BASE_URL = "http://localhost:3000";
 
 export const isMcpEnabled = () => process.env.MCP_ENABLED === "true";
@@ -46,13 +46,42 @@ export const getMcpResourceUrl = () => `${getIssuer()}/api/mcp`;
 
 export const getProtectedResourceMetadataUrl = () => `${getIssuer()}/.well-known/oauth-protected-resource`;
 
-export const getAllowedClientIdHosts = () => {
-  const raw = process.env.MCP_CLIENT_ID_HOSTS;
-  if (raw === undefined || raw.trim() === "") return DEFAULT_CLIENT_ID_HOSTS;
-  return raw
+export type ClientIdRule = { host: string; pathPrefix: string };
+
+/**
+ * One `MCP_CLIENT_ID_HOSTS` entry as a rule: `host` or `host/path-prefix`, a leading `https://` tolerated.
+ * Normalised through `URL` (lowercase, punycode, no trailing dot) so `Claude.ai`, `claude.ai.` and
+ * `https://claude.ai/oauth/` all mean the same thing. A port other than 443 or any query makes the entry
+ * invalid, and an invalid entry is skipped rather than widening anything.
+ */
+const parseClientIdRule = (entry: string): ClientIdRule | null => {
+  const trimmed = entry.trim().replace(/^https:\/\//i, "");
+  if (trimmed === "" || /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return null;
+  try {
+    const url = new URL(`https://${trimmed}`);
+    if (url.port !== "" || url.search !== "" || url.hash !== "" || url.username !== "" || url.password !== "") {
+      return null;
+    }
+    const host = url.hostname.replace(/\.$/, "");
+    return host === "" ? null : { host, pathPrefix: url.pathname };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Story 15.1, AC 6 (review D1, Tommy 2026-10-29): clients are allowed by host **and path prefix**, not by
+ * the whole host, so a JSON file someone manages to place elsewhere on an allowed site cannot pose as a
+ * client. Default `claude.ai/oauth/`, where Claude Code's document lives; an empty or wholly invalid list
+ * falls back to it rather than to nothing.
+ */
+export const getAllowedClientIdRules = (): ClientIdRule[] => {
+  const raw = process.env.MCP_CLIENT_ID_HOSTS ?? "";
+  const rules = raw
     .split(",")
-    .map((host) => host.trim().toLowerCase())
-    .filter((host) => host.length > 0);
+    .map(parseClientIdRule)
+    .filter((rule): rule is ClientIdRule => rule !== null);
+  return rules.length > 0 ? rules : DEFAULT_CLIENT_ID_RULES;
 };
 
 /**

@@ -18,8 +18,8 @@ const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 export const POST = async (request: Request) => {
   if (!isMcpEnabled()) return connectorDisabled();
 
-  const ip = getClientIp(request);
-  if (ip !== "unknown" && !checkRateLimit(`oauth-revoke:${ip}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS).ok) {
+  // An unknown address shares one bucket rather than skipping the limit.
+  if (!checkRateLimit(`oauth-revoke:${getClientIp(request)}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS).ok) {
     return oauthError("slow_down", "Too many revocation requests", 429);
   }
 
@@ -28,6 +28,11 @@ export const POST = async (request: Request) => {
   const token = form.params.get("token");
   if (!token) return oauthError("invalid_request", "token is required");
 
-  await revokeFamilyByToken(token);
+  try {
+    await revokeFamilyByToken(token, form.params.get("client_id"));
+  } catch (error) {
+    console.error("oauth/revoke: revocation failed", error instanceof Error ? error.message : "unknown error");
+    return oauthError("server_error", "Temporary failure, try again", 500);
+  }
   return new NextResponse(null, { status: 200, headers: { "Cache-Control": "no-store" } });
 };

@@ -19,7 +19,7 @@ const consentProps = {
   clientHost: "claude.ai",
   redirectHost: "claude.ai",
   email: "tommy@example.com",
-  loopbackOnly: false,
+  loopbackWarning: false,
 };
 
 const decisionBodies: unknown[] = [];
@@ -65,7 +65,7 @@ describe("OAuthConsentCard", () => {
 
   it("warns when the client only returns to this computer", () => {
     stubDecision({ ok: true });
-    renderWithProviders(<OAuthConsentCard {...consentProps} loopbackOnly />);
+    renderWithProviders(<OAuthConsentCard {...consentProps} loopbackWarning />);
     expect(screen.getByText(/only returns to a program on this computer/)).toBeInTheDocument();
   });
 
@@ -92,6 +92,15 @@ describe("OAuthConsentCard", () => {
     expect(await screen.findByText("Your decision could not be sent. Please try again.")).toBeInTheDocument();
     expect(assignMock).not.toHaveBeenCalled();
     expect(decisionBodies).toEqual([{ query: consentProps.query, decision: "deny" }]);
+  });
+
+  it("says so when no CSRF token could be fetched", async () => {
+    global.fetch = vi.fn(async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+    renderWithProviders(<OAuthConsentCard {...consentProps} />);
+    expect(await screen.findByText("Your decision could not be sent. Please try again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeDisabled();
   });
 
   it("renders the error card for an invalid request", () => {

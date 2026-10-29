@@ -50,6 +50,20 @@ const nextConfig: NextConfig = {
      */
     proxyClientMaxBodySize: "20mb",
   },
+  /**
+   * Story 15.1 (review): the connector's consent page must not be framed, or another site could lay it
+   * under its own content and collect a click on *Erlauben* (clickjacking). Scoped to `/oauth/*`; the rest
+   * of the app sets no framing policy today.
+   */
+  headers: async () => [
+    {
+      source: "/oauth/:path*",
+      headers: [
+        { key: "X-Frame-Options", value: "DENY" },
+        { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+      ],
+    },
+  ],
 };
 
 export default nextConfig;

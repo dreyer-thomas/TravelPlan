@@ -59,8 +59,24 @@ const methodNotAllowed = () => {
   return response;
 };
 
+/**
+ * RFC 6750 §3.1: a request that carries no credentials gets the challenge without an error code. The SDK
+ * gate always names `invalid_token`, so the no-credentials case is answered here, before it.
+ */
+const missingCredentials = () =>
+  NextResponse.json(
+    { error: "unauthorized", error_description: "Bearer token required" },
+    {
+      status: 401,
+      headers: {
+        "WWW-Authenticate": `Bearer resource_metadata="${getProtectedResourceMetadataUrl()}", scope="${MCP_SCOPE}"`,
+      },
+    },
+  );
+
 export const POST = async (request: Request) => {
   if (!isMcpEnabled()) return connectorDisabled();
+  if (!request.headers.get("authorization")) return missingCredentials();
 
   const gate = requireBearerAuth({
     verifier: travelPlanTokenVerifier,

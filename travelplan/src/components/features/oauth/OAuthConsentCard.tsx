@@ -21,7 +21,7 @@ export type OAuthConsentCardProps =
       clientHost: string;
       redirectHost: string;
       email: string;
-      loopbackOnly: boolean;
+      loopbackWarning: boolean;
     };
 
 /**
@@ -45,11 +45,14 @@ export default function OAuthConsentCard(props: OAuthConsentCardProps) {
         const response = await fetch("/api/auth/csrf", { method: "GET" });
         const body = (await response.json()) as ApiEnvelope<{ csrfToken: string }>;
         if (body.data?.csrfToken) setCsrfToken(body.data.csrfToken);
+        else setFailed(true);
       } catch {
+        // Without a token both buttons stay disabled; say so instead of leaving a dead card.
         setCsrfToken(null);
+        setFailed(true);
       }
     };
-    fetchCsrf();
+    void fetchCsrf();
   }, [props.mode]);
 
   if (props.mode === "error") {
@@ -112,7 +115,7 @@ export default function OAuthConsentCard(props: OAuthConsentCardProps) {
             <li>{t("oauth.consent.permission")}</li>
           </Typography>
         </Box>
-        {props.loopbackOnly ? <Alert severity="warning">{t("oauth.consent.loopbackWarning")}</Alert> : null}
+        {props.loopbackWarning ? <Alert severity="warning">{t("oauth.consent.loopbackWarning")}</Alert> : null}
         <Box sx={{ display: "flex", gap: "12px", mt: "6px" }}>
           <Button
             variant="outlined"

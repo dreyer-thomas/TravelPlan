@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   assertMcpConfigured,
-  getAllowedClientIdHosts,
+  getAllowedClientIdRules,
   getIssuer,
   getMcpResourceUrl,
   isMcpEnabled,
@@ -38,11 +38,22 @@ describe("oauth config", () => {
     expect(getMcpResourceUrl()).toBe("https://plan.example.test/api/mcp");
   });
 
-  it("defaults the client id allowlist to claude.ai and parses a list", () => {
+  it("defaults the client id allowlist to claude.ai/oauth/ and parses host and host/path entries", () => {
     delete env.MCP_CLIENT_ID_HOSTS;
-    expect(getAllowedClientIdHosts()).toEqual(["claude.ai"]);
-    env.MCP_CLIENT_ID_HOSTS = " Claude.ai , example.org ,";
-    expect(getAllowedClientIdHosts()).toEqual(["claude.ai", "example.org"]);
+    expect(getAllowedClientIdRules()).toEqual([{ host: "claude.ai", pathPrefix: "/oauth/" }]);
+    env.MCP_CLIENT_ID_HOSTS = " Claude.ai/oauth/ , https://example.org ,claude.com.";
+    expect(getAllowedClientIdRules()).toEqual([
+      { host: "claude.ai", pathPrefix: "/oauth/" },
+      { host: "example.org", pathPrefix: "/" },
+      { host: "claude.com", pathPrefix: "/" },
+    ]);
+  });
+
+  it("skips malformed entries and falls back to the default when none remain", () => {
+    env.MCP_CLIENT_ID_HOSTS = "claude.ai:8443, http://claude.ai, claude.ai/x?y=1, , ";
+    expect(getAllowedClientIdRules()).toEqual([{ host: "claude.ai", pathPrefix: "/oauth/" }]);
+    env.MCP_CLIENT_ID_HOSTS = "bücher.example";
+    expect(getAllowedClientIdRules()).toEqual([{ host: "xn--bcher-kva.example", pathPrefix: "/" }]);
   });
 
   it("boot check throws only in production with the connector on and no https base url", () => {

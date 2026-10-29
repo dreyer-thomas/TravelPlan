@@ -77,6 +77,8 @@ describe("isPublicUnicastAddress", () => {
     "fe80::1",
     "::ffff:127.0.0.1",
     "::ffff:10.0.0.1",
+    "::7f00:1",
+    "::a00:1",
   ])("refuses %s", (address) => {
     expect(isPublicUnicastAddress(address)).toBe(false);
   });

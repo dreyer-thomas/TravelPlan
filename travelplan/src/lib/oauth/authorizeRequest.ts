@@ -21,8 +21,11 @@ export type AuthorizeRequest = {
   resource: string;
   scope: string;
   state: string | null;
-  /** True when every redirect URI the client registered is a loopback address (AC 11 warning). */
-  loopbackOnly: boolean;
+  /**
+   * AC 11 warning: the code goes to a program on this computer - the requested redirect is a loopback
+   * address, or every redirect the client registered is.
+   */
+  loopbackWarning: boolean;
 };
 
 export type AuthorizeValidation =
@@ -52,6 +55,9 @@ export const isMcpResource = (value: string | null) => {
 };
 
 const ALLOWED_SCOPES = new Set([MCP_SCOPE, OFFLINE_ACCESS_SCOPE]);
+
+/** The decision route's ceiling for the query it is sent back; the page refuses anything longer. */
+export const MAX_AUTHORIZE_QUERY_LENGTH = 8 * 1024;
 
 export const validateAuthorizeRequest = async (params: URLSearchParams): Promise<AuthorizeValidation> => {
   const clientIdParam = single(params, "client_id");
@@ -89,6 +95,11 @@ export const validateAuthorizeRequest = async (params: URLSearchParams): Promise
   });
 
   if (stateParam.duplicated) return redirectError("invalid_request", "state sent more than once");
+  // The consent card posts this query back to the decision route, which accepts at most this much;
+  // refusing here keeps the card from offering buttons that can only fail.
+  if (params.toString().length > MAX_AUTHORIZE_QUERY_LENGTH) {
+    return redirectError("invalid_request", "Authorization request too large");
+  }
 
   for (const name of ["response_type", "code_challenge", "code_challenge_method", "resource", "scope"]) {
     if (single(params, name).duplicated) return redirectError("invalid_request", `${name} sent more than once`);
@@ -124,7 +135,7 @@ export const validateAuthorizeRequest = async (params: URLSearchParams): Promise
       resource: getMcpResourceUrl(),
       scope: MCP_SCOPE,
       state,
-      loopbackOnly: client.redirectUris.every((uri) => isLoopbackRedirectUri(uri)),
+      loopbackWarning: isLoopbackRedirectUri(redirectUri) || client.redirectUris.every((uri) => isLoopbackRedirectUri(uri)),
     },
   };
 };

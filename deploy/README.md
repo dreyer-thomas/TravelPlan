@@ -46,9 +46,9 @@ TravelPlan can be added to Claude as a custom connector (remote MCP server with 
   then `/mcp` to sign in.
 - **Switch:** `MCP_ENABLED=true` in the unit's environment; anything else turns every connector endpoint
   into a 404. With the switch on, `APP_BASE_URL` must be `https://…` or startup fails (`instrumentation.ts`).
-- **Who may connect:** `MCP_CLIENT_ID_HOSTS` (default `claude.ai`). A refused client logs
-  `oauth/authorize: client_id host not allowed: <host>`; add a host only if it belongs to the assistant
-  you mean to allow.
+- **Who may connect:** `MCP_CLIENT_ID_HOSTS`, entries `host` or `host/path-prefix` (default `claude.ai/oauth/`).
+  A refused client logs `oauth/authorize: client_id not allowed: <host><path>`; widen an entry only for a
+  host that belongs to the assistant you mean to allow.
 - **Nginx:** must pass `/.well-known/*`, `/oauth/*`, `/api/oauth/*` and `/api/mcp` to the app unchanged.
   All of them answer plain JSON or HTML, so no SSE or buffering settings are needed. Check with
   `curl -i https://plan.dreyer-travels.de/.well-known/oauth-authorization-server`: it must return JSON

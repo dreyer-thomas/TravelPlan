@@ -65,8 +65,15 @@ const BLOCKED_ERROR_CODE = "ETRAVELPLAN_BLOCKED_ADDRESS";
 export const isPublicUnicastAddress = (address: string) => {
   if (!ipaddr.isValid(address)) return false;
   let parsed = ipaddr.parse(address);
-  if (parsed.kind() === "ipv6" && (parsed as ipaddr.IPv6).isIPv4MappedAddress()) {
-    parsed = (parsed as ipaddr.IPv6).toIPv4Address();
+  if (parsed.kind() === "ipv6") {
+    const ipv6 = parsed as ipaddr.IPv6;
+    if (ipv6.isIPv4MappedAddress()) {
+      parsed = ipv6.toIPv4Address();
+    } else if (ipv6.parts.slice(0, 6).every((part) => part === 0)) {
+      // IPv4-compatible (`::a.b.c.d`, deprecated by RFC 4291) has no special range in ipaddr.js and would
+      // read as public unicast; nothing legitimate resolves to one, so refuse it outright.
+      return false;
+    }
   }
   return parsed.range() === "unicast";
 };

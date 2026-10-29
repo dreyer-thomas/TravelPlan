@@ -1,6 +1,7 @@
 import { afterEach, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { createSessionJwt } from "@/lib/auth/jwt";
+import { resetOAuthHousekeepingForTests } from "@/lib/repositories/oauthRepo";
 import { prisma } from "@/lib/db/prisma";
 import type { GuardedFetchResult } from "@/lib/http/guardedFetch";
 import {
@@ -50,6 +51,9 @@ export const setupConnectorEnvironment = () => {
     delete process.env.MCP_CLIENT_ID_HOSTS;
     fetchCalls.length = 0;
     resetClientMetadataCacheForTests();
+    resetOAuthHousekeepingForTests();
+    // The process-wide outbound fetch budget would otherwise carry over between tests.
+    (globalThis as { rateLimitStore?: Map<string, unknown> }).rateLimitStore?.delete("oauth-client-metadata-fetch");
     setClientMetadataFetcherForTests(async (url): Promise<GuardedFetchResult> => {
       fetchCalls.push(url);
       const document = documents[url];

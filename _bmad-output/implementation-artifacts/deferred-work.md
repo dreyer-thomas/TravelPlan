@@ -4034,3 +4034,46 @@ severity: low
 summary: The day reset clears notices but not `emailPending`/`packetPending`, so on the new day the item stays disabled ("Sending…") until the old request ends, and `finally`'s `handleDayMenuClose()` closes a menu the user may have opened on the new day.
 evidence: Messages are already gated on `onRequestedDay()`; gating the menu close the same way and keying the pending flag by day would close it for both handlers.
 status: open
+
+## Deferred from: code review of 15-1-add-travelplan-to-claude (2026-10-29)
+
+### DW-416: Connector tokens survive password changes and a forced password change
+
+source_spec: `_bmad-output/implementation-artifacts/15-1-add-travelplan-to-claude.md`
+origin: code review of 15-1-add-travelplan-to-claude, 2026-10-29
+location: `travelplan/src/lib/mcp/verifier.ts`, `travelplan/src/lib/repositories/oauthRepo.ts`
+severity: medium
+summary: Neither `findActiveAccessToken` nor `rotateRefreshToken` looks at the user. So after a password reset, a first-login password change, or an admin setting `mustChangePassword`, existing connector families keep working and rotating for up to 30 days. The consent page refuses flagged sessions; the bearer path does not.
+evidence: The revocation half is planned for Story 15.3 ("Given I change my password, or my account is deleted → all my connector tokens are revoked"). That story should also refuse bearer calls while `mustChangePassword` is set, and revoke inside the reset-confirm transaction and the first-login route.
+status: open
+
+### DW-417: Rate-limit keys trust the first X-Forwarded-For entry
+
+source_spec: `_bmad-output/implementation-artifacts/15-1-add-travelplan-to-claude.md`
+origin: code review of 15-1-add-travelplan-to-claude, 2026-10-29
+location: `travelplan/src/lib/http/clientIp.ts` (and the three inline copies in the login, first-login and reset routes)
+severity: low
+summary: If Nginx uses `$proxy_add_x_forwarded_for`, the first entry is whatever the client sent, so rotating it gives a fresh bucket per request on login, first-login, reset, token and revoke.
+evidence: The Nginx config is not in the repo (DW-353). The fix is to take the entry Nginx appends last, or an `X-Real-IP` Nginx overwrites with `$remote_addr`, and to fold the three inline copies into `clientIp.ts`.
+status: open
+
+### DW-418: The forced first-login password change drops the connector's returnTo
+
+source_spec: `_bmad-output/implementation-artifacts/15-1-add-travelplan-to-claude.md`
+origin: code review of 15-1-add-travelplan-to-claude, 2026-10-29
+location: `travelplan/src/app/(auth)/auth/login/page.tsx`, `travelplan/src/app/(auth)/auth/first-login-password/page.tsx`
+severity: low
+summary: A user who must change their password signs in from the authorize step, is sent to the first-login page, and lands on `/` afterwards. The connector flow has to be restarted from Claude.
+evidence: Accepted as a documented limitation in AC 10. The fix is to carry the sanitised `returnTo` through `/auth/first-login-password` and honour it after the change.
+status: open
+
+### DW-419: Eight tests fail on a Windows checkout
+
+source_spec: `_bmad-output/implementation-artifacts/15-1-add-travelplan-to-claude.md`
+origin: code review of 15-1-add-travelplan-to-claude, 2026-10-29
+location: `test/uploadsServeRoute.test.ts` (3), `test/tripRepo.test.ts` (2), `test/tripDayDocumentPacketRoute.test.ts`, `test/multipartToDisk.test.ts`, `test/auditCheckScript.test.ts`, `test/grantAdminScript.test.ts` (load errors), `test/suggestionImages.test.ts`
+severity: low
+summary: On Windows 11 with Node 22, `fs.symlink` without admin rights (EPERM), POSIX file modes and the shell-script suites fail. The `suggestionImages` "step itself breaks" case also fails. All fail identically on the baseline before Story 15.1.
+evidence: Story 15.1's AC 24 gate needs a clean `npm test` on macOS/Linux with Node 24. The symlink tests could skip with a reason on win32, as the platform cannot run them.
+Also seen once since test files run in parallel (commit c74abe6): `test/tripDayPlanDialog.test.tsx` "drops a tab's marker once the offending field is corrected" failed a `toHaveFocus()` assertion under load and passes alone. If it recurs, give the focus assertion a `waitFor`, or run with `TEST_MAX_FORKS=1`.
+status: open

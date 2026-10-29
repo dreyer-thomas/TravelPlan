@@ -77,6 +77,36 @@ describe("POST /api/mcp authentication", () => {
     expect(challenge).toContain("Bearer");
     expect(challenge).toContain(`resource_metadata="${ISSUER}/.well-known/oauth-protected-resource"`);
     expect(challenge).toContain('scope="trips"');
+    // RFC 6750 §3.1: no credentials, no error code.
+    expect(challenge).not.toContain("error=");
+  });
+
+  it("enforces the 2 MB limit on a body sent without Content-Length", async () => {
+    const user = await createUser();
+    const token = await issueAccessToken(user.id);
+    const chunk = new TextEncoder().encode("x".repeat(512 * 1024));
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent >= 5) {
+          controller.close();
+          return;
+        }
+        sent += 1;
+        controller.enqueue(chunk);
+      },
+    });
+    const request = new Request(MCP_URL, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body,
+      duplex: "half",
+    } as RequestInit);
+    expect((await POST(request)).status).toBe(413);
   });
 
   it("refuses unknown, revoked, expired and wrong-audience tokens with invalid_token", async () => {

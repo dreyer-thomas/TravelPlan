@@ -20,13 +20,58 @@ import {
 setupConnectorEnvironment();
 
 describe("client id metadata documents", () => {
-  it("refuses a client id outside the allowlist without fetching and logs the host", async () => {
+  it("refuses a client id outside the allowlist without fetching and logs host and path", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const result = await resolveClientMetadata("https://evil.example/oauth/client");
     expect(result).toEqual({ ok: false, reason: "client_not_allowed" });
     expect(fetchCalls).toHaveLength(0);
-    expect(warn).toHaveBeenCalledWith("oauth/authorize: client_id host not allowed: evil.example");
+    expect(warn).toHaveBeenCalledWith("oauth/authorize: client_id not allowed: evil.example/oauth/client");
     warn.mockRestore();
+  });
+
+  it("allows claude.ai only under /oauth/ by default (review D1)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    expect(await resolveClientMetadata("https://claude.ai/share/abc.json")).toEqual({ ok: false, reason: "client_not_allowed" });
+    expect(await resolveClientMetadata("https://claude.ai/oauthx/abc")).toEqual({ ok: false, reason: "client_not_allowed" });
+    expect(fetchCalls).toHaveLength(0);
+    warn.mockRestore();
+  });
+
+  it("logs the host of a non-canonical client id", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    expect(await resolveClientMetadata("https://Claude.ai/oauth/x")).toEqual({ ok: false, reason: "invalid_client_id" });
+    expect(warn).toHaveBeenCalledWith("oauth/authorize: client_id not canonical: claude.ai/oauth/x");
+    warn.mockRestore();
+  });
+
+  it("refuses a document not served as application/json", async () => {
+    setClientMetadataFetcherForTests(async (url) => ({
+      ok: true,
+      status: 200,
+      headers: { "content-type": "text/plain" },
+      body: new Uint8Array(Buffer.from(JSON.stringify(documents[CLAUDE_CODE_CLIENT_ID]))),
+      url,
+    }));
+    expect(await resolveClientMetadata(CLAUDE_CODE_CLIENT_ID)).toEqual({ ok: false, reason: "invalid_document" });
+  });
+
+  it("drops javascript:, data:, custom-scheme and plain-http redirect uris and refuses a document left with none", async () => {
+    const mixedId = "https://claude.ai/oauth/mixed";
+    const evilId = "https://claude.ai/oauth/evil";
+    const scriptUri = "javascript:alert(document.cookie)//";
+    documents[mixedId] = {
+      client_id: mixedId,
+      client_name: "Mixed",
+      redirect_uris: [scriptUri, "data:text/html,x", "claude://callback", "http://example.com/cb", HOSTED_REDIRECT, "http://127.0.0.1/callback"],
+    };
+    documents[evilId] = { client_id: evilId, client_name: "Evil", redirect_uris: [scriptUri, "http://example.com/cb"] };
+    const mixed = await resolveClientMetadata(mixedId);
+    expect(mixed.ok && mixed.client.redirectUris).toEqual([HOSTED_REDIRECT, "http://127.0.0.1/callback"]);
+    expect(await resolveClientMetadata(evilId)).toEqual({ ok: false, reason: "invalid_document" });
+    const viaScript = await validateAuthorizeRequest(authorizeQuery({ client_id: mixedId, redirect_uri: scriptUri }));
+    expect(viaScript).toEqual({ kind: "fatal", reason: "invalid_redirect_uri" });
+    delete documents[mixedId];
+    delete documents[evilId];
   });
 
   it("accepts an extra host from MCP_CLIENT_ID_HOSTS", async () => {
@@ -84,15 +129,55 @@ describe("client id metadata documents", () => {
     delete documents["https://claude.ai/oauth/secret"];
   });
 
-  it("does not cache a failed fetch", async () => {
+  it("caches a failed fetch for a minute only", async () => {
+    let calls = 0;
+    setClientMetadataFetcherForTests(async () => {
+      calls += 1;
+      return { ok: false, reason: "timeout" };
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      await resolveClientMetadata(CLAUDE_CODE_CLIENT_ID);
+      await resolveClientMetadata(CLAUDE_CODE_CLIENT_ID);
+      expect(calls).toBe(1);
+      vi.setSystemTime(Date.now() + 61_000);
+      await resolveClientMetadata(CLAUDE_CODE_CLIENT_ID);
+      expect(calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+      warn.mockRestore();
+    }
+  });
+
+  it("shares one fetch between concurrent misses and keeps a no-store document for a minute", async () => {
     let calls = 0;
     setClientMetadataFetcherForTests(async (url) => {
       calls += 1;
-      return { ok: false, reason: "timeout", url } as never;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return {
+        ok: true,
+        status: 200,
+        headers: { "content-type": "application/json", "cache-control": "no-store" },
+        body: new Uint8Array(Buffer.from(JSON.stringify(documents[CLAUDE_CODE_CLIENT_ID]))),
+        url,
+      };
     });
+    const results = await Promise.all([1, 2, 3].map(() => resolveClientMetadata(CLAUDE_CODE_CLIENT_ID)));
+    expect(results.every((result) => result.ok)).toBe(true);
     await resolveClientMetadata(CLAUDE_CODE_CLIENT_ID);
-    await resolveClientMetadata(CLAUDE_CODE_CLIENT_ID);
-    expect(calls).toBe(2);
+    expect(calls).toBe(1);
+  });
+
+  it("stops fetching once the process-wide budget is spent", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    for (let index = 0; index < 30; index += 1) {
+      await resolveClientMetadata(`https://claude.ai/oauth/missing-${index}`);
+    }
+    expect(fetchCalls).toHaveLength(30);
+    expect(await resolveClientMetadata(CLAUDE_CODE_CLIENT_ID)).toEqual({ ok: false, reason: "fetch_failed" });
+    expect(fetchCalls).toHaveLength(30);
+    warn.mockRestore();
   });
 });
 
@@ -104,7 +189,24 @@ describe("validateAuthorizeRequest", () => {
     expect(result.request.scope).toBe("trips");
     expect(result.request.resource).toBe(`${ISSUER}/api/mcp`);
     expect(result.request.state).toBe("state-123");
-    expect(result.request.loopbackOnly).toBe(false);
+    expect(result.request.loopbackWarning).toBe(false);
+  });
+
+  it("warns when the requested redirect is loopback even if https ones are registered", async () => {
+    const bothId = "https://claude.ai/oauth/both";
+    documents[bothId] = { client_id: bothId, client_name: "Both", redirect_uris: [HOSTED_REDIRECT, "http://localhost/callback"] };
+    const loopback = await validateAuthorizeRequest(
+      authorizeQuery({ client_id: bothId, redirect_uri: "http://localhost:4444/callback" }),
+    );
+    expect(loopback.kind === "ok" && loopback.request.loopbackWarning).toBe(true);
+    const hosted = await validateAuthorizeRequest(authorizeQuery({ client_id: bothId }));
+    expect(hosted.kind === "ok" && hosted.request.loopbackWarning).toBe(false);
+    delete documents[bothId];
+  });
+
+  it("refuses a query the decision route could not take back", async () => {
+    const result = await validateAuthorizeRequest(authorizeQuery({ state: "s".repeat(9000) }));
+    expect(result.kind === "redirectError" && result.error).toBe("invalid_request");
   });
 
   it("accepts Claude Code on an ephemeral loopback port and flags loopback-only", async () => {
@@ -112,7 +214,7 @@ describe("validateAuthorizeRequest", () => {
       authorizeQuery({ client_id: CLAUDE_CODE_CLIENT_ID, redirect_uri: "http://localhost:3118/callback" }),
     );
     expect(result.kind).toBe("ok");
-    expect(result.kind === "ok" && result.request.loopbackOnly).toBe(true);
+    expect(result.kind === "ok" && result.request.loopbackWarning).toBe(true);
   });
 
   it("is fatal (no redirect) for an unknown client or an unregistered redirect", async () => {
