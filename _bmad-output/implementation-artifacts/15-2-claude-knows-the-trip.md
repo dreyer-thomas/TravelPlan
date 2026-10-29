@@ -4,7 +4,7 @@ baseline_commit: f8b67c0
 
 # Story 15.2: Claude Knows the Trip
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -36,7 +36,7 @@ so that its suggestions build on what is already planned instead of on what I re
    - `id`, `date`, `dayIndex`
    - `previousStay`: last night's stay by the **schedule's** rule (raw row of the nearest earlier day with a lower `dayIndex`, whatever its name) as `{ id, name, checkOutTime }`, or `null`. `checkOutTime` is what the day's first flexible activity starts from (FR42; 10:00 default, 09:00 when there is no stay the night before).
    - `activities`, in the day's order (`compareDayPlanItemsByOrder`), each with the fields in AC 4
-   - `legs`: each travel leg of the day with `id`, `from` and `to` as `{ type: "stay" | "activity", id }`, `mode` (the app's `TravelTransportType`), `durationMinutes`, `distanceKm`, `link`, `updatedAt`
+   - `legs`: each travel leg of the day with `id`, `from` and `to` as `{ type: "stay" | "activity", id }`, `mode` (the app's `TransportType`, lower case: `car`, `walking`, …; amended 2026-10-29, review decision D2), `durationMinutes`, `distanceKm`, `link`, `updatedAt`
    - `stay`: the night's stay, or `null` under the same rule as `missingStay`, with `id`, `name`, `status`, `checkInTime`, `checkOutTime` (`HH:MM` or `null`), `place`, `link`, `notes`, `cost`, `payments`, `documents`, `images`, `updatedAt`
    - `missingStay`, `warnings`
 4. **Activity fields** (on a day and, where stated, in the bucket list):
@@ -77,35 +77,47 @@ so that its suggestions build on what is already planned instead of on what I re
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Plain text** (AC 7)
-  - [ ] `tiptapDocToPlainText(contentJson: string): string` in `src/lib/trips/planText.ts`, next to `parsePlanText` and `plainTextToTiptapDoc`, pure, no client imports. Node types to handle: StarterKit's (`doc`, `paragraph`, `heading`, `bulletList`, `orderedList`, `listItem`, `blockquote`, `codeBlock`, `hardBreak`, `text`) plus the `link` mark (`TripDayPlanDialog.tsx:891`). Unknown nodes: walk their children.
-  - [ ] Tests in a new `test/planText.test.ts`.
-- [ ] **Task 2: Day reader for the connector** (AC 3, 4, 5, 8, 9)
-  - [ ] New `src/lib/repositories/connectorReadRepo.ts` (all Prisma access for the read tools lives here):
+- [x] **Task 1: Plain text** (AC 7)
+  - [x] `tiptapDocToPlainText(contentJson: string): string` in `src/lib/trips/planText.ts`, next to `parsePlanText` and `plainTextToTiptapDoc`, pure, no client imports. Node types to handle: StarterKit's (`doc`, `paragraph`, `heading`, `bulletList`, `orderedList`, `listItem`, `blockquote`, `codeBlock`, `hardBreak`, `text`) plus the `link` mark (`TripDayPlanDialog.tsx:891`). Unknown nodes: walk their children.
+  - [x] Tests in a new `test/planText.test.ts`.
+- [x] **Task 2: Day reader for the connector** (AC 3, 4, 5, 8, 9)
+  - [x] New `src/lib/repositories/connectorReadRepo.ts` (all Prisma access for the read tools lives here):
     - `getPlannerDayForUser({ userId, tripId, day: { id } | { date } })` → `PlannerDay | null`. One `prisma.trip.findFirst` with `where: { id: tripId, OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }] }` (the `countPlannableTripsForUser` arms), then `deriveTripAccessRole` + `canTripAccessRoleWrite` on the loaded membership, `null` otherwise. Select all days' `id, dayIndex, date` plus the raw accommodation `id, name, checkOutTime` (for the previous-stay walk) and, for the target day only, items, legs and stay with `updatedAt`, payments (`orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }]`, as `getTripWithDaysForUser`), images and documents (`orderBy sortOrder`).
     - Find the target day by id, or by `date.toISOString().slice(0, 10) === date`. Not in this trip → `null` day (the tool says `Day not found`); distinguish trip-null from day-null in the return type.
     - Previous stay: walk back to the nearest earlier day with a lower `dayIndex` (copy the loop and its comment from `getTripWithDaysForUser`, `tripRepo.ts:1258`; it is the writes' `readScheduleInputInTransaction` rule).
     - Order items with `compareDayPlanItemsByOrder` (`src/lib/trips/dayPlanItemOrder.ts`), warnings with `derivePlanConflicts(buildScheduleInput({ items, legs, previousStay }))` (`src/lib/trips/planConflicts.ts`), payments with `toPaymentDetails` (`paymentDetail.ts`), stay visibility and `missingStay` by `accommodation?.name.trim()` (the overview's rule, `tripRepo.ts:1269`).
     - `listParkedItemMediaForPlanner({ userId, tripId, itemIds })` → `Map<itemId, { documents, images }>`: one query per table, filtered by `dayPlanItem: { tripId, tripDayId: null }` and the writer check, for AC 6 (the bucket list read returns only `firstImageUrl`).
-  - [ ] Repository tests in `test/connectorReadRepo.test.ts`: viewer → `null`, removed membership → `null`, by id and by date, previous stay across a gap in `dayIndex`, warnings equal to `getTripWithDaysForUser`'s for the same day (parity, not a second rule).
-- [ ] **Task 3: Tool runtime** (AC 9, 10, 11, 12)
-  - [ ] `src/lib/mcp/logging.ts`: `logToolCall(name, userId, run, tripId?)`; the `trip=` segment only when `tripId` is given.
-  - [ ] New `src/lib/mcp/toolRuntime.ts`:
+  - [x] Repository tests in `test/connectorReadRepo.test.ts`: viewer → `null`, removed membership → `null`, by id and by date, previous stay across a gap in `dayIndex`, warnings equal to `getTripWithDaysForUser`'s for the same day (parity, not a second rule).
+- [x] **Task 3: Tool runtime** (AC 9, 10, 11, 12)
+  - [x] `src/lib/mcp/logging.ts`: `logToolCall(name, userId, run, tripId?)`; the `trip=` segment only when `tripId` is given.
+  - [x] New `src/lib/mcp/toolRuntime.ts`:
     - `runTool({ name, ctx, tripId? }, (userId) => Promise<CallToolResult>)`: resolves the user (`userIdFromAuthInfo`, `Not authenticated` without one), applies the rate limit, logs, catches unexpected errors (AC 10)
     - `toolResult(value)` → `{ content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value }`
     - `requireWritableTrip(userId, tripId)` → `true | CallToolResult` (`Trip not found`) via `getTripAccessForUser` + `canTripAccessRoleWrite`
     - `READ_ONLY_TOOL_ANNOTATIONS`
-  - [ ] `whoami`: use `runTool`; move the email lookup into `userRepo.ts` (reuse an existing reader if one returns the email by id, otherwise add `getUserEmailById`). Its log line and output stay exactly as today.
-- [ ] **Task 4: Read tools** (AC 1–6, 8–11)
-  - [ ] `src/lib/mcp/tools/tripRead.ts` (one file per area, architecture) with `registerTripReadTools(server)` registering `list_trips`, `get_trip`, `get_day`, `get_bucket_list`; register it in `src/lib/mcp/server.ts` after `whoami`.
-  - [ ] `src/lib/mcp/plannerShapes.ts` (pure mappers, unit-testable without the SDK): repository rows → the AC 1–6 JSON. One `toActivity(item, media, { withTimes })` shared by `get_day` and `get_bucket_list`, one `toCost`, `toPayments`, `toWarning`, `toLeg`, `toStay`, date as `toISOString().slice(0, 10)`.
-  - [ ] `list_trips`: `listTripsForUser(userId)` filtered by `canTripAccessRoleWrite(trip.accessRole)`. Do not add a second query.
-  - [ ] `get_trip`: `requireWritableTrip`, then `getTripWithDaysForUser(userId, tripId)` (`null` → `Trip not found`). `activityCount` = `day.dayPlanItems.length`; `stay` from `day.accommodation`; `warnings` from `day.planConflicts`. Do **not** output `plannedCostTotal`, `accommodationCostTotalCents` or `plannedCostSubtotal`. The description points the model to `get_day` for costs and payments.
-  - [ ] `get_day`: `requireWritableTrip`, then `getPlannerDayForUser`.
-  - [ ] `get_bucket_list`: `requireWritableTrip`, then `listParkedDayPlanItemsForTrip({ userId, tripId })` (`bucketListRepo.ts:180`, already writer-only) plus `listParkedItemMediaForPlanner`.
-  - [ ] Input schemas with `zod` (`import { z } from "zod"`, v4; the SDK takes `z.object(...)` as `inputSchema`, see the `registerTool` example in `node_modules/@modelcontextprotocol/server/dist/mcp-*.d.mts`). Ids `z.string().trim().min(1).max(64)`; `date` `z.string().regex(/^\d{4}-\d{2}-\d{2}$/)`; `get_day` refines "exactly one of `dayId`, `date`". Handler signature `(args, ctx)`.
-  - [ ] No `outputSchema` in this story: the shapes grow in 15.4 (`aiChanged`), and the SDK validates `structuredContent` strictly against it. Revisit when the shapes settle.
-- [ ] **Task 5: Tests and gates** (AC 13, 14). See *Testing*.
+  - [x] `whoami`: use `runTool`; move the email lookup into `userRepo.ts` (reuse an existing reader if one returns the email by id, otherwise add `getUserEmailById`). Its log line and output stay exactly as today.
+- [x] **Task 4: Read tools** (AC 1–6, 8–11)
+  - [x] `src/lib/mcp/tools/tripRead.ts` (one file per area, architecture) with `registerTripReadTools(server)` registering `list_trips`, `get_trip`, `get_day`, `get_bucket_list`; register it in `src/lib/mcp/server.ts` after `whoami`.
+  - [x] `src/lib/mcp/plannerShapes.ts` (pure mappers, unit-testable without the SDK): repository rows → the AC 1–6 JSON. One `toActivity(item, media, { withTimes })` shared by `get_day` and `get_bucket_list`, one `toCost`, `toPayments`, `toWarning`, `toLeg`, `toStay`, date as `toISOString().slice(0, 10)`.
+  - [x] `list_trips`: `listTripsForUser(userId)` filtered by `canTripAccessRoleWrite(trip.accessRole)`. Do not add a second query.
+  - [x] `get_trip`: `requireWritableTrip`, then `getTripWithDaysForUser(userId, tripId)` (`null` → `Trip not found`). `activityCount` = `day.dayPlanItems.length`; `stay` from `day.accommodation`; `warnings` from `day.planConflicts`. Do **not** output `plannedCostTotal`, `accommodationCostTotalCents` or `plannedCostSubtotal`. The description points the model to `get_day` for costs and payments.
+  - [x] `get_day`: `requireWritableTrip`, then `getPlannerDayForUser`.
+  - [x] `get_bucket_list`: `requireWritableTrip`, then `listParkedDayPlanItemsForTrip({ userId, tripId })` (`bucketListRepo.ts:180`, already writer-only) plus `listParkedItemMediaForPlanner`.
+  - [x] Input schemas with `zod` (`import { z } from "zod"`, v4; the SDK takes `z.object(...)` as `inputSchema`, see the `registerTool` example in `node_modules/@modelcontextprotocol/server/dist/mcp-*.d.mts`). Ids `z.string().trim().min(1).max(64)`; `date` `z.string().regex(/^\d{4}-\d{2}-\d{2}$/)`; `get_day` refines "exactly one of `dayId`, `date`". Handler signature `(args, ctx)`.
+  - [x] No `outputSchema` in this story: the shapes grow in 15.4 (`aiChanged`), and the SDK validates `structuredContent` strictly against it. Revisit when the shapes settle.
+- [x] **Task 5: Tests and gates** (AC 13, 14). See *Testing*.
+
+### Review Findings
+
+- [x] [Review][Patch] Return only drawn legs from `get_day` (decision D1, Tommy 2026-10-29: option a). Today `legs: day.travelSegments` goes out unfiltered, orphans included. Filter with the day view's rule (`buildDrawnDaySegmentPairKeys` over last night's stay → ordered activities → tonight's stay, matched by `buildStoredSegmentPairKey`), as `readDrawnSegmentKeysInTransaction` does. [travelplan/src/lib/repositories/connectorReadRepo.ts:229]
+- [x] [Review][Decision] Leg `mode` lower case vs `TravelTransportType` — resolved (D2, Tommy 2026-10-29): keep lower case and amend AC 3.
+- [x] [Review][Patch] `previousStay.checkOutTime` is the stored raw value, not the time the day starts from (AC 3). With no stored check-out, or one that is not `HH:MM`, the model gets `null` or the bad string, while the schedule starts at 10:00. The 09:00 start when `previousStay` is `null` is not stated anywhere. Output `resolveCheckOutTime` (with a valid `HH:MM` fallback, as `resolveDayStartMinute` does) and name the 09:00 rule in the `get_day` description. [travelplan/src/lib/mcp/plannerShapes.ts:141]
+- [x] [Review][Patch] `tiptapDocToPlainText` throws on structurally malformed content (a `null` child, or `content` that is not an array), so one bad activity fails the whole `get_day`/`get_bucket_list`. The docstring promises `""`, and `parsePlanText` guards this case. Guard with `Array.isArray` and skip non-object nodes. [travelplan/src/lib/trips/planText.ts:55]
+- [x] [Review][Patch] A hard break inside a list item gives an unindented continuation line: `renderInline` returns `"a\nb"` as one element, and `renderList` indents per element. Split each rendered line on `\n` before prefixing. [travelplan/src/lib/trips/planText.ts:77]
+- [x] [Review][Patch] The tool error log writes `error.message`, which for Prisma errors contains the query arguments (AC 10: "message only, no arguments"). The runtime is shared with 15.4's write payloads. Log `error.name` plus the Prisma `code` instead. [travelplan/src/lib/mcp/toolRuntime.ts:41]
+- [x] [Review][Patch] The `get_bucket_list` description does not say that `mode` is always `"flexible"`, nor the tie-break of the order (title, then created, then id; AC 6). [travelplan/src/lib/mcp/tools/tripRead.ts:126]
+- [x] [Review][Defer] Calls refused by the input schema skip `runTool`: they are not logged and not counted against the 120/min limit, because the SDK validates before the handler runs [travelplan/src/lib/mcp/tools/tripRead.ts:49] — deferred, SDK limitation; matters more for 15.4's write tools
+- [x] [Review][Defer] `list_trips` takes `listTripsForUser`'s 200-row cap before dropping view-only trips, and drops `totalCount`, so a very large account loses writable trips without a signal [travelplan/src/lib/mcp/tools/tripRead.ts:64] — deferred, pre-existing cap; not reachable at today's trip counts
 
 ## Dev Notes
 
@@ -212,10 +224,49 @@ server.registerTool(
 
 ### Agent Model Used
 
+Claude Opus 5.5 (claude-opus-5-5), bmad-dev-story
+
 ### Debug Log References
+
+- Local checkout had `node_modules` from before 15.1 (no `@modelcontextprotocol/server`): `npm ci --ignore-scripts` from the lockfile, `npx prisma generate`, `npm rebuild better-sqlite3`. No dependency change.
+- Probed the SDK's answer to an invalid `get_day` input: a tool result with `isError: true` and text `Input validation error: Invalid arguments for tool get_day: …` (not a JSON-RPC error). The test asserts exactly that.
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created
+- Task 1: `tiptapDocToPlainText` in `planText.ts` (blocks per line, `- ` / counted `1. ` honouring `attrs.start`, hard break, link run as `text (url)`, unknown nodes walked, empty lines collapsed, invalid JSON `""`). `parsePlanText` unchanged (test pins it).
+- Task 2: `connectorReadRepo.ts` with `getPlannerDayForUser` (writer-only `where` + `deriveTripAccessRole`/`canTripAccessRoleWrite`, trip-null vs day-null, previous-stay walk copied from `getTripWithDaysForUser`, `compareDayPlanItemsByOrder`, `derivePlanConflicts(buildScheduleInput(...))`, `toPaymentDetails`, the overview's blank-name stay rule) and `listParkedItemMediaForPlanner`. The two reads (days + raw stays, then the target day in full) run in one `$transaction` for one snapshot rather than one `findFirst`: Prisma cannot select a relation with different fields for one row. Repository tests include warnings parity with `getTripWithDaysForUser`.
+- Task 3: `toolRuntime.ts` (`runTool`, `toolResult`, `requireWritableTrip`, `READ_ONLY_TOOL_ANNOTATIONS`); `logToolCall` takes an optional `tripId`; `whoami` runs through `runTool` and reads the email via new `getUserEmailById` in `userRepo.ts` (no existing reader returned it by id). Its log line and output are unchanged (existing assertions pass unmodified).
+- Task 4: `plannerShapes.ts` (pure) and `tools/tripRead.ts` registering `list_trips`, `get_trip`, `get_day`, `get_bucket_list` after `whoami`. No `outputSchema`, as instructed.
+- Decisions worth a reviewer's eye:
+  - `list_trips` answers `{ trips: [...] }` and `get_bucket_list` `{ activities: [...] }`: `structuredContent` must be an object (the SDK wraps non-objects differently per era).
+  - Id inputs additionally match `^[A-Za-z0-9_-]+$` (cuid charset), so the `trip=` segment of the log line cannot carry a newline or spaces; a malformed id is refused by the schema, a well-formed unknown one answers `Trip not found`.
+  - Leg `mode` and stay `status` use the app's lowercase wire vocabulary (`car`, `walking`, …; `planned`/`booked`). The transport map is a `Record<TravelTransportType, …>`, so a new mode is a compile error.
+  - `get_trip` re-checks `canTripAccessRoleWrite(trip.accessRole)` after `getTripWithDaysForUser` too (it admits viewers), closing the window between the gate and the read.
+  - Trip outputs also carry the trip `id` (`get_trip`), beyond AC 2's list.
+- Task 5 / gates: new suites `planText` (11), `connectorReadRepo` (6), `mcpReadTools` (14, end to end incl. the 2026-07-28 leg, rate limit with `vi.setSystemTime`, log line, annotations), `mcpPlannerShapes` (5), `mcpToolRuntime` (2, exception and unauthenticated paths); `mcpRoute.test.ts` now imports the shared `test/helpers/mcpClient.ts` and expects the five tool names. `npm test` 238 files / 3786 passed, 0 failed (macOS, so DW-419's Windows failures do not apply); `tsc --noEmit` clean; `eslint` 0 errors / 80 warnings (baseline 80); `npm run build` OK.
 
 ### File List
+
+- src/lib/trips/planText.ts (modified)
+- src/lib/repositories/connectorReadRepo.ts (new)
+- src/lib/repositories/userRepo.ts (modified)
+- src/lib/mcp/logging.ts (modified)
+- src/lib/mcp/toolRuntime.ts (new)
+- src/lib/mcp/plannerShapes.ts (new)
+- src/lib/mcp/server.ts (modified)
+- src/lib/mcp/tools/whoami.ts (modified)
+- src/lib/mcp/tools/tripRead.ts (new)
+- test/planText.test.ts (new)
+- test/connectorReadRepo.test.ts (new)
+- test/mcpReadTools.test.ts (new)
+- test/mcpPlannerShapes.test.ts (new)
+- test/mcpToolRuntime.test.ts (new)
+- test/mcpRoute.test.ts (modified)
+- test/helpers/mcpClient.ts (new)
+- test/helpers/plannerFixtures.ts (new)
+- _bmad-output/implementation-artifacts/sprint-status.yaml (modified)
+
+### Change Log
+
+- 2026-10-29: Story 15.2 implemented - read tools `list_trips`, `get_trip`, `get_day`, `get_bucket_list`; shared tool runtime (rate limit, log line with `trip=`, generic error); connector day reader; `tiptapDocToPlainText`. Status -> review.

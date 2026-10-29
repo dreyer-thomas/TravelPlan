@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/server";
+import { registerTripReadTools } from "@/lib/mcp/tools/tripRead";
 import { registerWhoamiTool } from "@/lib/mcp/tools/whoami";
 
 /**
@@ -8,5 +9,6 @@ import { registerWhoamiTool } from "@/lib/mcp/tools/whoami";
 export const createTravelPlanMcpServer = () => {
   const server = new McpServer({ name: "travelplan", version: "1.0.0" });
   registerWhoamiTool(server);
+  registerTripReadTools(server);
   return server;
 };

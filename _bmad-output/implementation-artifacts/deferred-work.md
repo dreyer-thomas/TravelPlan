@@ -4077,3 +4077,25 @@ summary: On Windows 11 with Node 22, `fs.symlink` without admin rights (EPERM), 
 evidence: Story 15.1's AC 24 gate needs a clean `npm test` on macOS/Linux with Node 24. The symlink tests could skip with a reason on win32, as the platform cannot run them.
 Also seen once since test files run in parallel (commit c74abe6): `test/tripDayPlanDialog.test.tsx` "drops a tab's marker once the offending field is corrected" failed a `toHaveFocus()` assertion under load and passes alone. If it recurs, give the focus assertion a `waitFor`, or run with `TEST_MAX_FORKS=1`.
 status: open
+
+## Deferred from: code review of 15-2-claude-knows-the-trip (2026-10-29)
+
+### DW-420: MCP calls refused by the input schema are not logged or rate-limited
+
+source_spec: `_bmad-output/implementation-artifacts/15-2-claude-knows-the-trip.md`
+origin: code review of 15-2-claude-knows-the-trip, 2026-10-29
+location: `travelplan/src/lib/mcp/tools/tripRead.ts`, `travelplan/src/lib/mcp/toolRuntime.ts`
+severity: low
+summary: The SDK validates `inputSchema` before calling the handler, so a call with a malformed id or date never reaches `runTool`. It gets no log line and does not count against the 120/min per-user limit (AC 10's "one wrapper used by every tool").
+evidence: `mcpReadTools.test.ts` shows the SDK error returned without `structuredContent`. This is harmless for the read tools. Revisit in 15.4: either accept loose schemas and validate inside `runTool`, or hook the SDK's validation error.
+status: open
+
+### DW-421: list_trips caps before it filters view-only trips
+
+source_spec: `_bmad-output/implementation-artifacts/15-2-claude-knows-the-trip.md`
+origin: code review of 15-2-claude-knows-the-trip, 2026-10-29
+location: `travelplan/src/lib/mcp/tools/tripRead.ts` (`list_trips`), `travelplan/src/lib/repositories/tripRepo.ts` (`TRIPS_LIST_LIMIT = 200`)
+severity: low
+summary: `listTripsForUser` returns at most 200 rows, view-only trips included. The tool then drops the view-only ones and ignores `totalCount`, so an account over the cap silently loses writable trips, and Claude cannot tell the list was cut.
+evidence: Not reachable at today's trip counts. The fix is a writer-only query arm, or a `truncated` flag in the tool output.
+status: open

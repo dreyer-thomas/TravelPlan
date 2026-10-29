@@ -3,57 +3,17 @@ import { NextRequest } from "next/server";
 import { DELETE, GET, POST } from "@/app/api/mcp/route";
 import { GET as getTrips } from "@/app/api/trips/route";
 import { prisma } from "@/lib/db/prisma";
-import { createAuthorizationCode, exchangeAuthorizationCode } from "@/lib/repositories/oauthRepo";
 import { hashOpaqueToken } from "@/lib/oauth/secrets";
 import {
   cleanOAuthTables,
   createUser,
-  HOSTED_CLIENT_ID,
-  HOSTED_REDIRECT,
   ISSUER,
-  MCP_RESOURCE,
-  PKCE_CHALLENGE,
-  PKCE_VERIFIER,
   sessionCookieFor,
   setupConnectorEnvironment,
 } from "./helpers/oauthFixtures";
+import { issueAccessToken, MCP_URL, rpc } from "./helpers/mcpClient";
 
 setupConnectorEnvironment();
-
-const MCP_URL = `${ISSUER}/api/mcp`;
-
-const issueAccessToken = async (userId: string, resource = MCP_RESOURCE) => {
-  const code = await createAuthorizationCode({
-    userId,
-    clientId: HOSTED_CLIENT_ID,
-    clientName: "Claude",
-    redirectUri: HOSTED_REDIRECT,
-    codeChallenge: PKCE_CHALLENGE,
-    resource,
-    scope: "trips",
-  });
-  const result = await exchangeAuthorizationCode({
-    code,
-    clientId: HOSTED_CLIENT_ID,
-    redirectUri: HOSTED_REDIRECT,
-    codeVerifier: PKCE_VERIFIER,
-    resource,
-  });
-  if (!result.ok) throw new Error("token issue failed");
-  return result.tokens.accessToken;
-};
-
-const rpc = (body: unknown, headers: Record<string, string> = {}) =>
-  new Request(MCP_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      accept: "application/json, text/event-stream",
-      "mcp-protocol-version": "2025-11-25",
-      ...headers,
-    },
-    body: JSON.stringify(body),
-  });
 
 const callWhoami = (token: string) =>
   POST(
@@ -198,7 +158,13 @@ describe("whoami", () => {
     const list = await POST(rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, { authorization: `Bearer ${token}` }));
     expect(list.status).toBe(200);
     const listed = (await list.json()) as RpcResult;
-    expect(listed.result?.tools?.map((tool) => tool.name)).toEqual(["whoami"]);
+    expect(listed.result?.tools?.map((tool) => tool.name)).toEqual([
+      "whoami",
+      "list_trips",
+      "get_trip",
+      "get_day",
+      "get_bucket_list",
+    ]);
 
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
     const response = await callWhoami(token);
