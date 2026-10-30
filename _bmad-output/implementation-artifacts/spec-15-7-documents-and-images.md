@@ -2,7 +2,7 @@
 title: 'Story 15.7: Documents and Images'
 type: 'feature'
 created: '2026-10-29'
-status: 'awaiting-operator'
+status: done
 baseline_revision: 'a2996a1'
 final_revision: '1f6a753'
 review_loop_iteration: 0
@@ -293,3 +293,13 @@ The new receipt kinds `fileAttached` and `fileDeleted` cover validation, `findIn
 - Kept files are only swept when connector writes happen.
 - `get_file` can return about 13 MB of base64 per call.
 - The production acceptance (a ticket attached by URL appears with the badge and in the packet) is Tommy's manual step; see `operator_actions`.
+
+## Operator Confirmation
+
+Confirmed 2026-10-30: the external actions this story owed were carried out.
+
+- Deploy this revision to production with MCP_ENABLED=true (no migration: this story adds no schema change).
+- In Claude, with the TravelPlan connector connected, ask it to attach a ticket PDF by https URL to an activity on a day; confirm the document chip shows the KI/AI badge on that activity in the day view.
+- Open that day's document packet (and optionally email the day) and confirm the attached ticket is included.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
