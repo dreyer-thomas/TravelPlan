@@ -2,7 +2,8 @@ import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import { Readable } from "node:stream";
 import sharp from "sharp";
-import { verifyFileLink } from "@/lib/files/fileLinks";
+import { fileIdOfLinkSegment, verifyFileLink } from "@/lib/files/fileLinks";
+import { renderedImageType } from "@/lib/files/imageInfo";
 import { getClientIp } from "@/lib/http/clientIp";
 import { findFileForSignedLink } from "@/lib/repositories/connectorReadRepo";
 import { checkRateLimit } from "@/lib/security/rateLimit";
@@ -11,7 +12,8 @@ import { readFileHead, resolveTripFilePath } from "@/lib/trips/tripFilePath";
 
 /**
  * Story 15.8. One stored image or document behind a short-lived signed link (`src/lib/files/fileLinks.ts`):
- * `GET /f/{fileId}?w=&exp=&sig=`, the `downloadUrl` the connector's reads hand to an AI client.
+ * `GET /f/{fileId}?w=&exp=&sig=`, the `downloadUrl` the connector's reads hand to an AI client. The segment may
+ * end in `.jpg`, `.webp` or `.pdf` (cosmetic, unsigned, ignored here), for download tools that want an extension.
  *
  * **The signature is the grant**, so this route reads no session, no token and no trip membership, and it is
  * deliberately absent from `proxy.ts`'s matcher. The link was minted inside a tool call that passed the
@@ -38,7 +40,6 @@ type RouteContext = { params: Promise<{ fileId: string }> };
 
 const FILE_LINK_RATE_LIMIT = 300;
 const FILE_LINK_RATE_WINDOW_MS = 60_000;
-const FILE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 const empty = (status: number) => new Response(null, { status });
 
@@ -56,8 +57,7 @@ const renderImage = async (filePath: string, sourceType: string, width: number |
   const { hasAlpha } = await image.metadata();
   image.autoOrient();
   if (width !== null) image.resize({ width, withoutEnlargement: true });
-  const asWebp = sourceType === "image/webp" || (sourceType === "image/png" && hasAlpha);
-  return asWebp
+  return renderedImageType(sourceType, hasAlpha) === "image/webp"
     ? { bytes: await image.webp({ quality: 82 }).toBuffer(), contentType: "image/webp" }
     : { bytes: await image.jpeg({ quality: 85, mozjpeg: true }).toBuffer(), contentType: "image/jpeg" };
 };
@@ -68,8 +68,8 @@ export async function GET(request: Request, context: RouteContext) {
     return empty(429);
   }
 
-  const { fileId } = await context.params;
-  if (!FILE_ID.test(fileId)) return empty(404);
+  const fileId = fileIdOfLinkSegment((await context.params).fileId);
+  if (!fileId) return empty(404);
 
   const query = new URL(request.url).searchParams;
   const link = verifyFileLink({ fileId, w: query.get("w"), exp: query.get("exp"), sig: query.get("sig") });

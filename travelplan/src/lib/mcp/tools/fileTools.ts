@@ -3,9 +3,8 @@ import path from "node:path";
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { guardedFetch, type GuardedFetchFailure, type GuardedFetchOptions, type GuardedFetchResult } from "@/lib/http/guardedFetch";
-import { MCP_IMAGE_LINK_WIDTH, signFileLink } from "@/lib/files/fileLinks";
 import { readImageSizes } from "@/lib/files/imageInfo";
-import { fileLinkNote } from "@/lib/mcp/fileLinkShapes";
+import { documentFileLink, fileLinkNote, imageFileLink } from "@/lib/mcp/fileLinkShapes";
 import { toolError } from "@/lib/mcp/logging";
 import {
   DESTRUCTIVE_WRITE_TOOL_ANNOTATIONS,
@@ -199,19 +198,16 @@ type AttachArgs = z.infer<typeof attachInput>;
 // get_file
 
 /**
- * Story 15.8: the signed `downloadUrl`, and an image's original oriented size. An image is signed with
- * `w=1600` like `get_day`'s; a document without a width, an image document included (it keeps its size).
- * An unavailable file, an unreadable image or a missing secret gives `null`s.
+ * Story 15.8: the signed `downloadUrl`, and an image's original oriented size, as `get_day` gives them. An
+ * image is signed with `w=1600`; a document without a width, an image document included (it keeps its
+ * size). An unavailable file, an unreadable image or a missing secret gives `null`s.
  */
 const fileLinkOf = async (file: PlannerFileRow, filePath: string | null) => {
-  if (file.media === "document") {
-    return { downloadUrl: filePath ? (signFileLink(file.id)?.url ?? null) : null };
-  }
-  const url = filePath ? (signFileLink(file.id, { width: MCP_IMAGE_LINK_WIDTH })?.url ?? null) : null;
-  const size = url
-    ? (await readImageSizes([{ fileId: file.id, updatedAt: file.updatedAt, resolvePath: async () => filePath }])).get(file.id)
+  if (file.media === "document") return documentFileLink(file, filePath);
+  const sizes = filePath
+    ? await readImageSizes([{ fileId: file.id, updatedAt: file.updatedAt, resolvePath: async () => filePath }])
     : null;
-  return size ? { downloadUrl: url, width: size.width, height: size.height } : { downloadUrl: null, width: null, height: null };
+  return imageFileLink(file.id, sizes?.get(file.id));
 };
 
 const fileMetadata = (

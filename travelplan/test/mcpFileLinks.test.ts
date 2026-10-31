@@ -84,9 +84,12 @@ const fetchLink = (url: string) => {
 };
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const linkPrefix = (id: string) => `^${escapeRegExp(ISSUER)}/f/${escapeRegExp(id)}\\?`;
-const imageLink = (id: string) => new RegExp(`${linkPrefix(id)}w=1600&exp=\\d+&sig=[A-Za-z0-9_-]{43}$`);
-const documentLink = (id: string) => new RegExp(`${linkPrefix(id)}exp=\\d+&sig=[A-Za-z0-9_-]{43}$`);
+/** The path ends in the served extension: `.webp` for a WebP source, `.jpg` for a JPEG or an opaque PNG, `.pdf`. */
+const linkPrefix = (id: string, extension: string) => `^${escapeRegExp(ISSUER)}/f/${escapeRegExp(id)}\\.${extension}\\?`;
+const imageLink = (id: string, extension: "jpg" | "webp") =>
+  new RegExp(`${linkPrefix(id, extension)}w=1600&exp=\\d+&sig=[A-Za-z0-9_-]{43}$`);
+const documentLink = (id: string, extension: "pdf" | "jpg" = "pdf") =>
+  new RegExp(`${linkPrefix(id, extension)}exp=\\d+&sig=[A-Za-z0-9_-]{43}$`);
 
 /** The links minus `exp`/`sig`, which differ between two reads a second apart. */
 const withoutSignatures = (value: unknown) => JSON.parse(JSON.stringify(value).replace(/exp=\d+&sig=[A-Za-z0-9_-]+/g, "exp&sig"));
@@ -100,7 +103,7 @@ describe("get_day", () => {
     expect(table).toEqual({
       id: table.id,
       fileName: "table.webp",
-      downloadUrl: expect.stringMatching(imageLink(table.id)),
+      downloadUrl: expect.stringMatching(imageLink(table.id, "webp")),
       width: 3000,
       height: 2000,
       updatedAt: expect.any(String),
@@ -108,7 +111,7 @@ describe("get_day", () => {
     expect(dinner.documents[0].downloadUrl).toMatch(documentLink(dinner.documents[0].id));
     const [front] = day.stay!.images;
     expect([front.width, front.height]).toEqual([300, 400]);
-    expect(front.downloadUrl).toMatch(imageLink(front.id));
+    expect(front.downloadUrl).toMatch(imageLink(front.id, "jpg"));
     expect(day.stay!.documents[0].downloadUrl).toMatch(documentLink(day.stay!.documents[0].id));
     // The one public reference names the file id, never the storage path.
     expect(JSON.stringify(day)).not.toContain("/uploads");
@@ -144,7 +147,7 @@ describe("get_day", () => {
     for (const id of [external.id, missing.id]) {
       expect(images.find((image) => image.id === id)).toMatchObject({ downloadUrl: null, width: null, height: null });
     }
-    expect(images[0].downloadUrl).toMatch(imageLink(images[0].id));
+    expect(images[0].downloadUrl).toMatch(imageLink(images[0].id, "webp"));
     expect(withoutSignatures(await getDay(owner.token, seed.trip.id, seed.day2.id))).toEqual(withoutSignatures(day));
   });
 
@@ -177,7 +180,7 @@ describe("get_bucket_list and the write tools", () => {
     const { activities } = structured<{ activities: Activity[] }>(await callTool(owner.token, "get_bucket_list", { tripId: seed.trip.id }));
     const castle = activities.find((activity) => activity.id === seed.castle.id)!;
     expect(castle.images[0]).toMatchObject({ fileName: "view.jpg", width: 800, height: 600 });
-    expect(castle.images[0].downloadUrl).toMatch(imageLink(castle.images[0].id));
+    expect(castle.images[0].downloadUrl).toMatch(imageLink(castle.images[0].id, "jpg"));
     expect(castle.documents[0].downloadUrl).toMatch(documentLink(castle.documents[0].id));
     expect((await fetchLink(castle.images[0].downloadUrl!)).status).toBe(200);
   });
@@ -191,13 +194,13 @@ describe("get_bucket_list and the write tools", () => {
       await callTool(owner.token, "update_activity", { tripId, activityId: dinner.id, updatedAt: dinner.updatedAt, title: "Late dinner" }),
     );
     expect(updated.day.activities.find((activity) => activity.id === dinner.id)!.images[0].downloadUrl).toMatch(
-      imageLink(dinner.images[0].id),
+      imageLink(dinner.images[0].id, "webp"),
     );
     expect(withoutSignatures(updated.day)).toEqual(withoutSignatures(await getDay(owner.token, tripId, seed.day2.id)));
 
     const parked = structured<{ activity: Activity }>(await callTool(owner.token, "park_activity", { tripId, activityId: dinner.id }));
     expect(parked.activity.images[0]).toMatchObject({ width: 3000, height: 2000 });
-    expect(parked.activity.images[0].downloadUrl).toMatch(imageLink(dinner.images[0].id));
+    expect(parked.activity.images[0].downloadUrl).toMatch(imageLink(dinner.images[0].id, "webp"));
   });
 });
 
@@ -210,7 +213,7 @@ describe("get_file", () => {
     const day = await getDay(owner.token, tripId, seed.day2.id);
     const image = structured<FileMetadata>(await callTool(owner.token, "get_file", { tripId, fileId: day.stay!.images[0].id }));
     expect(image).toMatchObject({ media: "image", width: 300, height: 400 });
-    expect(image.downloadUrl).toMatch(imageLink(day.stay!.images[0].id));
+    expect(image.downloadUrl).toMatch(imageLink(day.stay!.images[0].id, "jpg"));
     const document = structured<FileMetadata>(await callTool(owner.token, "get_file", { tripId, fileId: day.stay!.documents[0].id }));
     expect(document.downloadUrl).toMatch(documentLink(day.stay!.documents[0].id));
     expect(document).not.toHaveProperty("width");
@@ -226,7 +229,7 @@ describe("get_file", () => {
       data: { dayPlanItemId: seed.dinner.id, documentUrl: url, fileName: "screenshot.png", sortOrder: 1 },
     });
     const metadata = structured<FileMetadata>(await callTool(owner.token, "get_file", { tripId, fileId: row.id }));
-    expect(metadata.downloadUrl).toMatch(documentLink(row.id));
+    expect(metadata.downloadUrl).toMatch(documentLink(row.id, "jpg"));
     const response = await fetchLink(metadata.downloadUrl!);
     expect(response.headers.get("content-type")).toBe("image/jpeg");
     expect((await sharp(Buffer.from(await response.arrayBuffer())).metadata()).width).toBe(2000);

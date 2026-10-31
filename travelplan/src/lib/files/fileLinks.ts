@@ -11,11 +11,17 @@ import { isMcpEnabled, parseBaseUrl } from "@/lib/oauth/config";
  *
  * `w` is part of the signed string, so a link cannot be reused for another render size. Every refusal is
  * the same `{ ok: false }`: nothing tells a wrong signature apart from an expired link or a bad width.
+ *
+ * The path may end in the served file's extension (`/f/{fileId}.jpg`). It is cosmetic and not signed: some
+ * download tools refuse a URL without an image extension before fetching it, and a saved file gets a name.
  */
 
 export const FILE_LINK_WIDTHS = [800, 1600, 2400] as const;
 /** The width the connector's reads sign image links with. */
 export const MCP_IMAGE_LINK_WIDTH = 1600;
+/** What the route sends: a re-encoded image (JPEG or WebP) or a PDF. */
+export const FILE_LINK_EXTENSIONS = ["jpg", "webp", "pdf"] as const;
+export type FileLinkExtension = (typeof FILE_LINK_EXTENSIONS)[number];
 
 const DEFAULT_TTL_SECONDS = 900;
 const MIN_TTL_SECONDS = 60;
@@ -25,6 +31,7 @@ const BASE64URL = /^[A-Za-z0-9_-]+={0,2}$/;
 const INTEGER = /^\d+$/;
 /** A positive integer written without leading zeros, so one link has exactly one spelling. */
 const CANONICAL_INTEGER = /^[1-9]\d*$/;
+const LINK_SEGMENT = new RegExp(`^([A-Za-z0-9_-]{1,64})(?:\\.(?:${FILE_LINK_EXTENSIONS.join("|")}))?$`);
 
 /** `FILE_LINK_SECRET` decoded from base64url, or `null` when it is unset, malformed or under 32 bytes. */
 export const readFileLinkSecret = (): Buffer | null => {
@@ -51,10 +58,17 @@ export const fileLinkSignature = (secret: Buffer, fileId: string, w: number | nu
 
 const isLinkWidth = (value: number): boolean => (FILE_LINK_WIDTHS as readonly number[]).includes(value);
 
+/** Whether links can be signed at all (a usable secret and `APP_BASE_URL`), so callers can skip disk reads. */
+export const fileLinksEnabled = (): boolean =>
+  readFileLinkSecret() !== null && parseBaseUrl(process.env.APP_BASE_URL) !== null;
+
+/** The file id of the route's path segment, which may carry a served extension; `null` when malformed. */
+export const fileIdOfLinkSegment = (segment: string): string | null => LINK_SEGMENT.exec(segment)?.[1] ?? null;
+
 /** The signed URL and its expiry, or `null` without a usable secret or `APP_BASE_URL`. */
 export const signFileLink = (
   fileId: string,
-  options: { width?: number; now?: Date } = {},
+  options: { width?: number; extension?: FileLinkExtension; now?: Date } = {},
 ): { url: string; expiresAt: Date } | null => {
   const secret = readFileLinkSecret();
   const base = parseBaseUrl(process.env.APP_BASE_URL);
@@ -67,7 +81,8 @@ export const signFileLink = (
   if (width !== null) query.set("w", String(width));
   query.set("exp", String(exp));
   query.set("sig", fileLinkSignature(secret, fileId, width, exp));
-  return { url: `${base.origin}/f/${encodeURIComponent(fileId)}?${query.toString()}`, expiresAt: new Date(exp * 1000) };
+  const name = `${encodeURIComponent(fileId)}${options.extension ? `.${options.extension}` : ""}`;
+  return { url: `${base.origin}/f/${name}?${query.toString()}`, expiresAt: new Date(exp * 1000) };
 };
 
 /**

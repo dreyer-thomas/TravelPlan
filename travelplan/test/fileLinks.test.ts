@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   assertFileLinksConfigured,
+  fileIdOfLinkSegment,
   fileLinkSignature,
   readFileLinkSecret,
   readFileLinkTtlSeconds,
@@ -50,6 +51,15 @@ describe("signFileLink", () => {
     const exp = NOW_SECONDS + 900;
     expect(link.url).toBe(`https://plan.example.test/f/file_1?exp=${exp}&sig=${fileLinkSignature(SECRET, "file_1", null, exp)}`);
     expect(queryOf(link.url).sig).toBe(crypto.createHmac("sha256", SECRET).update(`file_1||${exp}`).digest("base64url"));
+  });
+
+  it("ends the path in the served extension, which is not part of the signature", () => {
+    const exp = NOW_SECONDS + 900;
+    const link = signFileLink("file_1", { width: 1600, extension: "webp", now: NOW })!;
+    expect(link.url).toBe(
+      `https://plan.example.test/f/file_1.webp?w=1600&exp=${exp}&sig=${fileLinkSignature(SECRET, "file_1", 1600, exp)}`,
+    );
+    expect(signFileLink("file_1", { extension: "pdf", now: NOW })!.url).toMatch(/\/f\/file_1\.pdf\?exp=/);
   });
 
   it("returns null with a short, malformed or missing secret, or without a base url", () => {
@@ -162,5 +172,17 @@ describe("assertFileLinksConfigured", () => {
     vi.stubEnv("MCP_ENABLED", "true");
     vi.stubEnv("NODE_ENV", "test");
     expect(() => assertFileLinksConfigured()).not.toThrow();
+  });
+});
+
+describe("fileIdOfLinkSegment", () => {
+  it("takes the id with or without a served extension, and refuses anything else", () => {
+    expect(fileIdOfLinkSegment("file_1")).toBe("file_1");
+    expect(fileIdOfLinkSegment("file_1.jpg")).toBe("file_1");
+    expect(fileIdOfLinkSegment("file_1.webp")).toBe("file_1");
+    expect(fileIdOfLinkSegment("file_1.pdf")).toBe("file_1");
+    for (const segment of ["file_1.png", "file_1.jpg.jpg", "a.b", ".jpg", "", "x".repeat(65), "../x.jpg"]) {
+      expect(fileIdOfLinkSegment(segment), segment).toBeNull();
+    }
   });
 });

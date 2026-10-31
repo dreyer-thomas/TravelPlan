@@ -4,9 +4,19 @@ import sharp from "sharp";
  * Story 15.8. An image's pixel size for the connector's file shapes: the **original** size after EXIF
  * orientation, so a portrait phone photo reports portrait. Read from the header only (`metadata()`), cached
  * per file version and read a few at a time, because `get_day` may list dozens of images.
+ *
+ * Also the extension of what the `/f/` route sends for it (`renderedImageType`), so a link can end in
+ * `.jpg` or `.webp`: some download tools refuse a URL without an image extension before fetching it.
  */
 
-export type ImageSize = { width: number; height: number };
+export type ImageSize = { width: number; height: number; extension: "jpg" | "webp" };
+
+/** What the `/f/` route re-encodes a stored image as: WebP for a WebP or a PNG with alpha, else JPEG. */
+export const renderedImageType = (sourceType: string, hasAlpha: boolean | undefined) =>
+  sourceType === "image/webp" || (sourceType === "image/png" && hasAlpha === true) ? "image/webp" : "image/jpeg";
+
+/** The formats the route serves (the photo allow-list); anything else would answer 404 there. */
+const SERVED_FORMATS = new Set(["jpeg", "png", "webp"]);
 
 const MAX_CACHE_ENTRIES = 5_000;
 const READ_CONCURRENCY = 8;
@@ -24,13 +34,15 @@ const remember = (key: string, size: ImageSize) => {
   }
 };
 
-/** The oriented size, or `null` when sharp cannot read the file. */
+/** The oriented size and served extension, or `null` when sharp cannot read the file or the route would not serve it. */
 export const readImageSize = async (filePath: string): Promise<ImageSize | null> => {
   try {
     const metadata = await sharp(filePath).metadata();
+    if (!SERVED_FORMATS.has(metadata.format)) return null;
     const width = metadata.autoOrient?.width ?? metadata.width;
     const height = metadata.autoOrient?.height ?? metadata.height;
-    return width && height ? { width, height } : null;
+    const extension = renderedImageType(`image/${metadata.format}`, metadata.hasAlpha) === "image/webp" ? "webp" : "jpg";
+    return width && height ? { width, height, extension } : null;
   } catch {
     return null;
   }

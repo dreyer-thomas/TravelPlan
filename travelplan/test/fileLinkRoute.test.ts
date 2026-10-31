@@ -268,6 +268,21 @@ describe("GET /f/{fileId}: refusals", () => {
     expect(response.status).toBe(404);
   });
 
+  it("ignores a served extension on the path, and answers 404 to any other suffix", async () => {
+    const seed = await seedTrip();
+    const image = await addImage(seed, "a.jpg", await solid(100, 100).jpeg().toBuffer());
+    for (const extension of ["jpg", "webp", "pdf"]) {
+      const url = new URL(linkFor(image.id, 1600));
+      url.pathname = `/f/${image.id}.${extension}`;
+      expect((await fetchLink(url.toString())).status, extension).toBe(200);
+    }
+    for (const suffix of [".png", ".jpg.jpg", ".JPG"]) {
+      const url = new URL(linkFor(image.id, 1600));
+      url.pathname = `/f/${image.id}${suffix}`;
+      expect((await fetchLink(url.toString())).status, suffix).toBe(404);
+    }
+  });
+
   it("answers 429 to the 301st request from one address within a minute, before checking the link", async () => {
     const seed = await seedTrip();
     const image = await addImage(seed, "a.jpg", await solid(100, 100).jpeg().toBuffer());

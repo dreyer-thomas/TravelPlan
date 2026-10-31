@@ -138,6 +138,7 @@ so that the client can fetch the files over HTTPS like any other file, instead o
 - [x] [Review][Patch] `get_file`'s over-10 MB note says "download it from downloadUrl" even when `downloadUrl` is null (no secret/base URL, unreadable image); keep the old "open it in TravelPlan" wording then [travelplan/src/lib/mcp/tools/fileTools.ts:248]
 - [x] [Review][Patch] TTL wording floors to whole minutes, so a TTL of 60–119 s reads "valid about 1 minutes"; round and pluralise [travelplan/src/lib/mcp/fileLinkShapes.ts:69]
 - [x] [Review][Patch] Test link matchers build a RegExp from `ISSUER` and the id without escaping, so `.` matches any character and the origin assertion is looser than it reads [travelplan/test/mcpFileLinks.test.ts]
+- [x] [Review][Patch] Links end in the served extension (`/f/{id}.jpg|.webp|.pdf?…`; cosmetic, unsigned; the route also accepts the bare id), because `mcp-image-downloader` refuses a URL without an image extension before fetching it (found in production 2026-10-31; Tommy: fix in the link, not the tool description). Amends AC 1 (URL shape) and AC 5 (segment charset) [travelplan/src/lib/files/fileLinks.ts]
 - [x] [Review][Defer] Unbounded concurrent sharp renders on `/f/` (a valid link holder can drive 300 full re-encodes per minute per IP; no render concurrency cap) [travelplan/src/app/f/[fileId]/route.ts:54] — deferred, DW-425
 - [x] [Review][Defer] PDF `content-length` comes from an earlier `stat` and the stream reopens the path, so a file replaced in between gives a mismatched length [travelplan/src/app/f/[fileId]/route.ts:91] — deferred, DW-426
 - [x] [Review][Defer] Nginx access logs store full signed URLs, `sig` included; the deploy docs do not mention stripping the query for `/f/` [deploy/README.md] — deferred, DW-427
@@ -326,3 +327,4 @@ Claude Opus 5.5 (claude-opus-5-5), bmad-dev-story, interactive.
 
 - 2026-10-31: Story created (bmad-create-story) from Tommy's request "signierte Download-Links für Bilder" and the scope agreed in conversation.
 - 2026-10-31: Implemented (bmad-dev-story): sharp as a dependency, HMAC-signed `/f/{fileId}` links, metadata-free image re-encoding, `downloadUrl`/`width`/`height` in `get_day`, `get_bucket_list`, `get_file` and every write tool's day, startup check, docs, DW-424. Status → review.
+- 2026-10-31: Code review (5 patches, DW-425..427); then links end in the served extension (`.jpg`, `.webp`, `.pdf`) after a download tool refused extension-less URLs in production.

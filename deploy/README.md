@@ -59,6 +59,9 @@ TravelPlan can be added to Claude as a custom connector (remote MCP server with 
   on; `FILE_LINK_TTL_SECONDS` sets the lifetime (default 900). **Nginx must pass `/f/` to the app** like the
   paths above. Check with `curl -I "<downloadUrl>"` on a link fresh from `get_day`: it must answer `200` with
   `image/jpeg`, `image/webp` or `application/pdf` from the app, not an Nginx 404.
+  The links end in `.jpg`, `.webp` or `.pdf` (`/f/<fileId>.jpg?…`), so an extension-based static
+  `location ~* \.(jpe?g|png|webp)$` would swallow them: `/f/` then needs `location ^~ /f/` with `proxy_pass`,
+  as `/uploads/` does in `docs/deployment-configuration.md`.
 - **State:** codes and tokens live in the database (`oauth_authorization_codes`, `oauth_tokens`, hashed),
   so connections survive restarts and deploys.
 

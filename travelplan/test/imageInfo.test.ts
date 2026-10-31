@@ -24,12 +24,22 @@ beforeEach(() => {
 
 describe("readImageSize", () => {
   it("reports the size after EXIF orientation, and null for a file sharp cannot read", async () => {
-    expect(await readImageSize(await writeImage("plain.jpg", solid(400, 300).jpeg()))).toEqual({ width: 400, height: 300 });
+    expect(await readImageSize(await writeImage("plain.jpg", solid(400, 300).jpeg()))).toEqual({ width: 400, height: 300, extension: "jpg" });
     const rotated = await writeImage("rotated.jpg", solid(400, 300).jpeg().withMetadata({ orientation: 6 }));
-    expect(await readImageSize(rotated)).toEqual({ width: 300, height: 400 });
+    expect(await readImageSize(rotated)).toEqual({ width: 300, height: 400, extension: "jpg" });
     await fs.writeFile(path.join(dir, "broken.jpg"), Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]));
     expect(await readImageSize(path.join(dir, "broken.jpg"))).toBeNull();
     expect(await readImageSize(path.join(dir, "missing.jpg"))).toBeNull();
+  });
+});
+
+describe("readImageSize: served extension", () => {
+  it("is webp for a WebP or a PNG with alpha, jpg for a JPEG or an opaque PNG, and null for a format the route does not serve", async () => {
+    const alpha = sharp({ create: { width: 20, height: 10, channels: 4, background: { r: 1, g: 2, b: 3, alpha: 0.5 } } });
+    expect((await readImageSize(await writeImage("alpha.png", alpha.png())))?.extension).toBe("webp");
+    expect((await readImageSize(await writeImage("photo.webp", solid(20, 10).webp())))?.extension).toBe("webp");
+    expect((await readImageSize(await writeImage("opaque.png", solid(20, 10).png())))?.extension).toBe("jpg");
+    expect(await readImageSize(await writeImage("anim.gif", solid(20, 10).gif()))).toBeNull();
   });
 });
 
@@ -40,8 +50,8 @@ describe("readImageSizes", () => {
     const updatedAt = new Date("2027-01-01T00:00:00.000Z");
     const first = await readImageSizes([{ fileId: "f1", updatedAt, resolvePath }]);
     const second = await readImageSizes([{ fileId: "f1", updatedAt, resolvePath }]);
-    expect(first.get("f1")).toEqual({ width: 120, height: 80 });
-    expect(second.get("f1")).toEqual({ width: 120, height: 80 });
+    expect(first.get("f1")).toEqual({ width: 120, height: 80, extension: "jpg" });
+    expect(second.get("f1")).toEqual({ width: 120, height: 80, extension: "jpg" });
     expect(resolvePath).toHaveBeenCalledTimes(1);
     await readImageSizes([{ fileId: "f1", updatedAt: new Date("2027-01-02T00:00:00.000Z"), resolvePath }]);
     expect(resolvePath).toHaveBeenCalledTimes(2);

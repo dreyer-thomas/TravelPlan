@@ -1,5 +1,11 @@
-import { MCP_IMAGE_LINK_WIDTH, readFileLinkTtlSeconds, signFileLink } from "@/lib/files/fileLinks";
-import { readImageSizes } from "@/lib/files/imageInfo";
+import {
+  fileLinksEnabled,
+  MCP_IMAGE_LINK_WIDTH,
+  readFileLinkTtlSeconds,
+  signFileLink,
+  type FileLinkExtension,
+} from "@/lib/files/fileLinks";
+import { readImageSizes, type ImageSize } from "@/lib/files/imageInfo";
 import {
   toBucketActivity,
   toPlannerDay,
@@ -8,51 +14,70 @@ import {
 } from "@/lib/mcp/plannerShapes";
 import type { ParkedDayPlanItemDetail } from "@/lib/repositories/bucketListRepo";
 import type { PlannerDay, PlannerMedia } from "@/lib/repositories/connectorReadRepo";
-import { resolveTripFilePath } from "@/lib/trips/tripFilePath";
+import { sniffDocumentContentType } from "@/lib/trips/importPackage";
+import { readFileHead, resolveTripFilePath } from "@/lib/trips/tripFilePath";
 
 /**
  * Story 15.8. The signed `downloadUrl`s and image sizes the connector's file shapes carry, built here so
  * `plannerShapes.ts` stays pure. Every tool that returns a day "as get_day shows it" goes through
  * `toLinkedPlannerDay`, so those results stay identical to `get_day`.
  *
- * A document is signed by id (no width) once its path resolves inside the trip's tree. An image is signed
+ * A document is signed by id (no width) once it lies on disk inside the trip's tree. An image is signed
  * with `w=1600` once its original size has been read from disk; an external image, an unreadable file or a
  * missing secret gives `downloadUrl`, `width` and `height` all `null`. An external or missing document gives
  * `downloadUrl: null`.
+ *
+ * Each link's path ends in the extension of what the route sends (`.jpg`, `.webp`, `.pdf`), because some
+ * download tools refuse a URL without one before they fetch it.
  */
 
-const NO_LINK: FileLink = { downloadUrl: null, width: null, height: null };
+const NO_IMAGE_LINK: FileLink = { downloadUrl: null, width: null, height: null };
+
+/** An image's link and original size from its read size; an unread or unreadable image gives nulls. */
+export const imageFileLink = (fileId: string, size: ImageSize | null | undefined): FileLink => {
+  const url = size ? signFileLink(fileId, { width: MCP_IMAGE_LINK_WIDTH, extension: size.extension })?.url : null;
+  return size && url ? { downloadUrl: url, width: size.width, height: size.height } : NO_IMAGE_LINK;
+};
+
+/**
+ * A document's link (no width, it keeps its size), named by what the route sends: `.pdf`, or for an image
+ * document the re-encoded image's extension. A document that is not on disk or cannot be served gives null.
+ */
+export const documentFileLink = async (
+  document: { id: string; updatedAt: Date },
+  filePath: string | null,
+): Promise<FileLink> => {
+  const head = filePath ? await readFileHead(filePath, 16).catch(() => null) : null;
+  const contentType = head ? sniffDocumentContentType(head) : null;
+  let extension: FileLinkExtension | null = null;
+  if (contentType === "application/pdf") {
+    extension = "pdf";
+  } else if (contentType) {
+    const sizes = await readImageSizes([{ fileId: document.id, updatedAt: document.updatedAt, resolvePath: async () => filePath }]);
+    extension = sizes.get(document.id)?.extension ?? null;
+  }
+  return { downloadUrl: extension ? (signFileLink(document.id, { extension })?.url ?? null) : null };
+};
 
 export const buildFileLinks = async (tripId: string, media: PlannerMedia[]): Promise<FileLinks> => {
   const links: FileLinks = new Map();
+  // Without a secret nothing is signed and nothing is read from disk; a missing entry gives nulls (`toFiles`).
+  if (!fileLinksEnabled()) return links;
   const documents = media.flatMap((entry) => entry.documents);
   const images = media.flatMap((entry) => entry.images);
-  // Signed only when it lies on disk inside the trip's tree, as `get_file` does: a link that can only 404 is null.
   await Promise.all(
     documents.map(async (document) => {
-      const url = signFileLink(document.id)?.url ?? null;
-      const onDisk = url !== null && (await resolveTripFilePath(tripId, document.documentUrl)) !== null;
-      links.set(document.id, { downloadUrl: onDisk ? url : null });
+      links.set(document.id, await documentFileLink(document, await resolveTripFilePath(tripId, document.documentUrl)));
     }),
   );
-  // Without a secret nothing is signed, and then no image is read from disk either.
-  const signed: { image: PlannerMedia["images"][number]; url: string }[] = [];
-  for (const image of images) {
-    const url = signFileLink(image.id, { width: MCP_IMAGE_LINK_WIDTH })?.url ?? null;
-    if (url === null) links.set(image.id, NO_LINK);
-    else signed.push({ image, url });
-  }
   const sizes = await readImageSizes(
-    signed.map(({ image }) => ({
+    images.map((image) => ({
       fileId: image.id,
       updatedAt: image.updatedAt,
       resolvePath: () => resolveTripFilePath(tripId, image.imageUrl),
     })),
   );
-  for (const { image, url } of signed) {
-    const size = sizes.get(image.id);
-    links.set(image.id, size ? { downloadUrl: url, width: size.width, height: size.height } : NO_LINK);
-  }
+  for (const image of images) links.set(image.id, imageFileLink(image.id, sizes.get(image.id)));
   return links;
 };
 
