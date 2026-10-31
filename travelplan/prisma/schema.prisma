@@ -476,6 +476,9 @@ model AiChange {
   receiptJson String?   @map("receipt_json")
   createdAt   DateTime  @default(now()) @map("created_at")
   undoneAt    DateTime? @map("undone_at")
+  /// Seen and confirmed in the day view's notice (OK, 2026-10-31): no longer listed there, for every
+  /// planner of the trip. The change itself, its badges and the connector's undo are unaffected.
+  acknowledgedAt DateTime? @map("acknowledged_at")
 
   trip    Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
   tripDay TripDay? @relation(fields: [tripDayId], references: [id], onDelete: Cascade)

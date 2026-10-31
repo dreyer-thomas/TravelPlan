@@ -15,8 +15,8 @@ type RouteContext = {
 };
 
 /**
- * Story 15.4. `GET /api/trips/{id}/ai-changes?tripDayId=` lists the connector's changes not yet undone,
- * newest first (at most 50), within the 14-day retention, for the day view's notice. `tripDayId` narrows to one day.
+ * Story 15.4. `GET /api/trips/{id}/ai-changes?tripDayId=` lists the connector's changes not yet undone
+ * nor acknowledged (the notice's OK, `acknowledge/route.ts`), newest first (at most 50), within the 14-day retention, for the day view's notice. `tripDayId` narrows to one day.
  *
  * Session, then the owner-or-contributor gate (404, not 403, so a viewer learns nothing), as the undo
  * routes check. `undoable` means a receipt is stored; whether the undo is still possible is only known by
@@ -45,6 +45,7 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
       tripDayId,
       now: new Date(),
       notUndone: true,
+      notAcknowledged: true,
       take: AI_CHANGES_LIST_LIMIT,
     });
     return ok({

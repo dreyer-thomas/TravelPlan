@@ -2009,7 +2009,8 @@ export const AiChangeScalarFieldEnum = {
   subject: 'subject',
   receiptJson: 'receiptJson',
   createdAt: 'createdAt',
-  undoneAt: 'undoneAt'
+  undoneAt: 'undoneAt',
+  acknowledgedAt: 'acknowledgedAt'
 } as const
 
 export type AiChangeScalarFieldEnum = (typeof AiChangeScalarFieldEnum)[keyof typeof AiChangeScalarFieldEnum]

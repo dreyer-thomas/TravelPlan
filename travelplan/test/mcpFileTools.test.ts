@@ -416,7 +416,7 @@ describe.each(["owner", "contributor"] as const)("attach_file as %s", (role) => 
     expect(await filesUnder(getTripsUploadRoot())).toEqual([]);
   });
 
-  it("refuses the 21st upload within the hour", async () => {
+  it("refuses the 51st upload within the hour", async () => {
     const context = await setup();
     const { seed, train } = context;
     const { token, user } = context[role];
@@ -426,7 +426,7 @@ describe.each(["owner", "contributor"] as const)("attach_file as %s", (role) => 
     const args = { tripId: seed.trip.id, target: "activity", id: train.id, fileName: "a.jpg", as: "image", contentBase64: b64(jpegBytes()) };
 
     structured(await callTool(token, "attach_file", args));
-    expect(errorText(await callTool(token, "attach_file", args))).toBe("Upload limit reached (20 per hour); try again later.");
+    expect(errorText(await callTool(token, "attach_file", args))).toBe("Upload limit reached (50 per hour); try again later.");
     expect(await prisma.dayPlanItemImage.count({ where: { dayPlanItemId: train.id } })).toBe(1);
   });
 

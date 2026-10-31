@@ -65,7 +65,6 @@ const FILE_NAME_UNUSABLE = "fileName has no usable characters; give the file's n
 const ONE_SOURCE = "Give exactly one of contentBase64 or url.";
 const NOT_BASE64 = "contentBase64 is not valid base64 (standard alphabet, with padding, no spaces or line breaks).";
 const EMPTY_FILE = "The file is empty.";
-const UPLOAD_LIMIT = "Upload limit reached (20 per hour); try again later.";
 const NOT_A_DOCUMENT = "Only PDF, JPEG, PNG and WebP files can be attached as documents; this file is none of them.";
 const NOT_AN_IMAGE = "Only JPEG, PNG and WebP files can be attached as images; this file is none of them.";
 const PARENT_CHANGED =
@@ -74,9 +73,13 @@ const FILE_CHANGED =
   "This file changed since you read it, or is gone; read the day again with get_day and retry with the file's updatedAt.";
 const UNSTORABLE_RECEIPT = "This file holds data the undo cannot keep, so nothing was written.";
 
-/** Story 15.7, Epic 15 rule: 20 uploads per user and hour, counted once an attempt reaches the download. */
-export const UPLOAD_RATE_LIMIT = 20;
+/**
+ * Story 15.7: uploads per user and hour, counted once an attempt reaches the download. 50 since
+ * 2026-10-31 (Tommy): 20 ran out while attaching one trip's photos.
+ */
+export const UPLOAD_RATE_LIMIT = 50;
 export const UPLOAD_RATE_WINDOW_MS = 3_600_000;
+const UPLOAD_LIMIT = `Upload limit reached (${UPLOAD_RATE_LIMIT} per hour); try again later.`;
 
 const MIB = 1024 * 1024;
 /** Inline content, decoded: keeps the base64 body well under the `/api/mcp` 2 MB cap. */
@@ -370,7 +373,7 @@ export const registerFileTools = (server: McpServer) => {
         "stay. Give the bytes as contentBase64 (at most 1 MB decoded) or an https url to download (at most " +
         "10 MB for a document, 5 MB for an image; public addresses only, at most 3 redirects, 15 seconds). The " +
         "type is judged from the content alone: a document must be a PDF, JPEG, PNG or WebP, an image a JPEG, " +
-        "PNG or WebP. An entry holds at most 10 documents; at most 20 uploads per hour. A document lands in " +
+        `PNG or WebP. An entry holds at most 10 documents; at most ${UPLOAD_RATE_LIMIT} uploads per hour. A document lands in ` +
         "the day's document packet and day email like one uploaded in the app. Returns aiChangeId, the file " +
         "(id, fileName, media, mimeType, sizeBytes, updatedAt) and the day as get_day shows it when the entry " +
         "is on a day. The attach can be undone with undo_ai_change unless the entry is in the bucket list.",

@@ -202,14 +202,15 @@ export const insertAiChangeInTransaction = async (
 };
 
 /**
- * Newest first, within retention, undone ones included unless `notUndone`. `tripDayId` narrows to one
- * day's changes; `take` caps the number of rows.
+ * Newest first, within retention, undone ones included unless `notUndone`, acknowledged ones unless
+ * `notAcknowledged`. `tripDayId` narrows to one day's changes; `take` caps the number of rows.
  */
 export const listAiChangesForTrip = async (params: {
   tripId: string;
   tripDayId?: string;
   now: Date;
   notUndone?: boolean;
+  notAcknowledged?: boolean;
   take?: number;
 }): Promise<AiChangeEntry[]> => {
   const rows = await prisma.aiChange.findMany({
@@ -217,6 +218,7 @@ export const listAiChangesForTrip = async (params: {
       tripId: params.tripId,
       ...(params.tripDayId !== undefined ? { tripDayId: params.tripDayId } : {}),
       ...(params.notUndone ? { undoneAt: null } : {}),
+      ...(params.notAcknowledged ? { acknowledgedAt: null } : {}),
       createdAt: { gte: retentionCutoff(params.now) },
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -224,6 +226,29 @@ export const listAiChangesForTrip = async (params: {
     select: entrySelect,
   });
   return rows.map(toEntry);
+};
+
+/**
+ * The day view's OK (2026-10-31): marks the listed changes as seen, for every planner of the trip. Only
+ * the ids the notice showed, so a change the assistant makes meanwhile is not confirmed unseen; ids of
+ * another trip, already acknowledged ones and expired ones are skipped. Returns how many it marked.
+ */
+export const acknowledgeAiChanges = async (params: {
+  tripId: string;
+  changeIds: string[];
+  now: Date;
+}): Promise<number> => {
+  if (params.changeIds.length === 0) return 0;
+  const result = await prisma.aiChange.updateMany({
+    where: {
+      id: { in: params.changeIds },
+      tripId: params.tripId,
+      acknowledgedAt: null,
+      createdAt: { gte: retentionCutoff(params.now) },
+    },
+    data: { acknowledgedAt: params.now },
+  });
+  return result.count;
 };
 
 export const findAiChangeForTrip = async (params: {

@@ -4663,7 +4663,7 @@ Users who plan a trip connect their AI assistant to TravelPlan once, sign in, an
 - Every call re-checks access per trip with `getTripAccessForUser` + `canTripAccessRoleWrite`; a trip the user cannot write answers *not found*, never *forbidden* (no existence leak).
 - Tool errors are returned as MCP tool errors with a short, actionable English message (for example "Activity changed since you read it; read the day again"); internal details never leak.
 - Every tool is logged with tool name, user id, trip id, outcome and duration, never its arguments' content.
-- Per-user rate limit through `rateLimit.ts` (120 tool calls per minute, 20 uploads per hour).
+- Per-user rate limit through `rateLimit.ts` (120 tool calls per minute, 50 uploads per hour; raised from 20 on 2026-10-31, Tommy).
 - Tool descriptions are in English, written for the model, and name units (minutes, EUR cents vs amount, `HH:MM`, ISO dates).
 
 ### Story 15.1: Add TravelPlan to Claude

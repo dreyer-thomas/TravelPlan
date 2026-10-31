@@ -91,8 +91,9 @@ export type AiChangesNoticeProps = {
  *
  * Same visual family as `ActionNotice` (card panel, strong border; `role="status"` on the summary line only,
  * so the list and its buttons are not a live region), but not that
- * component: it lists several changes, each with its own undo, and it has no close - it goes away when
- * the last change is undone or ages out of the 14-day retention.
+ * component: it lists several changes, each with its own undo. It goes away when the last change is undone
+ * or ages out of the 14-day retention, or with OK (2026-10-31), which confirms the listed changes as seen
+ * for every planner of the trip; their KI/AI badges stay.
  */
 export default function AiChangesNotice({
   tripId,
@@ -112,6 +113,8 @@ export default function AiChangesNotice({
   const [reloadKey, setReloadKey] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [acknowledging, setAcknowledging] = useState(false);
+  const [acknowledgeFailed, setAcknowledgeFailed] = useState(false);
   const [rowStatus, setRowStatus] = useState<Record<string, RowStatus>>({});
   // Another day on screen starts collapsed, without the previous day's row messages.
   const [stateDayId, setStateDayId] = useState(dayId);
@@ -119,6 +122,7 @@ export default function AiChangesNotice({
     setStateDayId(dayId);
     setExpanded(false);
     setRowStatus({});
+    setAcknowledgeFailed(false);
   }
   const undoInFlightRef = useRef(false);
   const currentDayIdRef = useRef(dayId);
@@ -218,6 +222,37 @@ export default function AiChangesNotice({
     }
   };
 
+  /**
+   * OK (2026-10-31): the changes on screen are seen. Only their ids are sent, so one the assistant made
+   * since the list was read stays listed. On success the list is read again, which hides the notice.
+   */
+  const handleAcknowledge = async (changes: AiChangeEntry[]) => {
+    if (acknowledging || undoInFlightRef.current) return;
+    const requestedDayId = dayId;
+    setAcknowledging(true);
+    setAcknowledgeFailed(false);
+    try {
+      const token = await ensureCsrfToken();
+      const response = await fetch(`/api/trips/${encodeURIComponent(tripId)}/ai-changes/acknowledge`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json", "x-csrf-token": token },
+        body: JSON.stringify({ changeIds: changes.map((change) => change.id) }),
+      });
+      if (currentDayIdRef.current !== requestedDayId) return;
+      if (response.ok) {
+        setLoaded(null);
+        setReloadKey((key) => key + 1);
+        return;
+      }
+      setAcknowledgeFailed(true);
+    } catch {
+      if (currentDayIdRef.current === requestedDayId) setAcknowledgeFailed(true);
+    } finally {
+      setAcknowledging(false);
+    }
+  };
+
   if (!loaded || loaded.dayId !== dayId || loaded.changes.length === 0) {
     return null;
   }
@@ -255,7 +290,25 @@ export default function AiChangesNotice({
           >
             {expanded ? t("trips.aiChanges.collapse") : t("trips.aiChanges.expand")}
           </Button>
+          <Button
+            variant="outlined"
+            onClick={() => void handleAcknowledge(changes)}
+            disabled={acknowledging || pendingId !== null}
+            aria-label={t("trips.aiChanges.acknowledgeLabel")}
+            data-testid="ai-changes-acknowledge"
+          >
+            {t("trips.aiChanges.acknowledge")}
+          </Button>
         </Box>
+        {acknowledgeFailed ? (
+          <Typography
+            variant="body2"
+            data-testid="ai-changes-acknowledge-error"
+            sx={{ color: theme.palette.error.main, mt: "4px" }}
+          >
+            {t("trips.aiChanges.acknowledgeError")}
+          </Typography>
+        ) : null}
         {expanded ? (
           <Box
             component="ul"

@@ -352,6 +352,63 @@ describe("AiChangesNotice (Story 15.4)", () => {
   });
 });
 
+describe("AiChangesNotice OK (2026-10-31)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const props = {
+    tripId: "trip-1",
+    dayId: "day-1",
+    refreshKey: 0,
+    ensureCsrfToken: async () => "csrf-token",
+    onDayChanged: () => undefined,
+    onBucketChanged: () => undefined,
+  };
+
+  it("confirms the listed changes with the CSRF token and hides the notice", async () => {
+    let acknowledged = false;
+    const posts: { url: string; body: unknown; csrf: string | null }[] = [];
+    stubFetch(
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestUrl(input);
+        if (init?.method === "POST") {
+          posts.push({ url, body: JSON.parse(String(init.body)), csrf: new Headers(init.headers).get("x-csrf-token") });
+          acknowledged = true;
+          return mockFetchResponse({ data: { acknowledged: 3 }, error: null });
+        }
+        return mockFetchResponse({ data: { changes: acknowledged ? [] : changes }, error: null });
+      }),
+    );
+    renderWithProviders(<AiChangesNotice {...props} />);
+
+    const notice = await screen.findByTestId("ai-changes-notice");
+    await userEvent.click(within(notice).getByRole("button", { name: en["trips.aiChanges.acknowledgeLabel"] }));
+
+    await waitFor(() => expect(screen.queryByTestId("ai-changes-notice")).not.toBeInTheDocument());
+    expect(posts).toEqual([
+      { url: "/api/trips/trip-1/ai-changes/acknowledge", body: { changeIds: ["c3", "c2", "c1"] }, csrf: "csrf-token" },
+    ]);
+  });
+
+  it("keeps the notice and says so when confirming fails", async () => {
+    stubFetch(
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+        init?.method === "POST"
+          ? mockFetchResponse({ data: null, error: { code: "server_error", message: "x" } }, { status: 500 })
+          : mockFetchResponse({ data: { changes }, error: null }),
+      ),
+    );
+    renderWithProviders(<AiChangesNotice {...props} />);
+
+    const notice = await screen.findByTestId("ai-changes-notice");
+    await userEvent.click(within(notice).getByRole("button", { name: en["trips.aiChanges.acknowledgeLabel"] }));
+
+    expect(await within(notice).findByText(en["trips.aiChanges.acknowledgeError"])).toBeInTheDocument();
+    expect(screen.getByTestId("ai-changes-notice")).toBeInTheDocument();
+  });
+});
+
 describe("AiChangesNotice, day plans (Story 15.5)", () => {
   beforeEach(() => {
     vi.restoreAllMocks();

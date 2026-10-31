@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/trips/[id]/ai-changes/route";
 import { POST } from "@/app/api/trips/[id]/ai-changes/[changeId]/undo/route";
+import { POST as ACKNOWLEDGE } from "@/app/api/trips/[id]/ai-changes/acknowledge/route";
 import { createSessionJwt } from "@/lib/auth/jwt";
 import { prisma } from "@/lib/db/prisma";
 import { insertAiChangeInTransaction } from "@/lib/repositories/aiChangeRepo";
@@ -110,6 +111,16 @@ const undo = async (tripId: string, changeId: string, session: string, csrf = CS
   return { status: response.status, body: (await response.json()) as ApiEnvelope<{ undone: boolean }> };
 };
 
+const acknowledge = async (tripId: string, body: unknown, session: string, csrf = CSRF) => {
+  const request = new NextRequest(`http://localhost/api/trips/${tripId}/ai-changes/acknowledge`, {
+    method: "POST",
+    headers: { cookie: `session=${session}; csrf_token=${CSRF}`, "x-csrf-token": csrf, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const response = await ACKNOWLEDGE(request, { params: Promise.resolve({ id: tripId }) });
+  return { status: response.status, body: (await response.json()) as ApiEnvelope<{ acknowledged: number }> };
+};
+
 beforeEach(resetDatabase);
 
 describe("GET /api/trips/[id]/ai-changes (Story 15.4)", () => {
@@ -216,5 +227,53 @@ describe("POST /api/trips/[id]/ai-changes/[changeId]/undo (Story 15.4)", () => {
     const unavailable = await undo(seeded.trip.id, changeId, await sessionFor(seeded.owner));
     expect(unavailable.status).toBe(400);
     expect(unavailable.body.error?.code).toBe("undo_unavailable");
+  });
+});
+
+describe("POST /api/trips/[id]/ai-changes/acknowledge (OK, 2026-10-31)", () => {
+  it("hides the confirmed changes for every planner, keeps the badge and the undo, and leaves unlisted ones listed", async () => {
+    const seeded = await seed();
+    const first = await createByAi(seeded, "Louvre");
+    const second = await createByAi(seeded, "Orsay");
+    // Made after the notice was read: not in the request, so not confirmed unseen.
+    const later = await createByAi(seeded, "Sainte-Chapelle");
+
+    const result = await acknowledge(
+      seeded.trip.id,
+      { changeIds: [first.changeId, second.changeId] },
+      await sessionFor(seeded.contributor),
+    );
+    expect(result.status).toBe(200);
+    expect(result.body.data).toEqual({ acknowledged: 2 });
+
+    for (const user of [seeded.owner, seeded.contributor]) {
+      const listed = await list(seeded.trip.id, await sessionFor(user), `?tripDayId=${seeded.day.id}`);
+      expect(listed.body.data?.changes.map((change) => change.id)).toEqual([later.changeId]);
+    }
+    expect((await prisma.dayPlanItem.findUniqueOrThrow({ where: { id: first.item.id } })).aiChangedAt).toBeInstanceOf(Date);
+    expect((await undo(seeded.trip.id, first.changeId, await sessionFor(seeded.owner))).status).toBe(200);
+
+    const again = await acknowledge(seeded.trip.id, { changeIds: [second.changeId] }, await sessionFor(seeded.owner));
+    expect(again.body.data).toEqual({ acknowledged: 0 });
+  });
+
+  it("refuses a bad CSRF token, a viewer, a stranger and an empty list, and never touches another trip's change", async () => {
+    const seeded = await seed();
+    const { changeId } = await createByAi(seeded, "Louvre");
+    const owner = await sessionFor(seeded.owner);
+
+    expect((await acknowledge(seeded.trip.id, { changeIds: [changeId] }, owner, "wrong")).status).toBe(403);
+    for (const user of [seeded.viewer, seeded.stranger]) {
+      expect((await acknowledge(seeded.trip.id, { changeIds: [changeId] }, await sessionFor(user))).status).toBe(404);
+    }
+    const empty = await acknowledge(seeded.trip.id, { changeIds: [] }, owner);
+    expect(empty.status).toBe(400);
+    expect(empty.body.error?.code).toBe("validation_error");
+
+    const otherTrip = await prisma.trip.create({
+      data: { userId: seeded.owner.id, name: "Other", startDate: new Date("2026-12-01"), endDate: new Date("2026-12-01") },
+    });
+    expect((await acknowledge(otherTrip.id, { changeIds: [changeId] }, owner)).body.data).toEqual({ acknowledged: 0 });
+    expect((await prisma.aiChange.findUniqueOrThrow({ where: { id: changeId } })).acknowledgedAt).toBeNull();
   });
 });

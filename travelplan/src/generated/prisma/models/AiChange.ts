@@ -35,6 +35,7 @@ export type AiChangeMinAggregateOutputType = {
   receiptJson: string | null
   createdAt: Date | null
   undoneAt: Date | null
+  acknowledgedAt: Date | null
 }
 
 export type AiChangeMaxAggregateOutputType = {
@@ -48,6 +49,7 @@ export type AiChangeMaxAggregateOutputType = {
   receiptJson: string | null
   createdAt: Date | null
   undoneAt: Date | null
+  acknowledgedAt: Date | null
 }
 
 export type AiChangeCountAggregateOutputType = {
@@ -61,6 +63,7 @@ export type AiChangeCountAggregateOutputType = {
   receiptJson: number
   createdAt: number
   undoneAt: number
+  acknowledgedAt: number
   _all: number
 }
 
@@ -76,6 +79,7 @@ export type AiChangeMinAggregateInputType = {
   receiptJson?: true
   createdAt?: true
   undoneAt?: true
+  acknowledgedAt?: true
 }
 
 export type AiChangeMaxAggregateInputType = {
@@ -89,6 +93,7 @@ export type AiChangeMaxAggregateInputType = {
   receiptJson?: true
   createdAt?: true
   undoneAt?: true
+  acknowledgedAt?: true
 }
 
 export type AiChangeCountAggregateInputType = {
@@ -102,6 +107,7 @@ export type AiChangeCountAggregateInputType = {
   receiptJson?: true
   createdAt?: true
   undoneAt?: true
+  acknowledgedAt?: true
   _all?: true
 }
 
@@ -188,6 +194,7 @@ export type AiChangeGroupByOutputType = {
   receiptJson: string | null
   createdAt: Date
   undoneAt: Date | null
+  acknowledgedAt: Date | null
   _count: AiChangeCountAggregateOutputType | null
   _min: AiChangeMinAggregateOutputType | null
   _max: AiChangeMaxAggregateOutputType | null
@@ -222,6 +229,7 @@ export type AiChangeWhereInput = {
   receiptJson?: Prisma.StringNullableFilter<"AiChange"> | string | null
   createdAt?: Prisma.DateTimeFilter<"AiChange"> | Date | string
   undoneAt?: Prisma.DateTimeNullableFilter<"AiChange"> | Date | string | null
+  acknowledgedAt?: Prisma.DateTimeNullableFilter<"AiChange"> | Date | string | null
   trip?: Prisma.XOR<Prisma.TripScalarRelationFilter, Prisma.TripWhereInput>
   tripDay?: Prisma.XOR<Prisma.TripDayNullableScalarRelationFilter, Prisma.TripDayWhereInput> | null
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
@@ -238,6 +246,7 @@ export type AiChangeOrderByWithRelationInput = {
   receiptJson?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   undoneAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  acknowledgedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   trip?: Prisma.TripOrderByWithRelationInput
   tripDay?: Prisma.TripDayOrderByWithRelationInput
   user?: Prisma.UserOrderByWithRelationInput
@@ -257,6 +266,7 @@ export type AiChangeWhereUniqueInput = Prisma.AtLeast<{
   receiptJson?: Prisma.StringNullableFilter<"AiChange"> | string | null
   createdAt?: Prisma.DateTimeFilter<"AiChange"> | Date | string
   undoneAt?: Prisma.DateTimeNullableFilter<"AiChange"> | Date | string | null
+  acknowledgedAt?: Prisma.DateTimeNullableFilter<"AiChange"> | Date | string | null
   trip?: Prisma.XOR<Prisma.TripScalarRelationFilter, Prisma.TripWhereInput>
   tripDay?: Prisma.XOR<Prisma.TripDayNullableScalarRelationFilter, Prisma.TripDayWhereInput> | null
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
@@ -273,6 +283,7 @@ export type AiChangeOrderByWithAggregationInput = {
   receiptJson?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   undoneAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  acknowledgedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.AiChangeCountOrderByAggregateInput
   _max?: Prisma.AiChangeMaxOrderByAggregateInput
   _min?: Prisma.AiChangeMinOrderByAggregateInput
@@ -292,6 +303,7 @@ export type AiChangeScalarWhereWithAggregatesInput = {
   receiptJson?: Prisma.StringNullableWithAggregatesFilter<"AiChange"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"AiChange"> | Date | string
   undoneAt?: Prisma.DateTimeNullableWithAggregatesFilter<"AiChange"> | Date | string | null
+  acknowledgedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"AiChange"> | Date | string | null
 }
 
 export type AiChangeCreateInput = {
@@ -302,6 +314,7 @@ export type AiChangeCreateInput = {
   receiptJson?: string | null
   createdAt?: Date | string
   undoneAt?: Date | string | null
+  acknowledgedAt?: Date | string | null
   trip: Prisma.TripCreateNestedOneWithoutAiChangesInput
   tripDay?: Prisma.TripDayCreateNestedOneWithoutAiChangesInput
   user: Prisma.UserCreateNestedOneWithoutAiChangesInput
@@ -318,6 +331,7 @@ export type AiChangeUncheckedCreateInput = {
   receiptJson?: string | null
   createdAt?: Date | string
   undoneAt?: Date | string | null
+  acknowledgedAt?: Date | string | null
 }
 
 export type AiChangeUpdateInput = {
@@ -328,6 +342,7 @@ export type AiChangeUpdateInput = {
   receiptJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   undoneAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  acknowledgedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   trip?: Prisma.TripUpdateOneRequiredWithoutAiChangesNestedInput
   tripDay?: Prisma.TripDayUpdateOneWithoutAiChangesNestedInput
   user?: Prisma.UserUpdateOneRequiredWithoutAiChangesNestedInput
@@ -344,6 +359,7 @@ export type AiChangeUncheckedUpdateInput = {
   receiptJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   undoneAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  acknowledgedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AiChangeCreateManyInput = {
@@ -357,6 +373,7 @@ export type AiChangeCreateManyInput = {
   receiptJson?: string | null
   createdAt?: Date | string
   undoneAt?: Date | string | null
+  acknowledgedAt?: Date | string | null
 }
 
 export type AiChangeUpdateManyMutationInput = {
@@ -367,6 +384,7 @@ export type AiChangeUpdateManyMutationInput = {
   receiptJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   undoneAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  acknowledgedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AiChangeUncheckedUpdateManyInput = {
@@ -380,6 +398,7 @@ export type AiChangeUncheckedUpdateManyInput = {
   receiptJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   undoneAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  acknowledgedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AiChangeListRelationFilter = {
@@ -403,6 +422,7 @@ export type AiChangeCountOrderByAggregateInput = {
   receiptJson?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   undoneAt?: Prisma.SortOrder
+  acknowledgedAt?: Prisma.SortOrder
 }
 
 export type AiChangeMaxOrderByAggregateInput = {
@@ -416,6 +436,7 @@ export type AiChangeMaxOrderByAggregateInput = {
   receiptJson?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   undoneAt?: Prisma.SortOrder
+  acknowledgedAt?: Prisma.SortOrder
 }
 
 export type AiChangeMinOrderByAggregateInput = {
@@ -429,6 +450,7 @@ export type AiChangeMinOrderByAggregateInput = {
   receiptJson?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   undoneAt?: Prisma.SortOrder
+  acknowledgedAt?: Prisma.SortOrder
 }
 
 export type AiChangeCreateNestedManyWithoutUserInput = {
@@ -565,6 +587,7 @@ export type AiChangeCreateWithoutUserInput = {
   receiptJson?: string | null
   createdAt?: Date | string
   undoneAt?: Date | string | null
+  acknowledgedAt?: Date | string | null
   trip: Prisma.TripCreateNestedOneWithoutAiChangesInput
   tripDay?: Prisma.TripDayCreateNestedOneWithoutAiChangesInput
 }
@@ -579,6 +602,7 @@ export type AiChangeUncheckedCreateWithoutUserInput = {
   receiptJson?: string | null
   createdAt?: Date | string
   undoneAt?: Date | string | null
+  acknowledgedAt?: Date | string | null
 }
 
 export type AiChangeCreateOrConnectWithoutUserInput = {
@@ -620,6 +644,7 @@ export type AiChangeScalarWhereInput = {
   receiptJson?: Prisma.StringNullableFilter<"AiChange"> | string | null
   createdAt?: Prisma.DateTimeFilter<"AiChange"> | Date | string
   undoneAt?: Prisma.DateTimeNullableFilter<"AiChange"> | Date | string | null
+  acknowledgedAt?: Prisma.DateTimeNullableFilter<"AiChange"> | Date | string | null
 }
 
 export type AiChangeCreateWithoutTripInput = {
@@ -630,6 +655,7 @@ export type AiChangeCreateWithoutTripInput = {
   receiptJson?: string | null
   createdAt?: Date | string
   undoneAt?: Date | string | null
+  acknowledgedAt?: Date | string | null
   tripDay?: Prisma.TripDayCreateNestedOneWithoutAiChangesInput
   user: Prisma.UserCreateNestedOneWithoutAiChangesInput
 }
@@ -644,6 +670,7 @@ export type AiChangeUncheckedCreateWithoutTripInput = {
   receiptJson?: string | null
   createdAt?: Date | string
   undoneAt?: Date | string | null
+  acknowledgedAt?: Date | string | null
 }
 
 export type AiChangeCreateOrConnectWithoutTripInput = {
@@ -679,6 +706,7 @@ export type AiChangeCreateWithoutTripDayInput = {
   receiptJson?: string | null
   createdAt?: Date | string
   undoneAt?: Date | string | null
+  acknowledgedAt?: Date | string | null
   trip: Prisma.TripCreateNestedOneWithoutAiChangesInput
   user: Prisma.UserCreateNestedOneWithoutAiChangesInput
 }
@@ -693,6 +721,7 @@ export type AiChangeUncheckedCreateWithoutTripDayInput = {
   receiptJson?: string | null
   createdAt?: Date | string
   undoneAt?: Date | string | null
+  acknowledgedAt?: Date | string | null
 }
 
 export type AiChangeCreateOrConnectWithoutTripDayInput = {
@@ -730,6 +759,7 @@ export type AiChangeCreateManyUserInput = {
   receiptJson?: string | null
   createdAt?: Date | string
   undoneAt?: Date | string | null
+  acknowledgedAt?: Date | string | null
 }
 
 export type AiChangeUpdateWithoutUserInput = {
@@ -740,6 +770,7 @@ export type AiChangeUpdateWithoutUserInput = {
   receiptJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   undoneAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  acknowledgedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   trip?: Prisma.TripUpdateOneRequiredWithoutAiChangesNestedInput
   tripDay?: Prisma.TripDayUpdateOneWithoutAiChangesNestedInput
 }
@@ -754,6 +785,7 @@ export type AiChangeUncheckedUpdateWithoutUserInput = {
   receiptJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   undoneAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  acknowledgedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AiChangeUncheckedUpdateManyWithoutUserInput = {
@@ -766,6 +798,7 @@ export type AiChangeUncheckedUpdateManyWithoutUserInput = {
   receiptJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   undoneAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  acknowledgedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AiChangeCreateManyTripInput = {
@@ -778,6 +811,7 @@ export type AiChangeCreateManyTripInput = {
   receiptJson?: string | null
   createdAt?: Date | string
   undoneAt?: Date | string | null
+  acknowledgedAt?: Date | string | null
 }
 
 export type AiChangeUpdateWithoutTripInput = {
@@ -788,6 +822,7 @@ export type AiChangeUpdateWithoutTripInput = {
   receiptJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   undoneAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  acknowledgedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tripDay?: Prisma.TripDayUpdateOneWithoutAiChangesNestedInput
   user?: Prisma.UserUpdateOneRequiredWithoutAiChangesNestedInput
 }
@@ -802,6 +837,7 @@ export type AiChangeUncheckedUpdateWithoutTripInput = {
   receiptJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   undoneAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  acknowledgedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AiChangeUncheckedUpdateManyWithoutTripInput = {
@@ -814,6 +850,7 @@ export type AiChangeUncheckedUpdateManyWithoutTripInput = {
   receiptJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   undoneAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  acknowledgedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AiChangeCreateManyTripDayInput = {
@@ -826,6 +863,7 @@ export type AiChangeCreateManyTripDayInput = {
   receiptJson?: string | null
   createdAt?: Date | string
   undoneAt?: Date | string | null
+  acknowledgedAt?: Date | string | null
 }
 
 export type AiChangeUpdateWithoutTripDayInput = {
@@ -836,6 +874,7 @@ export type AiChangeUpdateWithoutTripDayInput = {
   receiptJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   undoneAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  acknowledgedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   trip?: Prisma.TripUpdateOneRequiredWithoutAiChangesNestedInput
   user?: Prisma.UserUpdateOneRequiredWithoutAiChangesNestedInput
 }
@@ -850,6 +889,7 @@ export type AiChangeUncheckedUpdateWithoutTripDayInput = {
   receiptJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   undoneAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  acknowledgedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type AiChangeUncheckedUpdateManyWithoutTripDayInput = {
@@ -862,6 +902,7 @@ export type AiChangeUncheckedUpdateManyWithoutTripDayInput = {
   receiptJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   undoneAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  acknowledgedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 
@@ -877,6 +918,7 @@ export type AiChangeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   receiptJson?: boolean
   createdAt?: boolean
   undoneAt?: boolean
+  acknowledgedAt?: boolean
   trip?: boolean | Prisma.TripDefaultArgs<ExtArgs>
   tripDay?: boolean | Prisma.AiChange$tripDayArgs<ExtArgs>
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -893,6 +935,7 @@ export type AiChangeSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exte
   receiptJson?: boolean
   createdAt?: boolean
   undoneAt?: boolean
+  acknowledgedAt?: boolean
   trip?: boolean | Prisma.TripDefaultArgs<ExtArgs>
   tripDay?: boolean | Prisma.AiChange$tripDayArgs<ExtArgs>
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -909,6 +952,7 @@ export type AiChangeSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exte
   receiptJson?: boolean
   createdAt?: boolean
   undoneAt?: boolean
+  acknowledgedAt?: boolean
   trip?: boolean | Prisma.TripDefaultArgs<ExtArgs>
   tripDay?: boolean | Prisma.AiChange$tripDayArgs<ExtArgs>
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -925,9 +969,10 @@ export type AiChangeSelectScalar = {
   receiptJson?: boolean
   createdAt?: boolean
   undoneAt?: boolean
+  acknowledgedAt?: boolean
 }
 
-export type AiChangeOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tripId" | "tripDayId" | "userId" | "clientId" | "action" | "subject" | "receiptJson" | "createdAt" | "undoneAt", ExtArgs["result"]["aiChange"]>
+export type AiChangeOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tripId" | "tripDayId" | "userId" | "clientId" | "action" | "subject" | "receiptJson" | "createdAt" | "undoneAt" | "acknowledgedAt", ExtArgs["result"]["aiChange"]>
 export type AiChangeInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   trip?: boolean | Prisma.TripDefaultArgs<ExtArgs>
   tripDay?: boolean | Prisma.AiChange$tripDayArgs<ExtArgs>
@@ -962,6 +1007,11 @@ export type $AiChangePayload<ExtArgs extends runtime.Types.Extensions.InternalAr
     receiptJson: string | null
     createdAt: Date
     undoneAt: Date | null
+    /**
+     * Seen and confirmed in the day view's notice (OK, 2026-10-31): no longer listed there, for every
+     * planner of the trip. The change itself, its badges and the connector's undo are unaffected.
+     */
+    acknowledgedAt: Date | null
   }, ExtArgs["result"]["aiChange"]>
   composites: {}
 }
@@ -1398,6 +1448,7 @@ export interface AiChangeFieldRefs {
   readonly receiptJson: Prisma.FieldRef<"AiChange", 'String'>
   readonly createdAt: Prisma.FieldRef<"AiChange", 'DateTime'>
   readonly undoneAt: Prisma.FieldRef<"AiChange", 'DateTime'>
+  readonly acknowledgedAt: Prisma.FieldRef<"AiChange", 'DateTime'>
 }
     
 
