@@ -74,6 +74,8 @@ import {
 export const ACTIVITY_NOT_FOUND = "Activity not found";
 export const CHANGED_SINCE_READ =
   "This activity changed since you read it; read it again with get_day or get_bucket_list and retry with the new updatedAt.";
+/** Story 15.9. `update_day` and the day picture's delete, checked against the day's own `updatedAt`. */
+export const DAY_CHANGED_SINCE_READ = "Day changed since you read it; read the day again";
 export const DAY_CHANGED_WHILE_SAVING =
   "The day changed while this was being saved; read it again with get_day and retry.";
 export const GEOCODE_NOT_FOUND =

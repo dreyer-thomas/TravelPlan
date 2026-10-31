@@ -223,6 +223,29 @@ describe("GET /api/trips/[id]", () => {
     expect(byId.get(plain.id)).toBeNull();
   });
 
+  it("carries the day's own AI marker as ISO or null (Story 15.9)", async () => {
+    const user = await prisma.user.create({
+      data: { email: "trip-ai-day-marker@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Day Marker Trip",
+      startDate: "2026-05-01T00:00:00.000Z",
+      endDate: "2026-05-02T00:00:00.000Z",
+    });
+    const [marked, plain] = await prisma.tripDay.findMany({ where: { tripId: trip.id }, orderBy: { dayIndex: "asc" } });
+    await prisma.tripDay.update({ where: { id: marked.id }, data: { note: "By AI", aiChangedAt: new Date("2026-04-20T08:30:00.000Z") } });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const payload = (await response.json()) as ApiEnvelope<{ days: { id: string; aiChangedAt: string | null }[] }>;
+
+    expect(response.status).toBe(200);
+    const byId = new Map(payload.data!.days.map((day) => [day.id, day.aiChangedAt]));
+    expect(byId.get(marked.id)).toBe("2026-04-20T08:30:00.000Z");
+    expect(byId.get(plain.id)).toBeNull();
+  });
+
   it("carries the AI marker on legs as ISO or null (Story 15.6)", async () => {
     const user = await prisma.user.create({
       data: { email: "trip-ai-leg-marker@example.com", passwordHash: "hashed", role: "OWNER" },
@@ -324,6 +347,8 @@ describe("GET /api/trips/[id]", () => {
     const dayPayload = payload.data!.days[0]!;
     expect(Object.keys(dayPayload).sort()).toEqual([
       "accommodation",
+      // Story 15.9. The day's own KI/AI marker, next to the hero title and in the day details.
+      "aiChangedAt",
       "date",
       "dayIndex",
       "dayPlanItems",

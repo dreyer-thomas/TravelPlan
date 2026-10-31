@@ -7,6 +7,7 @@ import { readImageSizes } from "@/lib/files/imageInfo";
 import { documentFileLink, fileLinkNote, imageFileLink } from "@/lib/mcp/fileLinkShapes";
 import { toolError } from "@/lib/mcp/logging";
 import {
+  DAY_NOT_FOUND,
   DESTRUCTIVE_WRITE_TOOL_ANNOTATIONS,
   idSchema,
   READ_ONLY_TOOL_ANNOTATIONS,
@@ -15,10 +16,25 @@ import {
   toolResult,
   WRITE_TOOL_ANNOTATIONS,
 } from "@/lib/mcp/toolRuntime";
-import { isCaller, readDay, recordChange, startWrite, tripIdField, writeErrorResult } from "@/lib/mcp/tools/activityWrite";
+import {
+  DAY_CHANGED_SINCE_READ,
+  isCaller,
+  readDay,
+  recordChange,
+  startWrite,
+  tripIdField,
+  writeErrorResult,
+  type Caller,
+} from "@/lib/mcp/tools/activityWrite";
 import { UnstorableReceiptError } from "@/lib/repositories/aiChangeRepo";
+import { setDayImageForConnector } from "@/lib/repositories/connectorDayRepo";
 import { attachFileForConnector, deleteFileForConnector } from "@/lib/repositories/connectorFileRepo";
-import { findFileForPlanner, findFileParentForPlanner, type PlannerFileRow } from "@/lib/repositories/connectorReadRepo";
+import {
+  findFileForPlanner,
+  findFileParentForPlanner,
+  isPlannerDayOfTrip,
+  type PlannerFileRow,
+} from "@/lib/repositories/connectorReadRepo";
 import { checkRateLimit } from "@/lib/security/rateLimit";
 import { DOCUMENT_LIMIT_ERROR_MESSAGE, MAX_DOCUMENTS_PER_ENTRY, sanitizeDocumentFileName } from "@/lib/trips/documentUploads";
 import { sniffDocumentContentType, sniffPhotoContentType } from "@/lib/trips/importPackage";
@@ -31,6 +47,7 @@ import {
   getDayPlanItemImageUploadDir,
   getParkedDayPlanItemDocumentUploadDir,
   getParkedDayPlanItemImageUploadDir,
+  getTripDayUploadDir,
   isExternalMediaUrl,
   resolveManagedItemMediaDir,
 } from "@/lib/trips/uploadPaths";
@@ -57,6 +74,13 @@ import { ChangedSinceReadError } from "@/lib/trips/writeOrigin";
  * `fileDeleted`). A deleted file stays on disk until then, and the expiry sweep removes it. A parked
  * activity's file writes have no receipt (no day), so a parked delete removes the file at once, as the app
  * does.
+ *
+ * **Story 15.9: the day's own picture.** `attach_file` with `target: "day"` sets it (an image only, judged by
+ * content), `delete_file` and `get_file` take its id, which is the day's id. It is written into the day's own
+ * upload folder, where the app's dialog writes, but under a unique `day-<ms>-<rand>.<ext>` name rather than
+ * the dialog's `day.<ext>`: the dialog removes every `day.*` before an upload, and the picture a replace kept
+ * for its undo must survive that. A replaced or removed picture stays on disk for the undo
+ * (`dayDetailsChanged`), and the expiry sweep removes it.
  */
 
 export const FILE_NOT_FOUND = "File not found";
@@ -73,6 +97,8 @@ const PARENT_CHANGED =
 const FILE_CHANGED =
   "This file changed since you read it, or is gone; read the day again with get_day and retry with the file's updatedAt.";
 const UNSTORABLE_RECEIPT = "This file holds data the undo cannot keep, so nothing was written.";
+/** Story 15.9. `as: "document"`, or content that is not a JPEG, PNG or WebP, for the day's picture. */
+const NOT_A_DAY_PICTURE = "Day pictures must be images (JPEG, PNG or WebP).";
 
 /**
  * Story 15.7: uploads per user and hour, counted once an attempt reaches the download. 50 since
@@ -154,15 +180,22 @@ const fetchFailureText = (reason: GuardedFetchFailure, maxBytes: number): string
 // ---------------------------------------------------------------------------------------------------------
 // Inputs
 
-const fileIdField = idSchema.describe("The file's id: a document's or image's id from get_day or get_bucket_list.");
+const fileIdField = idSchema.describe(
+  "The file's id: a document's or image's id from get_day or get_bucket_list, or the day picture's id (get_day's image.id).",
+);
 
 const getInput = z.object({ tripId: tripIdField, fileId: fileIdField });
 
 const attachInput = z
   .object({
     tripId: tripIdField,
-    target: z.enum(["activity", "stay"]).describe("What the file belongs to: an activity (on a day or in the bucket list) or a stay."),
-    id: idSchema.describe("The activity's or the stay's id, from get_day or get_bucket_list."),
+    target: z
+      .enum(["activity", "stay", "day"])
+      .describe(
+        "What the file belongs to: an activity (on a day or in the bucket list), a stay, or the day itself (the " +
+          "day's own picture, which replaces any picture it has).",
+      ),
+    id: idSchema.describe("The activity's or the stay's id, from get_day or get_bucket_list; for day, the day's id from get_trip or get_day."),
     fileName: z
       .string()
       .max(1000)
@@ -170,7 +203,10 @@ const attachInput = z
     as: z
       .enum(["document", "image"])
       .optional()
-      .describe("document (default): a ticket, booking or voucher, in the day packet; image: a photo in the entry's gallery."),
+      .describe(
+        "document (default for an activity or a stay): a ticket, booking or voucher, in the day packet; image: a " +
+          "photo in the entry's gallery. A day picture is always an image.",
+      ),
     contentBase64: z
       .string()
       .max(2_000_000)
@@ -326,10 +362,86 @@ const placementOf = (params: {
   };
 };
 
+/** Story 15.9. The disk name of a connector day picture: never the dialog's `day.<ext>` (see the header). */
+const dayPictureName = (mimeType: string) =>
+  `day-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${EXTENSIONS[mimeType]}`;
+
 const fileWriteErrorResult = (error: unknown, changed: string): CallToolResult => {
   if (error instanceof ChangedSinceReadError) return toolError(changed);
   if (error instanceof UnstorableReceiptError) return toolError(UNSTORABLE_RECEIPT);
   return writeErrorResult(error);
+};
+
+// ---------------------------------------------------------------------------------------------------------
+// The day's own picture (Story 15.9)
+
+/**
+ * `attach_file` for `target: "day"`, in the order the story fixes: the day (writer-scoped), the `as` check,
+ * the rate limit, the bytes, the sniff, the disk write, the transaction. The written file is removed again on
+ * any refusal or throw after it; a picture it replaces stays on disk for the undo.
+ */
+const attachDayPicture = async (caller: Caller, args: AttachArgs): Promise<CallToolResult> => {
+  const { userId, tripId } = caller;
+  const dayId = args.id;
+  if (!(await isPlannerDayOfTrip({ userId, tripId, tripDayId: dayId }))) return toolError(DAY_NOT_FOUND);
+  if (args.as === "document") return toolError(NOT_A_DAY_PICTURE);
+  if (!checkRateLimit(`mcp-upload:${userId}`, UPLOAD_RATE_LIMIT, UPLOAD_RATE_WINDOW_MS).ok) return toolError(UPLOAD_LIMIT);
+
+  const obtained = await obtainBytes(args, "image");
+  if ("refusal" in obtained) return toolError(obtained.refusal);
+  const { bytes } = obtained;
+  if (bytes.length === 0) return toolError(EMPTY_FILE);
+  const mimeType = sniffPhotoContentType(bytes);
+  if (!mimeType) return toolError(NOT_A_DAY_PICTURE);
+
+  const dir = getTripDayUploadDir(tripId, dayId);
+  const diskName = dayPictureName(mimeType);
+  const filePath = path.join(dir, diskName);
+  const change = recordChange(caller, "dayImageSet", dayId, subjectOf(diskName), { requireReceipt: true });
+  let written;
+  try {
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(filePath, bytes);
+    written = await setDayImageForConnector({
+      userId,
+      tripId,
+      dayId,
+      imageUrl: `/uploads/trips/${tripId}/days/${dayId}/${diskName}`,
+      inTransaction: change.hook,
+    });
+  } catch (error) {
+    // No row names the file, so it goes now or never; a failed removal must not mask the refusal.
+    await fs.rm(filePath, { force: true }).catch(() => undefined);
+    return fileWriteErrorResult(error, DAY_CHANGED_SINCE_READ);
+  }
+  if (!written) {
+    await fs.rm(filePath, { force: true }).catch(() => undefined);
+    return toolError(DAY_NOT_FOUND);
+  }
+
+  return toolResult({
+    aiChangeId: change.id(),
+    file: { id: dayId, fileName: diskName, media: "image", mimeType, sizeBytes: bytes.length, updatedAt: written.updatedAt.toISOString() },
+    day: await readDay(userId, tripId, dayId),
+  });
+};
+
+/**
+ * `delete_file` for the day picture: `imageUrl` becomes `null`, as the dialog's "Remove" does, but the file
+ * stays on disk for the undo (the dialog unlinks it at once, and has no undo).
+ */
+const removeDayPicture = async (caller: Caller, file: PlannerFileRow, expectedUpdatedAt: Date): Promise<CallToolResult> => {
+  const { userId, tripId } = caller;
+  const dayId = file.parentId;
+  const change = recordChange(caller, "dayImageRemoved", dayId, subjectOf(file.fileName), { requireReceipt: true });
+  let removed;
+  try {
+    removed = await setDayImageForConnector({ userId, tripId, dayId, imageUrl: null, expectedUpdatedAt, inTransaction: change.hook });
+  } catch (error) {
+    return fileWriteErrorResult(error, FILE_CHANGED);
+  }
+  if (!removed) return toolError(FILE_NOT_FOUND);
+  return toolResult({ aiChangeId: change.id(), deletedFileId: dayId, day: await readDay(userId, tripId, dayId) });
 };
 
 // ---------------------------------------------------------------------------------------------------------
@@ -341,8 +453,9 @@ export const registerFileTools = (server: McpServer) => {
     {
       title: "Read an attached file",
       description:
-        "Returns one document or image attached to an activity or a stay, by the id get_day or get_bucket_list " +
-        "gave it: its metadata (id, fileName, media document|image, target {type activity|stay, id}, mimeType " +
+        "Returns one document or image attached to an activity or a stay, or the day's own picture, by the id " +
+        "get_day or get_bucket_list gave it (the day picture's id is get_day's image.id): its metadata (id, " +
+        "fileName, media document|image, target {type activity|stay|day, id}, mimeType " +
         "judged from the content, sizeBytes, downloadUrl, an image's width and height, updatedAt, aiChangedAt, " +
         "available) and, up to 10 MB, the file " +
         "itself as an embedded resource. A larger file answers the metadata with a note; a file that is not on " +
@@ -373,7 +486,9 @@ export const registerFileTools = (server: McpServer) => {
         `PNG or WebP. An entry holds at most 10 documents; at most ${UPLOAD_RATE_LIMIT} uploads per hour. A document lands in ` +
         "the day's document packet and day email like one uploaded in the app. Returns aiChangeId, the file " +
         "(id, fileName, media, mimeType, sizeBytes, updatedAt) and the day as get_day shows it when the entry " +
-        "is on a day. The attach can be undone with undo_ai_change unless the entry is in the bucket list.",
+        "is on a day. The attach can be undone with undo_ai_change unless the entry is in the bucket list. " +
+        "With target day it sets the day's own picture (shown behind the day's title), replacing any picture " +
+        "the day has: an image only (JPEG, PNG or WebP), always undoable; the file id is the day's id.",
       inputSchema: attachInput,
       annotations: WRITE_TOOL_ANNOTATIONS,
     },
@@ -381,6 +496,7 @@ export const registerFileTools = (server: McpServer) => {
       runTool({ name: "attach_file", ctx, tripId: args.tripId }, async (userId, { clientId }) => {
         const caller = await startWrite(userId, args.tripId, clientId);
         if (!isCaller(caller)) return caller;
+        if (args.target === "day") return attachDayPicture(caller, args);
         const media = args.as ?? "document";
         const parent = await findFileParentForPlanner({
           userId,
@@ -465,7 +581,8 @@ export const registerFileTools = (server: McpServer) => {
     {
       title: "Delete an attached file",
       description:
-        "Deletes one document or image of an activity or a stay, by the id get_day or get_bucket_list gave it. " +
+        "Deletes one document or image of an activity or a stay, or the day's own picture, by the id get_day or " +
+        "get_bucket_list gave it (the day picture's id is get_day's image.id, its updatedAt the day's). " +
         "Pass the file's updatedAt exactly as read: if it changed since, nothing is deleted. Returns aiChangeId, " +
         "deletedFileId and the day as get_day shows it when the entry is on a day. The delete can be undone " +
         "with undo_ai_change for 14 days, unless the entry is in the bucket list (then the file is gone at once).",
@@ -478,6 +595,7 @@ export const registerFileTools = (server: McpServer) => {
         if (!isCaller(caller)) return caller;
         const file = await findFileForPlanner({ userId, tripId: args.tripId, fileId: args.fileId });
         if (!file) return toolError(FILE_NOT_FOUND);
+        if (file.target === "day") return removeDayPicture(caller, file, new Date(args.updatedAt));
         const change = recordChange(caller, "fileDeleted", file.tripDayId, subjectOf(file.fileName), {
           requireReceipt: file.tripDayId !== null,
         });

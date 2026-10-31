@@ -60,6 +60,16 @@ describe("selectDrawnTravelSegments", () => {
   it("returns no legs for a day without travelSegments", () => {
     expect(selectDrawnTravelSegments({ accommodation: null, dayPlanItems: [] }, null).drawnTravelSegments).toEqual([]);
   });
+
+  it("orders a repository Date createdAt the same as its ISO string (Story 15.10)", () => {
+    const stamped = (id: string, createdAt: string) => ({ id, sortOrder: 0, fromTime: null, createdAt });
+    const asStrings = [stamped("late", "2026-01-02T00:00:00.000Z"), stamped("early", "2026-01-01T00:00:00.000Z")];
+    const asDates = asStrings.map((entry) => ({ ...entry, createdAt: new Date(entry.createdAt) }));
+    const order = (dayPlanItems: readonly { id: string }[]) =>
+      selectDrawnTravelSegments({ accommodation: null, dayPlanItems }, null).orderedPlanItems.map((entry) => entry.id);
+    expect(order(asDates)).toEqual(["early", "late"]);
+    expect(order(asDates)).toEqual(order(asStrings));
+  });
 });
 
 describe("summarizeTripTravel", () => {

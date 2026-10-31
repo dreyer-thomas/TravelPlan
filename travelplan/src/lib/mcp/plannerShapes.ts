@@ -184,16 +184,37 @@ const toPreviousStay = (stay: PlannerDay["previousStay"]) => {
   };
 };
 
+/**
+ * Story 15.9. The day's own picture, named like an image file: its id is the day's id (a day has at most one
+ * picture and no media row), its `updatedAt` the day's. A blank stored URL is no picture.
+ */
+const toDayImage = (day: PlannerDay, links?: FileLinks) => {
+  if (!day.imageUrl?.trim()) return null;
+  const link = links?.get(day.id);
+  return {
+    id: day.id,
+    fileName: fileNameOfUrl(day.imageUrl),
+    downloadUrl: link?.downloadUrl ?? null,
+    width: link?.width ?? null,
+    height: link?.height ?? null,
+    updatedAt: day.updatedAt.toISOString(),
+  };
+};
+
 export const toPlannerDay = (day: PlannerDay, links?: FileLinks) => ({
   id: day.id,
   date: toDateKey(day.date),
   dayIndex: day.dayIndex,
+  note: day.note,
+  image: toDayImage(day, links),
   previousStay: toPreviousStay(day.previousStay),
   activities: day.items.map((item) => toActivity(item, item, { withTimes: true, links })),
   legs: day.legs.map(toLeg),
   stay: day.stay ? toStay(day.stay, links) : null,
   missingStay: day.missingStay,
   warnings: day.warnings.map(toWarning),
+  updatedAt: day.updatedAt.toISOString(),
+  aiChangedAt: toIsoOrNull(day.aiChangedAt),
 });
 
 /** `list_trips`: the caller has already dropped trips it may only view. */
@@ -218,6 +239,9 @@ export const toTripOverview = (trip: TripWithDays) => ({
     dayIndex: day.dayIndex,
     stay: day.accommodation ? { name: day.accommodation.name, status: day.accommodation.status } : null,
     missingStay: day.missingAccommodation,
+    // Story 15.9. Presence only; get_day reads the note and the picture.
+    hasNote: (day.note?.trim() ?? "") !== "",
+    hasImage: (day.imageUrl?.trim() ?? "") !== "",
     activityCount: day.dayPlanItems.length,
     warnings: day.planConflicts.map(toWarning),
   })),

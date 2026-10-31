@@ -43,6 +43,10 @@ const ACTION_KEYS = {
   // Story 15.7. The subject is the file's name.
   fileAttached: "trips.aiChanges.fileAttached",
   fileDeleted: "trips.aiChanges.fileDeleted",
+  // Story 15.9. The day's own note and picture.
+  dayNoteChanged: "trips.aiChanges.dayNoteChanged",
+  dayImageSet: "trips.aiChanges.dayImageSet",
+  dayImageRemoved: "trips.aiChanges.dayImageRemoved",
 } as const;
 
 const ROW_STATUS_KEYS = {

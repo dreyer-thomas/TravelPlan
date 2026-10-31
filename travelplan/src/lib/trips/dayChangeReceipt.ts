@@ -87,6 +87,13 @@
  * the deleted row in full (`previous`, the media row type matching `target` and `media`); its file stays on
  * disk for the undo, and the expiry sweep (`aiChangeRepo.ts`) removes it once the change has left the
  * 14-day window. Neither moves a row or removes a leg, so neither has a side effect for the day notice.
+ *
+ * Story 15.9 adds `dayDetailsChanged`, again additively and only ever stored server-side: the connector
+ * changed the day's own note or picture. The receipt's `tripDayId` is the day itself. `previous` is the
+ * note, picture and marker the day had before, which undo writes back; `imageUrl` is the picture the write
+ * left on the day (unchanged for a note write, `null` for a removal), whose file undo removes when it is not
+ * the previous one. A replaced or removed picture's file stays on disk for the undo, and the expiry sweep
+ * removes it later, as for `fileDeleted`. No side effect for the day notice.
  */
 
 import { formatMessage } from "@/i18n";
@@ -346,7 +353,16 @@ export type DayChangeEdited<T extends Date | string = Date> =
       updatedAt: T;
     }
   /** Story 15.7. A file row the connector deleted, in full; its file stayed on disk for the undo. */
-  | ({ kind: "fileDeleted" } & DeletedFileRow<T>);
+  | ({ kind: "fileDeleted" } & DeletedFileRow<T>)
+  /** Story 15.9. The connector changed the receipt's day's own note or picture. */
+  | {
+      kind: "dayDetailsChanged";
+      /** The day's post-write stamp; the undo is stale once it moved. */
+      updatedAt: T;
+      previous: { note: string | null; imageUrl: string | null; aiChangedAt: T | null };
+      /** The picture the write left on the day (`null`: the write removed it, or there was none). */
+      imageUrl: string | null;
+    };
 
 /**
  * Story 11.2. An activity the write moved: its times before the change, and its `updatedAt` before and
@@ -547,6 +563,16 @@ const mapReceipt = <A extends Date | string, B extends Date | string>(
     case "fileDeleted":
       edited = { kind: "fileDeleted", ...deletedFile(receipt.edited) };
       break;
+    case "dayDetailsChanged":
+      edited = {
+        ...receipt.edited,
+        updatedAt: convert(receipt.edited.updatedAt),
+        previous: {
+          ...receipt.edited.previous,
+          aiChangedAt: mapNullable(receipt.edited.previous.aiChangedAt, convert),
+        },
+      };
+      break;
     default: {
       const unhandled: never = receipt.edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
@@ -590,6 +616,7 @@ const movedTimes = <T extends Date | string>(row: MovedItemRow<T>) =>
  * Story 15.5: so does a connector day plan, which writes a whole day at once.
  * Story 15.7: a connector file attach or delete has none (it moves nothing and takes no leg); the stored
  * change lists it in the AI notice under its own label, and the summary below has no part for it.
+ * Story 15.9: nor does a change to the day's own note or picture, for the same reason.
  */
 export const receiptHasSideEffects = <T extends Date | string>(receipt: DayChangeReceipt<T>): boolean =>
   receipt.edited.kind === "reordered" ||

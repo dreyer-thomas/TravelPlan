@@ -1057,3 +1057,99 @@ describe("PATCH /api/trips/[id]/days/[dayId]/image", () => {
     });
   });
 });
+
+/**
+ * Story 15.9. The app's two day-image writes clear the day's KI/AI marker, and the upload also removes the
+ * previous picture when the connector set it (`day-<ms>-<rand>.<ext>`, which `removeExistingDayImageFiles`
+ * does not know), confined to the day's own folder. An upload over the app's own `day.<ext>` is unchanged.
+ */
+describe("the day image route and the connector's day picture (Story 15.9)", () => {
+  const uploadsRoot = getTripsUploadRoot();
+
+  beforeEach(async () => {
+    await prisma.tripMember.deleteMany();
+    await prisma.tripDay.deleteMany();
+    await prisma.trip.deleteMany();
+    await prisma.user.deleteMany();
+    await fs.rm(uploadsRoot, { recursive: true, force: true });
+  });
+
+  let seq = 0;
+  const seedMarkedDay = async (fileName: string) => {
+    seq += 1;
+    const user = await prisma.user.create({ data: { email: `day-marker-${seq}@example.com`, passwordHash: "hashed", role: "OWNER" } });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Marker Trip",
+      startDate: "2026-08-01T00:00:00.000Z",
+      endDate: "2026-08-01T00:00:00.000Z",
+    });
+    const day = await prisma.tripDay.findFirstOrThrow({ where: { tripId: trip.id } });
+    const dayDir = path.join(uploadsRoot, trip.id, "days", day.id);
+    const stayPhoto = path.join(dayDir, "accommodations", "stay-1", "img-stay.webp");
+    await fs.mkdir(path.dirname(stayPhoto), { recursive: true });
+    await fs.writeFile(stayPhoto, "stay-photo");
+    await fs.writeFile(path.join(dayDir, fileName), "previous-picture");
+    await prisma.tripDay.update({
+      where: { id: day.id },
+      data: { imageUrl: `/uploads/trips/${trip.id}/days/${day.id}/${fileName}`, aiChangedAt: new Date("2026-10-31T08:00:00.000Z") },
+    });
+    return { token, trip, day, dayDir, stayPhoto };
+  };
+
+  const upload = async (seeded: Awaited<ReturnType<typeof seedMarkedDay>>, name: string) =>
+    POST(
+      await buildUploadRequest({
+        tripId: seeded.trip.id,
+        dayId: seeded.day.id,
+        session: seeded.token,
+        csrf: "csrf-token",
+        file: new File([Buffer.from("new-picture")], name, { type: "image/jpeg" }),
+      }),
+      { params: Promise.resolve({ id: seeded.trip.id, dayId: seeded.day.id }) },
+    );
+
+  const dirFiles = async (dir: string) =>
+    (await fs.readdir(dir, { withFileTypes: true })).filter((entry) => entry.isFile()).map((entry) => entry.name).sort();
+
+  it("PATCH clears the marker and answers aiChangedAt null", async () => {
+    const seeded = await seedMarkedDay("day-1-abc.jpg");
+    const response = await PATCH(
+      buildJsonRequest({ tripId: seeded.trip.id, dayId: seeded.day.id, session: seeded.token, csrf: "csrf-token", body: { note: "Mine" } }),
+      { params: Promise.resolve({ id: seeded.trip.id, dayId: seeded.day.id }) },
+    );
+    const payload = (await response.json()) as ApiEnvelope<{ day: { aiChangedAt: string | null; note: string | null } }>;
+
+    expect(response.status).toBe(200);
+    expect(payload.data?.day).toMatchObject({ note: "Mine", aiChangedAt: null });
+    expect((await prisma.tripDay.findUniqueOrThrow({ where: { id: seeded.day.id } })).aiChangedAt).toBeNull();
+    // A note-only save keeps the connector's picture and its file.
+    expect(await dirFiles(seeded.dayDir)).toEqual(["day-1-abc.jpg"]);
+  });
+
+  it("POST over a connector picture clears the marker and removes that file, and nothing else", async () => {
+    const seeded = await seedMarkedDay("day-1-abc.jpg");
+    const response = await upload(seeded, "photo.jpg");
+    const payload = (await response.json()) as ApiEnvelope<{ day: { imageUrl: string; aiChangedAt: string | null } }>;
+
+    expect(response.status).toBe(200);
+    expect(payload.data?.day).toMatchObject({
+      imageUrl: `/uploads/trips/${seeded.trip.id}/days/${seeded.day.id}/day.jpg`,
+      aiChangedAt: null,
+    });
+    expect((await prisma.tripDay.findUniqueOrThrow({ where: { id: seeded.day.id } })).aiChangedAt).toBeNull();
+    expect(await dirFiles(seeded.dayDir)).toEqual(["day.jpg"]);
+    expect(await fs.readFile(seeded.stayPhoto, "utf8")).toBe("stay-photo");
+  });
+
+  it("POST over the app's own day.<ext> behaves as before", async () => {
+    const seeded = await seedMarkedDay("day.webp");
+    const response = await upload(seeded, "photo.jpg");
+
+    expect(response.status).toBe(200);
+    expect(await dirFiles(seeded.dayDir)).toEqual(["day.jpg"]);
+    expect(await fs.readFile(path.join(seeded.dayDir, "day.jpg"), "utf8")).toBe("new-picture");
+    expect(await fs.readFile(seeded.stayPhoto, "utf8")).toBe("stay-photo");
+  });
+});

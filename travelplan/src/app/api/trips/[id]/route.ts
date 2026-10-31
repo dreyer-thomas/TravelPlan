@@ -71,6 +71,8 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
           imageUrl: day.imageUrl,
           note: day.note,
           updatedAt: dayUpdatedAt.toISOString(),
+          // Story 15.9. The day's KI/AI marker, shown next to the hero title and in the day details.
+          aiChangedAt: day.aiChangedAt?.toISOString() ?? null,
           plannedCostSubtotal: day.plannedCostSubtotal,
           missingAccommodation: day.missingAccommodation,
           missingPlan: day.missingPlan,
@@ -229,6 +231,8 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
           imageUrl: day.imageUrl,
           note: day.note,
           updatedAt: dayUpdatedAt.toISOString(),
+          // Story 15.9. The day's KI/AI marker, shown next to the hero title and in the day details.
+          aiChangedAt: day.aiChangedAt?.toISOString() ?? null,
           plannedCostSubtotal: day.plannedCostSubtotal,
           missingAccommodation: day.missingAccommodation,
           missingPlan: day.missingPlan,

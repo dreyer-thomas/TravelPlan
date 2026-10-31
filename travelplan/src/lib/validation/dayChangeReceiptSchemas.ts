@@ -416,6 +416,23 @@ const editedSchema = z.discriminatedUnion("kind", [
     })
     .strict(),
   fileDeletedSchema,
+  // Story 15.9. The day's own note and picture. A day picture may be an external address (the dialog's
+  // `PATCH` accepts one), so the URLs are bounded text here; `dayPlanChangeRepo.ts` checks that a picture
+  // the undo would remove lies in the day's own upload directory.
+  z
+    .object({
+      kind: z.literal("dayDetailsChanged"),
+      updatedAt: isoDateSchema,
+      previous: z
+        .object({
+          note: nullableText(),
+          imageUrl: z.string().max(2000).nullable(),
+          aiChangedAt: nullableIsoDateSchema,
+        })
+        .strict(),
+      imageUrl: z.string().max(2000).nullable(),
+    })
+    .strict(),
 ]);
 
 /** Story 11.2. Times are stored text (an import may hold odd ones); the stamps are what undo compares. */

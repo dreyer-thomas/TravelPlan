@@ -38,6 +38,7 @@ import {
   type PhotoSource,
 } from "@/lib/trips/importPackage";
 import type { TransportType } from "@/lib/trips/transportTypes";
+import { aiChangedAtFor, type WriteOrigin } from "@/lib/trips/writeOrigin";
 import {
   acquireTripImportLock,
   discardStashedTripUploadDir,
@@ -170,6 +171,8 @@ export type TripDaySummary = {
   imageUrl: string | null;
   note: string | null;
   updatedAt: Date;
+  /** Story 15.9. The day's own KI/AI marker: a connector write changed its note or picture. */
+  aiChangedAt: Date | null;
   plannedCostSubtotal: number;
   missingAccommodation: boolean;
   missingPlan: boolean;
@@ -1229,8 +1232,9 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
       image_url: string | null;
       note: string | null;
       updated_at: Date | string;
+      ai_changed_at: Date | string | number | null;
     }[]
-  >(`SELECT "id", "image_url", "note", "updated_at" FROM "trip_days" WHERE "trip_id" = ?`, trip.id);
+  >(`SELECT "id", "image_url", "note", "updated_at", "ai_changed_at" FROM "trip_days" WHERE "trip_id" = ?`, trip.id);
   const dayMetaById = new Map(dayMetaRows.map((row) => [row.id, row]));
 
   const getVisibleAccommodationCost = (day: (typeof trip.days)[number]) => {
@@ -1290,6 +1294,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
         imageUrl: dayMeta?.image_url ?? day.imageUrl ?? null,
         note: dayMeta?.note ?? day.note ?? null,
         updatedAt: updatedAt instanceof Date ? updatedAt : new Date(updatedAt),
+        aiChangedAt: dayMeta ? toRawDate(dayMeta.ai_changed_at) : day.aiChangedAt,
         plannedCostSubtotal: getVisibleDayTotal(day),
         missingAccommodation: !hasAccommodation,
         missingPlan: day._count.dayPlanItems === 0,
@@ -1371,6 +1376,10 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
   };
 };
 
+/** A nullable `DATETIME` column as a raw query returns it (the adapter normally gives a `Date`). */
+const toRawDate = (value: Date | string | number | null): Date | null =>
+  value === null ? null : value instanceof Date ? value : new Date(value);
+
 /**
  * Updates a day's cover image and note, and reports the URL that was there before.
  *
@@ -1381,6 +1390,9 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
  * which is the parent of every stay and activity photo and document on that day. The lookup below
  * already runs before the `UPDATE`, so widening its `select` is the entire cost of giving the route
  * the one string it needs - no extra query.
+ *
+ * Story 15.9: `origin` is required (the Epic 15 rule). Any write to the note or picture sets
+ * `ai_changed_at` from it, so an app save clears the day's KI/AI marker.
  */
 export const updateTripDayImageForUser = async ({
   userId,
@@ -1388,12 +1400,14 @@ export const updateTripDayImageForUser = async ({
   dayId,
   imageUrl,
   note,
+  origin,
 }: {
   userId: string;
   tripId: string;
   dayId: string;
   imageUrl?: string | null;
   note?: string | null;
+  origin: WriteOrigin;
 }) => {
   const day = await prisma.tripDay.findFirst({
     where: {
@@ -1419,7 +1433,7 @@ export const updateTripDayImageForUser = async ({
   const previousImageUrl = day.imageUrl;
 
   const setClauses: string[] = [];
-  const setValues: Array<string | null> = [];
+  const setValues: Array<string | Date | null> = [];
 
   if (imageUrl !== undefined) {
     setClauses.push(`"image_url" = ?`);
@@ -1431,6 +1445,8 @@ export const updateTripDayImageForUser = async ({
   }
 
   if (setClauses.length > 0) {
+    setClauses.push(`"ai_changed_at" = ?`);
+    setValues.push(aiChangedAtFor(origin, new Date()));
     setClauses.push(`"updated_at" = CURRENT_TIMESTAMP`);
     await prisma.$executeRawUnsafe(
       `UPDATE "trip_days" SET ${setClauses.join(", ")} WHERE "id" = ?`,
@@ -1446,8 +1462,12 @@ export const updateTripDayImageForUser = async ({
       image_url: string | null;
       note: string | null;
       updated_at: Date | string;
+      ai_changed_at: Date | string | number | null;
     }[]
-  >(`SELECT "id", "trip_id", "image_url", "note", "updated_at" FROM "trip_days" WHERE "id" = ? LIMIT 1`, day.id);
+  >(
+    `SELECT "id", "trip_id", "image_url", "note", "updated_at", "ai_changed_at" FROM "trip_days" WHERE "id" = ? LIMIT 1`,
+    day.id,
+  );
 
   const row = rows[0];
   if (!row) {
@@ -1461,6 +1481,7 @@ export const updateTripDayImageForUser = async ({
     previousImageUrl,
     note: row.note,
     updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+    aiChangedAt: toRawDate(row.ai_changed_at),
   };
 };
 

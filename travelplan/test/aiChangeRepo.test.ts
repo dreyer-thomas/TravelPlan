@@ -13,7 +13,7 @@ import {
 import { createParkedDayPlanItem } from "@/lib/repositories/bucketListRepo";
 import { createDayPlanItemForTripDay, updateDayPlanItemForTripDay } from "@/lib/repositories/dayPlanItemRepo";
 import { toDayChangeReceiptWire, type DayChangeReceipt } from "@/lib/trips/dayChangeReceipt";
-import { getDayPlanItemDocumentUploadDir, resolveStoredMediaPath } from "@/lib/trips/uploadPaths";
+import { getDayPlanItemDocumentUploadDir, getTripDayUploadDir, resolveStoredMediaPath } from "@/lib/trips/uploadPaths";
 import type { InTransactionHook } from "@/lib/trips/writeOrigin";
 
 /**
@@ -429,5 +429,92 @@ describe("the expiry of files kept for a fileDeleted undo (Story 15.7)", () => {
     // The two youngest (15 and 16 days) wait for the next call.
     expect(left).toEqual([kept[0].change.id, kept[1].change.id].sort());
     expect(await sweepExpiredFileDeletions()).toBe(2);
+  });
+});
+
+describe("the expiry of day pictures kept for a dayDetailsChanged undo (Story 15.9)", () => {
+  const exists = (url: string) =>
+    fs
+      .stat(resolveStoredMediaPath(url))
+      .then(() => true)
+      .catch(() => false);
+
+  /** A day picture the connector replaced `ageDays` ago: the old file kept on disk, the day on the new one. */
+  const seedKeptDayPicture = async (seeded: Seeded, ageDays: number, action: "dayImageSet" | "dayImageRemoved") => {
+    const dir = getTripDayUploadDir(seeded.trip.id, seeded.day.id);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, "day.jpg"), "kept picture");
+    await fs.writeFile(path.join(dir, `day-${ageDays}-new.jpg`), "new picture");
+    const keptUrl = `/uploads/trips/${seeded.trip.id}/days/${seeded.day.id}/day.jpg`;
+    const newUrl = action === "dayImageSet" ? `/uploads/trips/${seeded.trip.id}/days/${seeded.day.id}/day-${ageDays}-new.jpg` : null;
+    await prisma.tripDay.update({ where: { id: seeded.day.id }, data: { imageUrl: newUrl } });
+    const createdAt = new Date(Date.now() - ageDays * DAY_MS);
+    const receipt: DayChangeReceipt = {
+      version: 3,
+      tripDayId: seeded.day.id,
+      edited: {
+        kind: "dayDetailsChanged",
+        updatedAt: createdAt,
+        previous: { note: null, imageUrl: keptUrl, aiChangedAt: null },
+        imageUrl: newUrl,
+      },
+      removedTravelSegments: [],
+      movedItems: [],
+    };
+    const change = await prisma.aiChange.create({
+      data: {
+        tripId: seeded.trip.id,
+        tripDayId: seeded.day.id,
+        userId: seeded.user.id,
+        clientId: CLIENT_ID,
+        action,
+        subject: "day.jpg",
+        receiptJson: JSON.stringify(toDayChangeReceiptWire(receipt)),
+        createdAt,
+      },
+    });
+    return { keptUrl, newUrl, change };
+  };
+
+  it("unlinks a replaced or removed day picture once its change leaves the window, and keeps a fresh one", async () => {
+    const replaced = await seedKeptDayPicture(await seedTrip(), 15, "dayImageSet");
+    const removed = await seedKeptDayPicture(await seedTrip(), 16, "dayImageRemoved");
+    const fresh = await seedKeptDayPicture(await seedTrip(), 3, "dayImageRemoved");
+
+    expect(await sweepExpiredFileDeletions()).toBe(2);
+
+    expect(await exists(replaced.keptUrl)).toBe(false);
+    expect(await exists(replaced.newUrl!)).toBe(true);
+    expect(await exists(removed.keptUrl)).toBe(false);
+    expect(await exists(fresh.keptUrl)).toBe(true);
+    expect((await prisma.aiChange.findMany({ select: { id: true } })).map((row) => row.id)).toEqual([fresh.change.id]);
+  });
+
+  it("keeps the file when a day points at that picture again (the app reuses day.<ext>)", async () => {
+    const seeded = await seedTrip();
+    const kept = await seedKeptDayPicture(seeded, 15, "dayImageRemoved");
+    await prisma.tripDay.update({ where: { id: seeded.day.id }, data: { imageUrl: kept.keptUrl } });
+
+    expect(await sweepExpiredFileDeletions()).toBe(1);
+    expect(await exists(kept.keptUrl)).toBe(true);
+  });
+
+  it("keeps the file while a newer change on the day still keeps the same day.<ext> for its undo", async () => {
+    const seeded = await seedTrip();
+    const older = await seedKeptDayPicture(seeded, 15, "dayImageSet");
+    const newer = await seedKeptDayPicture(seeded, 3, "dayImageSet");
+    expect(newer.keptUrl).toBe(older.keptUrl);
+
+    expect(await sweepExpiredFileDeletions()).toBe(1);
+    expect(await exists(older.keptUrl)).toBe(true);
+    expect((await prisma.aiChange.findMany({ select: { id: true } })).map((row) => row.id)).toEqual([newer.change.id]);
+  });
+
+  it("keeps a kept day picture's change out of the insert's retention delete, so only the sweep removes it", async () => {
+    const seeded = await seedTrip();
+    const kept = await seedKeptDayPicture(seeded, 15, "dayImageSet");
+    await createByAi(seeded, "Later");
+
+    expect(await prisma.aiChange.count({ where: { id: kept.change.id } })).toBe(1);
   });
 });

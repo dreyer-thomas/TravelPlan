@@ -123,6 +123,11 @@ export type PlannerDay = {
   stay: PlannerStay | null;
   missingStay: boolean;
   warnings: DayPlanConflict[];
+  /** Story 15.9. The day's own note and picture (as stored), its stamp and its KI/AI marker. */
+  note: string | null;
+  imageUrl: string | null;
+  updatedAt: Date;
+  aiChangedAt: Date | null;
 };
 
 /** `null`: no trip this user may plan. `{ day: null }`: the trip, but no such day in it. */
@@ -184,6 +189,12 @@ export const getPlannerDayForUser = async (params: {
     const day = await tx.tripDay.findFirst({
       where: { id: target.id, tripId: trip.id },
       select: {
+        // Story 15.9. Read through Prisma, not raw SQL: Prisma reads the app's second-precision
+        // `CURRENT_TIMESTAMP` text as UTC, so the stamp the model gets back compares equal in `update_day`.
+        note: true,
+        imageUrl: true,
+        updatedAt: true,
+        aiChangedAt: true,
         dayPlanItems: {
           orderBy: { createdAt: "asc" },
           select: {
@@ -312,6 +323,10 @@ export const getPlannerDayForUser = async (params: {
           : null,
         missingStay: stay === null,
         warnings,
+        note: day.note,
+        imageUrl: day.imageUrl,
+        updatedAt: day.updatedAt,
+        aiChangedAt: day.aiChangedAt,
       },
     };
   });
@@ -584,11 +599,14 @@ export const findLegForPlanner = async (params: {
  * file tools only (never handed to the model). An image has no name of its own, so `fileName` is its URL's
  * last segment, as `get_day` shows it. `null` when there is no such file on a trip this user may plan; the
  * caller has already answered the trip itself.
+ *
+ * Story 15.9: or the day's own picture, whose id is the day's id (`target: "day"`, `parentId` and `tripDayId`
+ * the day, no title). A day with no picture, or a blank stored URL, has no such file.
  */
 export type PlannerFileRow = {
   id: string;
   media: "document" | "image";
-  target: "activity" | "stay";
+  target: "activity" | "stay" | "day";
   parentId: string;
   parentTitle: string | null;
   tripDayId: string | null;
@@ -609,8 +627,8 @@ export const findFileForPlanner = async (params: {
   const stamps = { id: true, updatedAt: true, aiChangedAt: true } as const;
   const item = { select: { id: true, title: true, tripDayId: true } } as const;
   const stay = { select: { id: true, name: true, tripDayId: true } } as const;
-  // Ids are cuids, unique across tables in practice; the four reads are one indexed lookup each.
-  const [itemDocument, itemImage, stayDocument, stayImage] = await Promise.all([
+  // Ids are cuids, unique across tables in practice; the five reads are one indexed lookup each.
+  const [itemDocument, itemImage, stayDocument, stayImage, dayPicture] = await Promise.all([
     prisma.dayPlanItemDocument.findFirst({
       where: { id: fileId, dayPlanItem: itemWhere },
       select: { ...stamps, documentUrl: true, fileName: true, dayPlanItem: item },
@@ -626,6 +644,11 @@ export const findFileForPlanner = async (params: {
     prisma.accommodationImage.findFirst({
       where: { id: fileId, accommodation: stayWhere },
       select: { ...stamps, imageUrl: true, accommodation: stay },
+    }),
+    // Story 15.9. The day's own picture.
+    prisma.tripDay.findFirst({
+      where: { id: fileId, tripId, trip: writerTripWhere(userId, tripId), imageUrl: { not: null } },
+      select: { ...stamps, imageUrl: true },
     }),
   ]);
   const base = (row: { id: string; updatedAt: Date; aiChangedAt: Date | null }) => ({
@@ -685,6 +708,18 @@ export const findFileForPlanner = async (params: {
       fileName: fileNameOfUrl(stayImage.imageUrl),
     };
   }
+  if (dayPicture?.imageUrl?.trim()) {
+    return {
+      ...base(dayPicture),
+      media: "image",
+      target: "day",
+      parentId: dayPicture.id,
+      parentTitle: null,
+      tripDayId: dayPicture.id,
+      url: dayPicture.imageUrl,
+      fileName: fileNameOfUrl(dayPicture.imageUrl),
+    };
+  }
   return null;
 };
 
@@ -704,7 +739,7 @@ export type SignedLinkFileRow = {
 export const findFileForSignedLink = async (fileId: string): Promise<SignedLinkFileRow | null> => {
   const item = { select: { tripId: true } } as const;
   const stay = { select: { tripDay: { select: { tripId: true } } } } as const;
-  const [itemDocument, itemImage, stayDocument, stayImage] = await Promise.all([
+  const [itemDocument, itemImage, stayDocument, stayImage, dayPicture] = await Promise.all([
     prisma.dayPlanItemDocument.findUnique({
       where: { id: fileId },
       select: { id: true, documentUrl: true, fileName: true, dayPlanItem: item },
@@ -715,6 +750,8 @@ export const findFileForSignedLink = async (fileId: string): Promise<SignedLinkF
       select: { id: true, documentUrl: true, fileName: true, accommodation: stay },
     }),
     prisma.accommodationImage.findUnique({ where: { id: fileId }, select: { id: true, imageUrl: true, accommodation: stay } }),
+    // Story 15.9. The day's own picture, whose file id is the day's id.
+    prisma.tripDay.findUnique({ where: { id: fileId }, select: { id: true, tripId: true, imageUrl: true } }),
   ]);
   if (itemDocument) {
     const { id, documentUrl, fileName, dayPlanItem } = itemDocument;
@@ -731,6 +768,10 @@ export const findFileForSignedLink = async (fileId: string): Promise<SignedLinkF
   if (stayImage) {
     const { id, imageUrl, accommodation } = stayImage;
     return { id, tripId: accommodation.tripDay.tripId, media: "image", url: imageUrl, fileName: fileNameOfUrl(imageUrl) };
+  }
+  if (dayPicture?.imageUrl?.trim()) {
+    const { id, tripId, imageUrl } = dayPicture;
+    return { id, tripId, media: "image", url: imageUrl, fileName: fileNameOfUrl(imageUrl) };
   }
   return null;
 };

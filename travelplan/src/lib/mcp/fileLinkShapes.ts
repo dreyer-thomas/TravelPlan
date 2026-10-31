@@ -81,9 +81,17 @@ export const buildFileLinks = async (tripId: string, media: PlannerMedia[]): Pro
   return links;
 };
 
-/** `toPlannerDay` with the day's activity and stay files linked. */
-export const toLinkedPlannerDay = async (tripId: string, day: PlannerDay) =>
-  toPlannerDay(day, await buildFileLinks(tripId, [...day.items, ...(day.stay ? [day.stay] : [])]));
+/**
+ * `toPlannerDay` with the day's activity and stay files linked. Story 15.9: and the day's own picture, keyed
+ * by the day's id, in the same pass (so `readImageSizes` caches it like any other image).
+ */
+export const toLinkedPlannerDay = async (tripId: string, day: PlannerDay) => {
+  const dayPicture: PlannerMedia = {
+    documents: [],
+    images: day.imageUrl?.trim() ? [{ id: day.id, imageUrl: day.imageUrl, updatedAt: day.updatedAt }] : [],
+  };
+  return toPlannerDay(day, await buildFileLinks(tripId, [...day.items, ...(day.stay ? [day.stay] : []), dayPicture]));
+};
 
 /** `toBucketActivity` for each parked activity, with every file linked in one pass. */
 export const toLinkedBucketActivities = async (

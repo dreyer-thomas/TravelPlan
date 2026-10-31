@@ -89,6 +89,10 @@ describe("plannerShapes (Story 15.2)", () => {
       stay: null,
       missingStay: true,
       warnings: [],
+      note: null,
+      imageUrl: null,
+      updatedAt: new Date("2027-05-01T08:00:00.000Z"),
+      aiChangedAt: null,
     };
     const previousStayOf = (checkOutTime: string | null) =>
       toPlannerDay({ ...day, previousStay: { id: "s", name: "Inn", checkOutTime } }).previousStay;

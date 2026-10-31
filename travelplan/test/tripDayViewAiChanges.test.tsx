@@ -78,7 +78,11 @@ const planItem = (id: string, title: string, sortOrder: number, aiChangedAt: str
   aiChangedAt,
 });
 
-const tripDetail = (accessRole: "owner" | "contributor" | "viewer", travelSegments: unknown[] = []) => ({
+const tripDetail = (
+  accessRole: "owner" | "contributor" | "viewer",
+  travelSegments: unknown[] = [],
+  dayMeta: Record<string, unknown> = {},
+) => ({
   trip: {
     id: "trip-1",
     name: "Trip",
@@ -112,6 +116,7 @@ const tripDetail = (accessRole: "owner" | "contributor" | "viewer", travelSegmen
       },
       dayPlanItems: [planItem("item-1", "Louvre", 0, "2026-10-29T08:00:00.000Z"), planItem("item-2", "Orsay", 1, null)],
       travelSegments,
+      ...dayMeta,
     },
   ],
 });
@@ -132,6 +137,8 @@ const stubDay = (
     undo?: () => { status: number; body: unknown };
     /** Story 15.6. The day's legs. */
     travelSegments?: unknown[];
+    /** Story 15.9. The day's own note, picture and KI/AI marker. */
+    dayMeta?: Record<string, unknown>;
   } = {},
 ) => {
   const calls = { list: 0, detail: 0, bucket: 0 };
@@ -141,6 +148,21 @@ const stubDay = (
 
     if (url.includes("/day-plan-items") && method === "DELETE") {
       return mockFetchResponse({ data: { deleted: true, removedTravelSegmentIds: [], receipt: null }, error: null });
+    }
+    if (url.includes("/days/day-1/image") && method === "PATCH") {
+      const body = JSON.parse(String(init?.body)) as { note?: string | null };
+      return mockFetchResponse({
+        data: {
+          day: {
+            id: "day-1",
+            imageUrl: null,
+            note: body.note ?? null,
+            updatedAt: "2026-10-31T12:00:00.000Z",
+            aiChangedAt: null,
+          },
+        },
+        error: null,
+      });
     }
     if (url.includes("/ai-changes/") && method === "POST") {
       const outcome = options.undo?.() ?? { status: 200, body: { data: { undone: true }, error: null } };
@@ -164,7 +186,10 @@ const stubDay = (
       });
     }
     calls.detail += 1;
-    return mockFetchResponse({ data: tripDetail(options.accessRole ?? "owner", options.travelSegments), error: null });
+    return mockFetchResponse({
+      data: tripDetail(options.accessRole ?? "owner", options.travelSegments, options.dayMeta),
+      error: null,
+    });
   });
   stubFetch(fetchMock);
   return { fetchMock, calls };
@@ -539,5 +564,46 @@ describe("AI provenance on legs and the stay and leg notices (Story 15.6)", () =
     await userEvent.click(within(notice).getByRole("button", { name: dictionary["trips.aiChanges.expand"] }));
     const rows = within(notice).getAllByTestId("ai-change-row");
     labels.forEach((label, index) => expect(rows[index]).toHaveTextContent(label));
+  });
+});
+
+describe("The day's own KI/AI marker (Story 15.9)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("badges the hero title and the day details dialog, and drops the badge once an app save returns", async () => {
+    stubDay({ dayMeta: { note: "Harbour walk", aiChangedAt: "2026-10-31T08:00:00.000Z" } });
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    // Beside the heading, not inside it: the heading's name is still "Day 1: note".
+    const heading = await screen.findByRole("heading", { name: "Day 1: Harbour walk", level: 5 });
+    const titleLine = heading.parentElement!;
+    expect(within(titleLine).getByTestId("ai-badge")).toBeInTheDocument();
+    expect(within(heading).queryByTestId("ai-badge")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: en["trips.dayView.moreActions"] }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: en["trips.dayImage.editAction"] }));
+    const dialog = await screen.findByRole("dialog", { name: en["trips.dayImage.dialogTitle"] });
+    expect(within(dialog).getByTestId("ai-badge")).toBeInTheDocument();
+
+    const note = within(dialog).getByRole("textbox", { name: en["trips.dayImage.noteLabel"] });
+    await userEvent.clear(note);
+    await userEvent.type(note, "Harbour walk, then dinner");
+    await userEvent.click(within(dialog).getByRole("button", { name: en["trips.dayImage.saveAction"] }));
+
+    await screen.findByRole("heading", { name: "Day 1: Harbour walk, then dinner", level: 5 });
+    await waitFor(() => expect(screen.queryAllByTestId("ai-badge")).toHaveLength(2));
+    // The two left are the activity card's and the stay card's (Story 15.4), not the day's.
+    const heroHeading = screen.getByRole("heading", { name: "Day 1: Harbour walk, then dinner", level: 5 });
+    expect(within(heroHeading.parentElement!).queryByTestId("ai-badge")).not.toBeInTheDocument();
+  });
+
+  it("shows no day badge without the marker", async () => {
+    stubDay({ dayMeta: { note: "Harbour walk", aiChangedAt: null } });
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    const heading = await screen.findByRole("heading", { name: "Day 1: Harbour walk", level: 5 });
+    expect(within(heading.parentElement!).queryByTestId("ai-badge")).not.toBeInTheDocument();
   });
 });

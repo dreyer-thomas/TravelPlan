@@ -164,6 +164,8 @@ describe("whoami", () => {
       "get_trip",
       "get_day",
       "get_bucket_list",
+      // Story 15.10.
+      "get_trip_route",
       // Story 15.4.
       "create_activity",
       "update_activity",
@@ -186,6 +188,8 @@ describe("whoami", () => {
       "get_file",
       "attach_file",
       "delete_file",
+      // Story 15.9.
+      "update_day",
     ]);
 
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);

@@ -22,12 +22,15 @@ import {
   type TransportType,
 } from "@/lib/trips/transportTypes";
 
-/** The fields of an activity the day's order is decided by. All optional, as on the wire. */
+/**
+ * The fields of an activity the day's order is decided by. All optional, as on the wire. `createdAt` is a
+ * `Date` on repository rows (Story 15.10 passes `TripWithDays` days straight in) and a string on the wire.
+ */
 type OrderablePlanItem = {
   id: string;
   sortOrder?: number;
   fromTime?: string | null;
-  createdAt?: string;
+  createdAt?: Date | string;
 };
 
 /** The fields of a day the drawn set is decided by, typed structurally so callers keep their own types. */

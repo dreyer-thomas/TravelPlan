@@ -14,7 +14,7 @@ import {
 } from "@/lib/trips/dayChangeReceipt";
 import { runDayChangeUndo } from "@/lib/trips/dayChangeUndo";
 import { removeManagedMediaFile } from "@/lib/trips/mediaCleanup";
-import { isExternalMediaUrl } from "@/lib/trips/uploadPaths";
+import { getTripDayUploadDir, isExternalMediaUrl } from "@/lib/trips/uploadPaths";
 import { storedDayChangeReceiptSchema } from "@/lib/validation/dayChangeReceiptSchemas";
 
 /**
@@ -47,6 +47,10 @@ export const AI_CHANGE_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
  * <to>", the endpoints' titles or names, "?" when untitled, capped at 120 code points).
  *
  * Story 15.7 adds `fileAttached` and `fileDeleted` (`subject`: the file's name, capped at 120 code points).
+ *
+ * Story 15.9 adds the day's own note and picture: `dayNoteChanged` (`subject`: the new note, or the previous
+ * one when cleared), `dayImageSet` and `dayImageRemoved` (`subject`: the picture's file name), each capped
+ * at 120 code points.
  */
 export type AiChangeAction =
   | "created"
@@ -64,7 +68,10 @@ export type AiChangeAction =
   | "legUpdated"
   | "legDeleted"
   | "fileAttached"
-  | "fileDeleted";
+  | "fileDeleted"
+  | "dayNoteChanged"
+  | "dayImageSet"
+  | "dayImageRemoved";
 
 export type AiChangeEntry = {
   id: string;
@@ -89,8 +96,13 @@ export type AiChangeUndoResult =
 
 const retentionCutoff = (now: Date) => new Date(now.getTime() - AI_CHANGE_RETENTION_MS);
 
-/** Story 15.7. A `fileDeleted` change whose undo may still need its kept file: only the sweep removes it. */
-const keptFileWhere = { action: "fileDeleted", undoneAt: null, receiptJson: { not: null } };
+/**
+ * Story 15.7. A `fileDeleted` change whose undo may still need its kept file: only the sweep removes it.
+ * Story 15.9: so may a day picture the connector replaced or removed. A `dayImageSet` over a day without a
+ * picture keeps nothing; the sweep simply finds no file to remove.
+ */
+const KEPT_FILE_ACTIONS: AiChangeAction[] = ["fileDeleted", "dayImageSet", "dayImageRemoved"];
+const keptFileWhere = { action: { in: KEPT_FILE_ACTIONS }, undoneAt: null, receiptJson: { not: null } };
 
 const entrySelect = {
   id: true,
@@ -274,20 +286,24 @@ const parseStoredReceipt = (receiptJson: string): DayChangeReceipt | null => {
   return parsed.success ? fromDayChangeReceiptWire(parsed.data) : null;
 };
 
-/** Story 15.7. Whether any of the four media tables names this stored URL (again). */
+/**
+ * Story 15.7. Whether any of the four media tables names this stored URL (again). Story 15.9: or any day's
+ * picture, which matters because the app's own `day.<ext>` name is reused by every later app upload.
+ */
 const mediaRowNamesUrl = async (url: string) => {
   const counts = await Promise.all([
     prisma.dayPlanItemDocument.count({ where: { documentUrl: url } }),
     prisma.dayPlanItemImage.count({ where: { imageUrl: url } }),
     prisma.accommodationDocument.count({ where: { documentUrl: url } }),
     prisma.accommodationImage.count({ where: { imageUrl: url } }),
+    prisma.tripDay.count({ where: { imageUrl: url } }),
   ]);
   return counts.some((count) => count > 0);
 };
 
 /**
  * Story 15.7. The housekeeping the retention delete leaves out: every `fileDeleted` change past retention
- * that was never undone. Each row is deleted first (conditional on still being not undone), and only then
+ * that was never undone (Story 15.9: and every replaced or removed day picture's). Each row is deleted first (conditional on still being not undone), and only then
  * its kept file unlinked, so a crash in between leaves an orphaned file, never a row whose file is gone.
  * A file a media row names again (an import or a copy reusing the URL) is kept; each unlink is confined to
  * the parent's own folder, as the undo's is. Returns how many rows it removed. Failures to unlink are
@@ -298,6 +314,40 @@ const mediaRowNamesUrl = async (url: string) => {
  * and logged with the change id, because the row is the only record of where its kept file is.
  */
 const SWEEP_BATCH = 25;
+
+/**
+ * Story 15.9. Whether another day picture change still in the window keeps this URL for its undo. The app
+ * writes every upload to the same `day.<ext>`, so two connector replaces around an app upload both keep it.
+ */
+const pendingDayChangeKeepsUrl = async (tripDayId: string, url: string) => {
+  const rows = await prisma.aiChange.findMany({
+    where: { ...keptFileWhere, tripDayId, action: { in: ["dayImageSet", "dayImageRemoved"] } },
+    select: { receiptJson: true },
+  });
+  return rows.some((row) => {
+    const receipt = row.receiptJson === null ? null : parseStoredReceipt(row.receiptJson);
+    return receipt?.edited.kind === "dayDetailsChanged" && receipt.edited.previous.imageUrl === url;
+  });
+};
+
+/**
+ * Story 15.9. The day picture a `dayDetailsChanged` replaced or removed: the previous one, when it is a stored
+ * file and not the picture the write left. Kept while any day or media row names it, or another pending day
+ * picture change keeps it; the unlink is confined to the receipt's day's own upload folder.
+ */
+const removeKeptDayPicture = async (tripId: string, receipt: DayChangeReceipt) => {
+  const { edited } = receipt;
+  if (edited.kind !== "dayDetailsChanged") return;
+  const storedUrl = edited.previous.imageUrl;
+  if (storedUrl === null || storedUrl === edited.imageUrl || isExternalMediaUrl(storedUrl)) return;
+  if (await mediaRowNamesUrl(storedUrl)) return;
+  if (await pendingDayChangeKeepsUrl(receipt.tripDayId, storedUrl)) return;
+  await removeManagedMediaFile({
+    storedUrl,
+    allowedDir: getTripDayUploadDir(tripId, receipt.tripDayId),
+    context: "ai-changes sweep",
+  });
+};
 
 export const sweepExpiredFileDeletions = async (now: Date = new Date()): Promise<number> => {
   const rows = await prisma.aiChange.findMany({
@@ -312,6 +362,10 @@ export const sweepExpiredFileDeletions = async (now: Date = new Date()): Promise
     const deleted = await prisma.aiChange.deleteMany({ where: { id: row.id, undoneAt: null } });
     if (deleted.count !== 1) continue;
     removed += 1;
+    if (receipt?.edited.kind === "dayDetailsChanged") {
+      await removeKeptDayPicture(row.tripId, receipt);
+      continue;
+    }
     if (!receipt || receipt.edited.kind !== "fileDeleted") {
       console.error("ai-changes sweep: kept file's receipt no longer reads; file left on disk", {
         tripId: row.tripId,

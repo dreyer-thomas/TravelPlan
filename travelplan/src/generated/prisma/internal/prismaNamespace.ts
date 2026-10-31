@@ -1794,7 +1794,8 @@ export const TripDayScalarFieldEnum = {
   imageUrl: 'imageUrl',
   note: 'note',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  aiChangedAt: 'aiChangedAt'
 } as const
 
 export type TripDayScalarFieldEnum = (typeof TripDayScalarFieldEnum)[keyof typeof TripDayScalarFieldEnum]

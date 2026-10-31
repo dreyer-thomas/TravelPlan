@@ -159,6 +159,9 @@ model TripDay {
   note      String?  @map("note")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+  // Story 15.9. Set when a connector write (origin "ai") changed the day's note or picture, cleared when
+  // an app write changed either. Not exported in backups.
+  aiChangedAt DateTime? @map("ai_changed_at")
 
   trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
   accommodation Accommodation?

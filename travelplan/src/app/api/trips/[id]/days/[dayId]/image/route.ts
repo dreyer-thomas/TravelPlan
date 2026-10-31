@@ -154,6 +154,7 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     dayId,
     imageUrl,
     note: normalizedNote,
+    origin: "user",
   });
 
   if (!updated) {
@@ -172,12 +173,24 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
     return fail(apiError("not_found", "Trip day not found"), 404);
   }
 
+  // Story 15.9. `removeExistingDayImageFiles` above only knows `day.<ext>`; a picture the connector set
+  // is named `day-<ms>-<rand>.<ext>` (so its undo can bring the replaced one back), and without this it
+  // would be orphaned by every app upload over it. The same rule `PATCH` applies below.
+  if (updated.previousImageUrl && !storedMediaUrlsNameSameFile(updated.previousImageUrl, updated.imageUrl)) {
+    await removeManagedMediaFile({
+      storedUrl: updated.previousImageUrl,
+      allowedDir: uploadDir,
+      context: "day image upload",
+    });
+  }
+
   return ok({
     day: {
       id: updated.id,
       imageUrl: updated.imageUrl,
       note: updated.note,
       updatedAt: updated.updatedAt.toISOString(),
+      aiChangedAt: updated.aiChangedAt?.toISOString() ?? null,
     },
   });
 };
@@ -227,6 +240,7 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
       dayId,
       imageUrl: parsed.data.imageUrl,
       note: parsed.data.note === undefined ? undefined : (parsed.data.note?.trim() || null),
+      origin: "user",
     });
 
     if (!updated) {
@@ -270,6 +284,7 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
         imageUrl: updated.imageUrl,
         note: updated.note,
         updatedAt: updated.updatedAt.toISOString(),
+        aiChangedAt: updated.aiChangedAt?.toISOString() ?? null,
       },
     });
   } catch {

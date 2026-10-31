@@ -1816,6 +1816,7 @@ describe("tripRepo", () => {
       dayId: day.id,
       imageUrl: "/uploads/trips/day/day-update.webp",
       note: "Flight from FRA to SIN",
+      origin: "user",
     });
 
     expect(updated).not.toBeNull();
@@ -1851,6 +1852,7 @@ describe("tripRepo", () => {
       dayId: day.id,
       imageUrl: null,
       note: null,
+      origin: "user",
     });
 
     expect(removed).not.toBeNull();
@@ -1887,6 +1889,7 @@ describe("tripRepo", () => {
       tripId: trip.id,
       dayId: day.id,
       imageUrl: "/uploads/trips/day/blocked.webp",
+      origin: "user",
     });
 
     expect(updated).toBeNull();
@@ -1930,6 +1933,7 @@ describe("tripRepo", () => {
       dayId: day.id,
       imageUrl: "/uploads/trips/day/contributor.webp",
       note: "Contributor note",
+      origin: "user",
     });
     expect(byContributor).not.toBeNull();
     expect(byContributor?.imageUrl).toBe("/uploads/trips/day/contributor.webp");
@@ -1941,6 +1945,7 @@ describe("tripRepo", () => {
       dayId: day.id,
       imageUrl: "/uploads/trips/day/viewer.webp",
       note: "Viewer note",
+      origin: "user",
     });
     expect(byViewer).toBeNull();
 

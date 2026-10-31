@@ -1086,3 +1086,80 @@ describe("dayChangeReceipt, file kinds (Story 15.7)", () => {
     }
   });
 });
+
+describe("dayChangeReceipt, dayDetailsChanged (Story 15.9)", () => {
+  const tripId = "trip-9";
+  const dayId = "day-9";
+  const dayDir = `/uploads/trips/${tripId}/days/${dayId}`;
+
+  const changed = (imageUrl: string | null, previousImageUrl: string | null): DayChangeReceipt => ({
+    version: 3,
+    tripDayId: dayId,
+    edited: {
+      kind: "dayDetailsChanged",
+      updatedAt: at("2026-10-31T12:00:00.123Z"),
+      previous: { note: "Before", imageUrl: previousImageUrl, aiChangedAt: at("2026-10-30T08:00:00.456Z") },
+      imageUrl,
+    },
+    removedTravelSegments: [],
+    movedItems: [],
+  });
+
+  const replaced = changed(`${dayDir}/day-1-abc.jpg`, `${dayDir}/day.jpg`);
+  const noteOnly = changed("https://images.example/day.jpg", "https://images.example/day.jpg");
+  const removed = changed(null, `${dayDir}/day-1-abc.jpg`);
+
+  it("round-trips through the wire form millisecond for millisecond, and both schemas accept it", () => {
+    for (const receipt of [replaced, noteOnly, removed, changed(`${dayDir}/day-2-def.png`, null)]) {
+      const wire = toDayChangeReceiptWire(receipt);
+      expect(storedDayChangeReceiptSchema.safeParse(wire).success).toBe(true);
+      expect(dayChangeReceiptSchema.safeParse({ ...wire, signature: "a".repeat(64) }).success).toBe(true);
+      expect(fromDayChangeReceiptWire(storedDayChangeReceiptSchema.parse(wire))).toEqual(receipt);
+    }
+  });
+
+  it("refuses an unknown key, a missing marker and an overlong URL", () => {
+    const wire = toDayChangeReceiptWire(replaced);
+    if (wire.edited.kind !== "dayDetailsChanged") throw new Error("fixture");
+    const parse = (edited: unknown) => storedDayChangeReceiptSchema.safeParse({ ...wire, edited }).success;
+    expect(parse({ ...wire.edited, extra: 1 })).toBe(false);
+    const { aiChangedAt: _marker, ...withoutMarker } = wire.edited.previous;
+    void _marker;
+    expect(parse({ ...wire.edited, previous: withoutMarker })).toBe(false);
+    expect(parse({ ...wire.edited, imageUrl: `${dayDir}/${"x".repeat(2000)}.jpg` })).toBe(false);
+  });
+
+  it("is valid for a replace, a removal and a note write over an external picture", () => {
+    expect(findInvalidity(replaced, tripId)).toBeNull();
+    expect(findInvalidity(removed, tripId)).toBeNull();
+    expect(findInvalidity(noteOnly, tripId)).toBeNull();
+  });
+
+  it("is invalid with a side effect, a picture the undo would remove outside the day's folder, or a previous one in another trip", () => {
+    expect(findInvalidity({ ...replaced, movedItems: [moved("item-2")] }, tripId)).toBe("side effect a day save never has");
+    expect(findInvalidity({ ...replaced, removedTravelSegments: [{ ...leg("l1"), tripDayId: dayId }] }, tripId)).toBe(
+      "side effect a day save never has",
+    );
+    // In another day's folder, nested under a stay, traversing out, or an external address: never the undo's to remove.
+    for (const url of [
+      `/uploads/trips/${tripId}/days/other-day/day-1.jpg`,
+      `${dayDir}/accommodations/stay-1/img-1.jpg`,
+      `${dayDir}/../../../other/days/${dayId}/day-1.jpg`,
+      "https://images.example/new.jpg",
+    ]) {
+      expect(findInvalidity(changed(url, `${dayDir}/day.jpg`), tripId), url).toBe("day picture outside the day");
+    }
+    expect(findInvalidity(changed(`${dayDir}/day-1.jpg`, "/uploads/trips/other-trip/days/d/day.jpg"), tripId)).toBe(
+      "day picture outside the trip",
+    );
+  });
+
+  it("has no side effect and no summary part, and the notice's day keys are in both dictionaries", () => {
+    expect(receiptHasSideEffects(replaced)).toBe(false);
+    expect(summarizeDayChangeReceipt(replaced, (key) => en[key as keyof typeof en] ?? key)).toBe("");
+    for (const key of ["trips.aiChanges.dayNoteChanged", "trips.aiChanges.dayImageSet", "trips.aiChanges.dayImageRemoved"]) {
+      expect(de[key as keyof typeof de], key).toContain("{title}");
+      expect(en[key as keyof typeof en], key).toContain("{title}");
+    }
+  });
+});

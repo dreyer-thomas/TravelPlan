@@ -4161,3 +4161,47 @@ severity: low
 summary: The default Nginx access log stores the full request URI, `sig` included, so anyone who can read the logs holds working links to tickets and passports until `exp`. The deploy docs say to pass `/f/` but not to log it without the query.
 evidence: Exposure is bounded by the TTL (900 s default) and log access is root-only on the host. A `log_format` without `$args` for `location /f/` would remove it.
 status: open
+
+## Deferred from: code review of 15-9-the-days-own-note-and-picture (2026-10-31)
+
+### DW-428: App's second-precision day stamp hides same-second saves from the connector
+
+source_spec: `_bmad-output/implementation-artifacts/15-9-the-days-own-note-and-picture.md`
+origin: bmad-code-review of 15-9, 2026-10-31
+location: `travelplan/src/lib/repositories/tripRepo.ts` (raw day `UPDATE`), `travelplan/src/lib/repositories/connectorDayRepo.ts`
+severity: medium
+summary: The app's day route writes `trip_days.updated_at = CURRENT_TIMESTAMP`, which has second precision. Two app saves in the same second share one stamp, so a model that read between them passes `update_day`'s or the picture delete's stale check and overwrites the second save.
+evidence: Story 15.9 D4 records this as a known property and puts changing the app's raw `UPDATE` out of scope. The new test suite backdates stamps to work around it. A millisecond stamp in the raw `UPDATE` (or a Prisma update) would close it.
+status: open
+
+### DW-429: App's raw read of `trip_days.updated_at` is off by the UTC offset
+
+source_spec: `_bmad-output/implementation-artifacts/15-9-the-days-own-note-and-picture.md`
+origin: bmad-code-review of 15-9, 2026-10-31
+location: `travelplan/src/lib/repositories/tripRepo.ts` (`getTripWithDaysForUser`)
+severity: low
+summary: The raw `$queryRawUnsafe` read parses the app's second-precision `CURRENT_TIMESTAMP` text as local time, an hour off on a CET machine. Prisma's typed read gets it right.
+evidence: The 15.9 dev probe found it. It is harmless today because the app uses the value only to cache-bust the picture URL, but any comparison against it would be wrong.
+status: open
+
+### DW-430: Day-picture "still used" checks compare URLs exactly
+
+source_spec: `_bmad-output/implementation-artifacts/15-9-the-days-own-note-and-picture.md`
+origin: bmad-code-review of 15-9, 2026-10-31
+location: `travelplan/src/lib/repositories/aiChangeRepo.ts` (`mediaRowNamesUrl`), `travelplan/src/lib/repositories/dayPlanChangeRepo.ts` (undo `removedFiles`), `travelplan/src/app/api/trips/[id]/days/[dayId]/image/route.ts` (POST previous-file cleanup)
+severity: low
+summary: Before unlinking a day picture, these paths check for other users of the file by exact string match. A day naming the same stored file under another spelling (`PATCH` accepts any `/uploads/…`), or a second day that shares the URL, can lose its picture.
+evidence: The pattern is the same as the 15.7 media-row check, and `PATCH` already unlinks immediately without such a check. It is only reachable through hand-crafted `PATCH` URLs. Comparing with `storedMediaUrlsNameSameFile` across the trip's rows would close it.
+status: open
+
+## Deferred from: code review of 15-10-the-trip-route-at-a-glance (2026-10-31)
+
+### DW-431: Duplicate dayIndex rows give the route and the overview a different "last night" than get_day
+
+source_spec: `_bmad-output/implementation-artifacts/15-10-the-trip-route-at-a-glance.md`
+origin: bmad-code-review of 15-10, 2026-10-31
+location: `travelplan/src/lib/mcp/routeShapes.ts` (`toTripRoute`, `days[index - 1]`), `travelplan/src/lib/trips/tripTravelSummary.ts` (`summarizeTripTravel`, same convention)
+severity: low
+summary: `trip_days` has no unique `(trip_id, day_index)`. If two rows share a dayIndex, the array-neighbour convention takes the sibling as the previous day, while `getTripWithDaysForUser`'s previousStay loop picks the nearest lower dayIndex. Route path, drawn-leg selection and the overview totals then disagree with `get_day`.
+evidence: The route deliberately follows `summarizeTripTravel` (AC 5), so the route and the overview stay consistent with each other; the divergence is pre-existing in the overview. Normal trip creation never produces duplicate indices. Fixing it means changing the shared convention in `tripTravelSummary.ts` (or adding the unique constraint), not this story.
+status: open

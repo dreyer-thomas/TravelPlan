@@ -14,9 +14,10 @@ const globalForPrisma = globalThis as unknown as {
  * member exists rejects `role: "ADMIN"` in its own validation layer, before any SQL is sent - so the
  * tag is what forces the rebuild here, not the field probe.
  *
- * Bumped again by Story 15.1 for the connector tables (new models; the field probe covers them too).
+ * Bumped again by Story 15.1 for the connector tables (new models; the field probe covers them too),
+ * and by Story 15.9 for `TripDay.aiChangedAt`.
  */
-const PRISMA_SCHEMA_TAG = "2026-10-29-oauth-connector";
+const PRISMA_SCHEMA_TAG = "2026-10-31-trip-day-ai-marker";
 
 const getDatabaseUrl = () => {
   const url = process.env.DATABASE_URL;
@@ -52,12 +53,15 @@ const cachedClientMatchesCurrentSchema = (client: PrismaClient | undefined) => {
   const tripMemberFields = runtimeModel?.models?.TripMember?.fields ?? [];
   // Story 15.1: a client generated before the connector tables has no `OAuthToken` model at all.
   const oauthTokenFields = runtimeModel?.models?.OAuthToken?.fields ?? [];
+  // Story 15.9: the day's own KI/AI marker.
+  const tripDayFields = runtimeModel?.models?.TripDay?.fields ?? [];
 
   return (
     costPaymentFields.some((field) => field.name === "sortOrder") &&
     userFields.some((field) => field.name === "mustChangePassword") &&
     tripMemberFields.some((field) => field.name === "role") &&
-    oauthTokenFields.some((field) => field.name === "familyId")
+    oauthTokenFields.some((field) => field.name === "familyId") &&
+    tripDayFields.some((field) => field.name === "aiChangedAt")
   );
 };
 

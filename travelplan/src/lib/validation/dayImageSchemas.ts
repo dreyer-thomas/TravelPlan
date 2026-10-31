@@ -12,7 +12,8 @@ const imageUrlSchema = z
     { message: "Image URL must be a valid URL" },
   );
 
-const dayNoteSchema = z.string().trim().max(280, "Day note must be at most 280 characters");
+/** Story 15.9: exported so the connector's `update_day` holds the note to the dialog's own rule. */
+export const dayNoteSchema = z.string().trim().max(280, "Day note must be at most 280 characters");
 
 export const dayImageUpdateSchema = z.object({
   /**

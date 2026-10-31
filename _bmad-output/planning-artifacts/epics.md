@@ -4658,6 +4658,8 @@ Users who plan a trip connect their AI assistant to TravelPlan once, sign in, an
 
 **Rulings (Tommy, 2026-10-29):** only people who may edit a trip (owner, contributor) reach it through the connector, and view-only trips are invisible; full control over trip content; no trip creation, renaming, re-dating, budget, deletion or member changes; marker "KI" (de) / "AI" (en), gone once a person changes the entry; connector changes undoable like UI edits; documents downloadable and uploadable, inline and by URL; Epic 12 unchanged. See `sprint-change-proposal-2026-10-29-mcp.md`.
 
+**Rulings (Tommy, 2026-10-31):** the day's note and picture are writable through the connector (15.9); the trip's hero picture stays out. A compact trip route read connects stops, not roads (15.10). See `sprint-change-proposal-2026-10-31-connector-day-and-route.md`.
+
 **Shared rules for every tool in this epic:**
 - Tools call the existing repositories and services (`dayPlanItemRepo`, accommodation, travel-segment, document and image repositories, `scheduleDay`, park/schedule), never Prisma directly, so FR42/FR43/FR46-FR48 and FR41 hold exactly as in the app.
 - Every call re-checks access per trip with `getTripAccessForUser` + `canTripAccessRoleWrite`; a trip the user cannot write answers *not found*, never *forbidden* (no existence leak).
@@ -4973,3 +4975,87 @@ So that the client can fetch the files over HTTPS like any other file instead of
 **Then** a `downloadUrl` from `get_day` downloads with plain `curl`, without cookies or token, as an image at most 1600 px wide without EXIF, and answers 403 once expired
 
 **Out of scope:** `caption` and `isCover` per image (deferred); permanent public URLs.
+
+### Story 15.9: The Day's Own Note and Picture
+
+*Added 2026-10-31 (Tommy), from user requests. Reverses, for the day picture, the "day image" line in the Out of scope of Stories 15.6 and 15.7.*
+
+As someone planning with Claude,
+I want Claude to read and change the day's own note and picture,
+So that a day Claude planned also has its one-line summary and its picture without me opening the day details.
+
+**FRs covered:** FR53, FR54, FR56 (day note and day picture, amended 2026-10-31), FR57
+
+**Depends on:** Stories 15.4, 15.7, 15.8.
+
+**Acceptance Criteria:**
+
+**Given** `get_day`
+**Then** it also returns the day's `note` (or null) and its `image` (or null) with `downloadUrl` (`w=1600`), `width` and `height` as in 15.8, and the day's `updatedAt`
+**And** `get_trip` returns per day whether it has a note and a picture (`hasNote`, `hasImage`), not their content
+
+**Given** `update_day(tripId, dayId, note, updatedAt)`
+**Then** it sets the note (trimmed, at most 280 characters, empty or null clears it) under the same validation as the Tagesdetails dialog
+**And** a stale `updatedAt` answers "Day changed since you read it; read the day again" and writes nothing
+**And** it changes nothing else on the day, and in particular never touches the day picture
+
+**Given** `attach_file(target: "day", id: dayId, …)` with `contentBase64` or `url`
+**Then** only JPEG, PNG or WebP is accepted, decided by content; a PDF answers that day pictures must be images
+**And** the 15.7 limits and the URL download rules (https only, public addresses after DNS and on every redirect, at most 3 redirects, 15 s, no credentials) apply unchanged
+**And** the picture goes through the same processing and the same storage path as an upload in the Tagesdetails dialog
+**And** if the day already has a picture, it is replaced; the old file is kept for undo (DW-187 rule) and never deleted while the day still points at it (Story 8.4)
+
+**Given** `delete_file` with the day picture's id
+**Then** it removes the picture as the dialog does, kept for undo
+
+**Given** every write here
+**Then** it follows the 15.4 rules: one `ai_changes` entry tied to the day, undoable from the app and through `undo_ai_change` unless the day changed since, *not found* for trips the user cannot write
+**And** `trip_days.ai_changed_at` is set by a connector write and cleared by an app write to the note or picture, and the Tagesdetails section of the day view shows the KI/AI marker while it is set **[default; FR57]**
+**And** the change is listed in the day view's AI-changes notice like any other
+
+**Given** the test suite
+**Then** it covers reading note and picture, setting and clearing the note, a stale `updatedAt`, a first picture, a replaced picture with undo restoring the old one, a PDF refused, a picture removed and undone, the marker set and cleared, and a view-only trip answering *not found*
+
+**Given** the production server
+**When** deployed (Tommy, manual)
+**Then** a day picture set by Claude from a URL appears in the day view with the KI badge, and undo in the app brings back the previous picture
+
+**Out of scope:** the trip's hero picture (trip-level, R7 spirit) **[default]**; several pictures per day; changing the day's date.
+
+### Story 15.10: The Trip Route at a Glance
+
+*Added 2026-10-31 (Tommy), from a request by a connected Claude client.*
+
+As an AI client looking at a whole trip (to draw its map or judge each day's travel),
+I want one compact read of where each day goes and how,
+So that I do not have to read every day in full and fill my context with texts, costs and files.
+
+**FRs covered:** FR53 (no new FR; a compact read of data already covered)
+
+**Depends on:** Story 15.2.
+
+**Acceptance Criteria:**
+
+**Given** `get_trip_route(tripId)`, read-only
+**Then** it returns per day in order: `date` (YYYY-MM-DD), `dayIndex`, `stay` (`name`, `lat`, `lng`, or null if there is no stay or it has no position)
+**And** `legs`: per transport mode present that day (`car`, `ship`, `flight`, `train`, `bus`, `walking`, `cycling`; lower case as in 15.2) the `count`, the sum of `distanceKm` (null if no leg of that mode has one) and the sum of `durationMinutes`
+**And** `path`: the day's stops in plan order (last night's stay → activities that have a place → tonight's stay) as sections `{ mode, points: [[lat, lng], …] }`, where a section's mode is the leg drawn between those stops, or null where no leg is drawn
+**And** stops without a position are skipped and counted per day in `missingPositions`
+
+**Given** the legs counted
+**Then** only drawn legs count (the same `selectDrawnTravelSegments` rule as FR50 and 15.2), so the per-mode totals summed over the trip match the trip overview's planned distance
+
+**Given** the answer
+**Then** it contains no texts (no titles, descriptions or notes), no costs, no links, no images and no documents; coordinates are rounded to 5 decimals
+**And** it makes no call to any routing service; the description tells the model the path connects stops in straight lines, not along roads
+
+**Given** a trip of 60 days with 10 stops per day
+**Then** the answer stays below 60 KB and the tool answers from the database in one read pass (no query per day) **[default]**
+
+**Given** every call
+**Then** it follows the shared rules (access check, *not found* for trips the user cannot write, rate limit, logging)
+
+**Given** the test suite
+**Then** it covers an empty trip, a day without stay, a ferry day giving a `ship` section, an undrawn leg left out of the totals, a stop without position, trip totals equal to `summarizeTripTravel`, and no text fields in the answer
+
+**Out of scope:** road geometry (option C, a future story if needed); live routing; elevation.

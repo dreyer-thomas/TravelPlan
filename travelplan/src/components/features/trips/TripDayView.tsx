@@ -332,6 +332,8 @@ type TripDay = {
   imageUrl?: string | null;
   note?: string | null;
   updatedAt?: string;
+  /** Story 15.9. The day's KI/AI marker: a connector write changed its note or picture. */
+  aiChangedAt?: string | null;
   plannedCostSubtotal: number;
   missingAccommodation: boolean;
   missingPlan: boolean;
@@ -3105,12 +3107,20 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
   );
 
   const updateLocalDayMeta = useCallback(
-    (payload: { imageUrl: string | null; note: string | null; updatedAt?: string }) => {
+    // Story 15.9: `aiChangedAt` is the app write's answer (always `null`), so the KI/AI marker goes away
+    // as soon as the save returns, without a reload.
+    (payload: { imageUrl: string | null; note: string | null; updatedAt?: string; aiChangedAt: string | null }) => {
       if (!day) return;
 
       setDay((current) =>
         current
-          ? { ...current, imageUrl: payload.imageUrl, note: payload.note, updatedAt: payload.updatedAt ?? current.updatedAt }
+          ? {
+              ...current,
+              imageUrl: payload.imageUrl,
+              note: payload.note,
+              updatedAt: payload.updatedAt ?? current.updatedAt,
+              aiChangedAt: payload.aiChangedAt,
+            }
           : current,
       );
       setDetail((current) => {
@@ -3119,7 +3129,13 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
           ...current,
           days: current.days.map((entry) =>
             entry.id === day.id
-              ? { ...entry, imageUrl: payload.imageUrl, note: payload.note, updatedAt: payload.updatedAt ?? entry.updatedAt }
+              ? {
+                  ...entry,
+                  imageUrl: payload.imageUrl,
+                  note: payload.note,
+                  updatedAt: payload.updatedAt ?? entry.updatedAt,
+                  aiChangedAt: payload.aiChangedAt,
+                }
               : entry,
           ),
         };
@@ -3160,7 +3176,7 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
         });
 
         const uploadBody = (await uploadResponse.json()) as ApiEnvelope<{
-          day: { id: string; imageUrl: string | null; note: string | null; updatedAt: string };
+          day: { id: string; imageUrl: string | null; note: string | null; updatedAt: string; aiChangedAt?: string | null };
         }>;
         if (!uploadResponse.ok || uploadBody.error || !uploadBody.data?.day) {
           // Story 5.13 routed the three day-image writes through `resolveApiError`, so that `forbidden` -
@@ -3185,6 +3201,7 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
           imageUrl: uploadBody.data.day.imageUrl,
           note: uploadBody.data.day.note,
           updatedAt: uploadBody.data.day.updatedAt,
+          aiChangedAt: uploadBody.data.day.aiChangedAt ?? null,
         });
         setDayImageFile(null);
         setDayNoteDraft(uploadBody.data.day.note ?? "");
@@ -3213,7 +3230,7 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
       });
 
       const body = (await response.json()) as ApiEnvelope<{
-        day: { id: string; imageUrl: string | null; note: string | null; updatedAt: string };
+        day: { id: string; imageUrl: string | null; note: string | null; updatedAt: string; aiChangedAt?: string | null };
       }>;
       if (!response.ok || body.error || !body.data?.day) {
         setError(
@@ -3225,7 +3242,12 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
         return;
       }
 
-      updateLocalDayMeta({ imageUrl: body.data.day.imageUrl, note: body.data.day.note, updatedAt: body.data.day.updatedAt });
+      updateLocalDayMeta({
+        imageUrl: body.data.day.imageUrl,
+        note: body.data.day.note,
+        updatedAt: body.data.day.updatedAt,
+        aiChangedAt: body.data.day.aiChangedAt ?? null,
+      });
       setDayImageFile(null);
       setDayNoteDraft(body.data.day.note ?? "");
       setDayMetaOpen(false);
@@ -3256,7 +3278,7 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
       });
 
       const body = (await response.json()) as ApiEnvelope<{
-        day: { id: string; imageUrl: string | null; note: string | null; updatedAt: string };
+        day: { id: string; imageUrl: string | null; note: string | null; updatedAt: string; aiChangedAt?: string | null };
       }>;
       if (!response.ok || body.error || !body.data?.day) {
         setError(
@@ -3268,7 +3290,12 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
         return;
       }
 
-      updateLocalDayMeta({ imageUrl: null, note: body.data.day.note, updatedAt: body.data.day.updatedAt });
+      updateLocalDayMeta({
+        imageUrl: null,
+        note: body.data.day.note,
+        updatedAt: body.data.day.updatedAt,
+        aiChangedAt: body.data.day.aiChangedAt ?? null,
+      });
       setDayImageFile(null);
       setDayNoteDraft(body.data.day.note ?? "");
     } catch {
@@ -3979,14 +4006,25 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                 }}
               >
                 {/* component="h5" is not optional: custom typography variants carry no variantMapping,
-                    so without it this renders as a <span> and the page loses its only heading. */}
+                    so without it this renders as a <span> and the page loses its only heading.
+
+                    Story 15.9. The day's KI/AI marker follows the `h5` on its last line, beside it and never
+                    inside it, so the heading's name stays "Day N: note"; the heading flows inline only while
+                    the pill is there, so a day without it lays out exactly as before. The pill is opaque, so
+                    it reads on any photo. */}
                 <Typography
                   variant="display"
                   component="h5"
-                  sx={{ color: "#FFFFFF", textShadow: "0 2px 14px rgba(0,0,0,.35)", overflowWrap: "anywhere" }}
+                  sx={{
+                    color: "#FFFFFF",
+                    textShadow: "0 2px 14px rgba(0,0,0,.35)",
+                    overflowWrap: "anywhere",
+                    ...(day?.aiChangedAt ? { display: "inline" } : {}),
+                  }}
                 >
                   {dayTitle}
                 </Typography>
+                {day?.aiChangedAt ? <AiBadge sx={{ ml: 1, verticalAlign: "text-bottom" }} /> : null}
                 {heroDate ? (
                   <Typography sx={{ color: "rgba(255,255,255,.92)", fontSize: 13, fontWeight: 600, mt: 0.75 }}>
                     {heroDate}
@@ -5200,6 +5238,7 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
             open={dayMetaOpen}
             onClose={dayMetaGuard.requestClose}
             title={t("trips.dayImage.dialogTitle")}
+            titleAdornment={day?.aiChangedAt ? <AiBadge /> : undefined}
             width={460}
             // Save and Remove are disabled while `dayImageSaving`; the dismissal gestures follow.
             disableDismiss={dayImageSaving}

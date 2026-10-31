@@ -27,9 +27,11 @@ import type {
 } from "@/lib/trips/dayChangeReceipt";
 import { buildDrawnDaySegmentPairKeys } from "@/lib/trips/daySegmentPairs";
 import { MAX_DOCUMENTS_PER_ENTRY } from "@/lib/trips/documentUploads";
+import { storedMediaUrlsNameSameFile } from "@/lib/trips/mediaCleanup";
 import {
   getAccommodationDocumentUploadDir,
   getAccommodationImageUploadDir,
+  getTripDayUploadDir,
   getTripUploadDir,
   isExternalMediaUrl,
   mediaPathIsInside,
@@ -138,6 +140,12 @@ import {
  * on disk (an external image URL has no file to check); phase 2 recreates the row with its id, stamps,
  * marker and name, at its old place in the order when that is free and after the last one otherwise.
  * Neither moves a row or takes a leg, so a receipt listing one is a forgery.
+ *
+ * Story 15.9 adds `dayDetailsChanged`, the connector's change to the day's own note or picture. Phase 1
+ * refuses when the day carries a new stamp or another picture, or when the picture it would bring back is
+ * no longer on disk; the picture the write left (when it is not the previous one) is named in
+ * `removedFiles`, confined to the day's own upload folder. Phase 2 writes the previous note, picture and
+ * marker back, conditional on the stamp. It moves no row and takes no leg.
  *
  * Any failure throws `UndoStaleError`, which rolls the transaction back and maps to `stale`. A `P2002`
  * while recreating a row maps there too: someone drew a new leg for the same pair, or reused the id.
@@ -321,6 +329,35 @@ const fileInvalidity = (receipt: DayChangeReceipt, tripId: string): string | nul
   return null;
 };
 
+/** Story 15.9. Two day pictures are the same one: the same address, or two spellings of the same stored file. */
+const sameDayPicture = (left: string | null, right: string | null) =>
+  left === right || storedMediaUrlsNameSameFile(left, right);
+
+/** Story 15.9. A stored day picture that sits directly in the day's own upload folder (the 8.4 rule). */
+const isInDayUploadDir = (storedUrl: string, tripId: string, tripDayId: string) =>
+  !isExternalMediaUrl(storedUrl) &&
+  path.dirname(path.resolve(resolveStoredMediaPath(storedUrl))) === path.resolve(getTripDayUploadDir(tripId, tripDayId));
+
+/**
+ * Story 15.9. `dayDetailsChanged` against the receipt's trip. It moves no row and takes no leg. The picture
+ * the write left is one the undo removes when it differs from the previous one, so it must sit in the day's
+ * own folder; the previous one is brought back, so it is none, an external address or inside this trip.
+ */
+const dayDetailsInvalidity = (receipt: DayChangeReceipt, tripId: string): string | null => {
+  const { edited } = receipt;
+  if (edited.kind !== "dayDetailsChanged") return null;
+  if (receipt.removedTravelSegments.length > 0 || receipt.movedItems.length > 0) return "side effect a day save never has";
+  const { imageUrl } = edited;
+  const previousImageUrl = edited.previous.imageUrl;
+  if (imageUrl !== null && !sameDayPicture(imageUrl, previousImageUrl) && !isInDayUploadDir(imageUrl, tripId, receipt.tripDayId)) {
+    return "day picture outside the day";
+  }
+  if (previousImageUrl !== null && !isExternalMediaUrl(previousImageUrl) && !isInsideTripUploadTree(previousImageUrl, tripId)) {
+    return "day picture outside the trip";
+  }
+  return null;
+};
+
 /**
  * The ownership half of AC12; the shape half is `dayChangeReceiptSchemas.ts`. Exported for Story 15.5: a
  * write that must keep its undo checks its receipt here before it commits.
@@ -431,6 +468,11 @@ export const findInvalidity = (receipt: DayChangeReceipt, tripId: string): strin
 
   if (edited.kind === "fileAttached" || edited.kind === "fileDeleted") {
     const invalidity = fileInvalidity(receipt, tripId);
+    if (invalidity) return invalidity;
+  }
+
+  if (edited.kind === "dayDetailsChanged") {
+    const invalidity = dayDetailsInvalidity(receipt, tripId);
     if (invalidity) return invalidity;
   }
 
@@ -993,6 +1035,26 @@ const undoInTransaction = async (
     case "fileDeleted":
       await checkFileDeletedInTransaction(tx, tripId, edited);
       break;
+    case "dayDetailsChanged": {
+      const day = await tx.tripDay.findFirst({ where: { id: tripDayId, tripId }, select: { updatedAt: true, imageUrl: true } });
+      if (!day || !sameInstant(day.updatedAt, edited.updatedAt)) throw new UndoStaleError("day changed");
+      if (day.imageUrl !== edited.imageUrl) throw new UndoStaleError("day picture changed");
+      const previousImageUrl = edited.previous.imageUrl;
+      if (sameDayPicture(day.imageUrl, previousImageUrl)) break;
+      // The picture the undo brings back: its file was kept for this, and must still be there.
+      if (previousImageUrl !== null && !isExternalMediaUrl(previousImageUrl)) {
+        const onDisk = await fs
+          .stat(resolveStoredMediaPath(previousImageUrl))
+          .then((stat) => stat.isFile())
+          .catch(() => false);
+        if (!onDisk) throw new UndoStaleError("kept day picture missing");
+      }
+      // The picture the undo takes away, removed after the commit (findInvalidity placed it in the day's folder).
+      if (day.imageUrl !== null && !isExternalMediaUrl(day.imageUrl)) {
+        removedFiles.push({ storedUrl: day.imageUrl, allowedDir: getTripDayUploadDir(tripId, tripDayId) });
+      }
+      break;
+    }
     default: {
       const unhandled: never = edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);
@@ -1181,6 +1243,14 @@ const undoInTransaction = async (
     case "fileDeleted":
       await recreateDeletedFileInTransaction(tx, edited);
       break;
+    case "dayDetailsChanged": {
+      const restored = await tx.tripDay.updateMany({
+        where: { id: tripDayId, tripId, updatedAt: edited.updatedAt },
+        data: { note: edited.previous.note, imageUrl: edited.previous.imageUrl, aiChangedAt: edited.previous.aiChangedAt },
+      });
+      if (restored.count !== 1) throw new UndoStaleError("day changed");
+      break;
+    }
     default: {
       const unhandled: never = edited;
       throw new Error(`Unhandled receipt kind: ${String(unhandled)}`);

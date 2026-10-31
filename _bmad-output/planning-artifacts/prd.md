@@ -61,6 +61,8 @@ editHistory:
     changes: 'Added FR51 (send a day''s plan and document packet to the signed-in user''s own email address). Amended the Integration Requirements line on email. See Sprint Change Proposal 2026-10-21 (Day by Email).'
   - date: '2026-10-29'
     changes: 'Added FR52-FR57 (connect an AI assistant through an MCP connector with OAuth sign-in; it reads and writes the trips the user may plan; changes are marked KI/AI and can be undone in the app) and NFR5 (connector tokens). Added an Integration Requirements line and a GDPR note. See Sprint Change Proposal 2026-10-29 (MCP Connector).'
+  - date: '2026-10-31'
+    changes: 'Amended FR53, FR54, FR56 (day note and day picture through the connector). Stories 15.9, 15.10. See Sprint Change Proposal 2026-10-31 (Connector: Day and Route).'
 ---
 
 # Product Requirements Document - TravelPlan
@@ -320,10 +322,10 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 ### Planning with an AI Assistant (Connector)
 
 - FR52: Users can connect an AI assistant to their account by adding TravelPlan as a connector in the assistant, signing in to TravelPlan and confirming the connection. Users can see their connected assistants and revoke each one. **(Added 2026-10-29 — see Sprint Change Proposal 2026-10-29, MCP Connector)**
-- FR53: A connected assistant can read every trip on which the user may plan (owner or contributor): its days, activities with times, durations and places, stays, travel legs, the bucket list, costs, links, documents and images. Trips the user may only view are not visible to it. **(Added 2026-10-29)**
-- FR54: A connected assistant can create, change, delete, reorder, park and schedule activities, and create, change and delete stays, travel legs, costs and links, on those trips, under the same rules as the app (FR42, FR43, FR46-FR48, FR41). It cannot create, rename, re-date or delete a trip, change its budget, or manage its members. **(Added 2026-10-29)**
+- FR53: A connected assistant can read every trip on which the user may plan (owner or contributor): its days (with each day's note and picture), activities with times, durations and places, stays, travel legs, the bucket list, costs, links, documents and images. Trips the user may only view are not visible to it. **(Added 2026-10-29; amended 2026-10-31 — day note and picture, Story 15.9)**
+- FR54: A connected assistant can create, change, delete, reorder, park and schedule activities, create, change and delete stays, travel legs, costs and links, and change each day's note, on those trips, under the same rules as the app (FR42, FR43, FR46-FR48, FR41). It cannot create, rename, re-date or delete a trip, change its budget, or manage its members. **(Added 2026-10-29; amended 2026-10-31 — day note and picture, Story 15.9)**
 - FR55: A connected assistant can apply a whole day plan in one step, either appending to the day or replacing its activities, with travel legs between them; the day is recomputed under FR42. **(Added 2026-10-29)**
-- FR56: A connected assistant can download a trip's documents and images, and attach documents and images to activities and stays, under the same file types and limits as the app. **(Added 2026-10-29)**
+- FR56: A connected assistant can download a trip's documents and images, attach documents and images to activities and stays, and set or remove a day's picture, under the same file types and limits as the app. **(Added 2026-10-29; amended 2026-10-31 — day note and picture, Story 15.9)**
 - FR57: Every entry created or changed through a connector shows a marker ("KI" in German, "AI" in English) until a person changes it in the app. Each change made through a connector can be undone from the app, and by the assistant, in one step, unless something it touched has changed since. **(Added 2026-10-29)**
 
 ## Non-Functional Requirements
