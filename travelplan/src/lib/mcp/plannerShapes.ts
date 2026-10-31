@@ -21,7 +21,8 @@ import type { TransportType } from "@/lib/trips/transportTypes";
  * Story 15.2, AC 1-8, 11. Repository rows as the JSON the read tools hand to the model. Pure, so the
  * shapes are tested without the SDK. Dates `YYYY-MM-DD` (UTC, never local time), times `HH:MM`,
  * timestamps ISO 8601, money in EUR cents with the original currency beside it. Files are named by id
- * and file name only: no URL or storage path ever leaves here (15.7's `get_file` takes the id).
+ * and file name only: no stored URL or storage path ever leaves here (15.7's `get_file` takes the id). The
+ * one deliberate reference is 15.8's signed `downloadUrl`, which names the file id and nothing else.
  */
 
 export const toDateKey = (date: Date) => date.toISOString().slice(0, 10);
@@ -84,18 +85,33 @@ export const fileNameOfUrl = (url: string) => {
   }
 };
 
+/**
+ * Story 15.8. Per file id, its signed `downloadUrl` and, for an image, its original oriented pixel size,
+ * built outside this pure module (`fileLinkShapes.ts`). A file without an entry gets `null`s, so the shape
+ * is the same in every result, with or without links.
+ */
+export type FileLink = { downloadUrl: string | null; width?: number | null; height?: number | null };
+export type FileLinks = Map<string, FileLink>;
+
 /** Story 15.7: each file's `updatedAt` (ISO), which `delete_file` takes back; `get_file` takes the id. */
-export const toFiles = (media: PlannerMedia) => ({
+export const toFiles = (media: PlannerMedia, links?: FileLinks) => ({
   documents: media.documents.map((document) => ({
     id: document.id,
     fileName: document.fileName,
+    downloadUrl: links?.get(document.id)?.downloadUrl ?? null,
     updatedAt: document.updatedAt.toISOString(),
   })),
-  images: media.images.map((image) => ({
-    id: image.id,
-    fileName: fileNameOfUrl(image.imageUrl),
-    updatedAt: image.updatedAt.toISOString(),
-  })),
+  images: media.images.map((image) => {
+    const link = links?.get(image.id);
+    return {
+      id: image.id,
+      fileName: fileNameOfUrl(image.imageUrl),
+      downloadUrl: link?.downloadUrl ?? null,
+      width: link?.width ?? null,
+      height: link?.height ?? null,
+      updatedAt: image.updatedAt.toISOString(),
+    };
+  }),
 });
 
 const toPlace = (location: PlannerLocation) =>
@@ -106,7 +122,11 @@ type ActivitySource = Omit<PlannerItem, keyof PlannerMedia | "title"> & { title:
 const NO_MEDIA: PlannerMedia = { documents: [], images: [] };
 
 /** One activity, on a day (`withTimes`) or in the bucket list (no times; always flexible there). */
-export const toActivity = (item: ActivitySource, media: PlannerMedia | undefined, options: { withTimes: boolean }) => ({
+export const toActivity = (
+  item: ActivitySource,
+  media: PlannerMedia | undefined,
+  options: { withTimes: boolean; links?: FileLinks },
+) => ({
   id: item.id,
   title: item.title?.trim() ? item.title : null,
   description: tiptapDocToPlainText(item.contentJson),
@@ -117,7 +137,7 @@ export const toActivity = (item: ActivitySource, media: PlannerMedia | undefined
   link: item.linkUrl,
   cost: toCost(item),
   payments: toPayments(item.payments),
-  ...toFiles(media ?? NO_MEDIA),
+  ...toFiles(media ?? NO_MEDIA, options.links),
   updatedAt: item.updatedAt.toISOString(),
   aiChangedAt: toIsoOrNull(item.aiChangedAt),
 });
@@ -134,7 +154,7 @@ export const toLeg = (leg: PlannerLeg) => ({
   aiChangedAt: toIsoOrNull(leg.aiChangedAt),
 });
 
-export const toStay = (stay: PlannerStay) => ({
+export const toStay = (stay: PlannerStay, links?: FileLinks) => ({
   id: stay.id,
   name: stay.name,
   status: stay.status === "BOOKED" ? ("booked" as const) : ("planned" as const),
@@ -145,7 +165,7 @@ export const toStay = (stay: PlannerStay) => ({
   notes: stay.notes,
   cost: toCost(stay),
   payments: toPayments(stay.payments),
-  ...toFiles(stay),
+  ...toFiles(stay, links),
   updatedAt: stay.updatedAt.toISOString(),
   aiChangedAt: toIsoOrNull(stay.aiChangedAt),
 });
@@ -164,14 +184,14 @@ const toPreviousStay = (stay: PlannerDay["previousStay"]) => {
   };
 };
 
-export const toPlannerDay = (day: PlannerDay) => ({
+export const toPlannerDay = (day: PlannerDay, links?: FileLinks) => ({
   id: day.id,
   date: toDateKey(day.date),
   dayIndex: day.dayIndex,
   previousStay: toPreviousStay(day.previousStay),
-  activities: day.items.map((item) => toActivity(item, item, { withTimes: true })),
+  activities: day.items.map((item) => toActivity(item, item, { withTimes: true, links })),
   legs: day.legs.map(toLeg),
-  stay: day.stay ? toStay(day.stay) : null,
+  stay: day.stay ? toStay(day.stay, links) : null,
   missingStay: day.missingStay,
   warnings: day.warnings.map(toWarning),
 });
@@ -203,5 +223,5 @@ export const toTripOverview = (trip: TripWithDays) => ({
   })),
 });
 
-export const toBucketActivity = (item: ParkedDayPlanItemDetail, media: PlannerMedia | undefined) =>
-  toActivity({ ...item, scheduleMode: "FLEXIBLE", fromTime: null, toTime: null }, media, { withTimes: false });
+export const toBucketActivity = (item: ParkedDayPlanItemDetail, media: PlannerMedia | undefined, links?: FileLinks) =>
+  toActivity({ ...item, scheduleMode: "FLEXIBLE", fromTime: null, toTime: null }, media, { withTimes: false, links });

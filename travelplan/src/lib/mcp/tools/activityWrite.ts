@@ -3,7 +3,8 @@ import { z } from "zod";
 import { GeocodingError, nominatimThrottle, searchNominatim } from "@/lib/geocoding/nominatim";
 import { costField, resolveCost, type ResolvedCostFields } from "@/lib/mcp/costInput";
 import { toolError } from "@/lib/mcp/logging";
-import { toBucketActivity, toDateKey, toPlannerDay } from "@/lib/mcp/plannerShapes";
+import { toLinkedBucketActivities, toLinkedPlannerDay } from "@/lib/mcp/fileLinkShapes";
+import { toDateKey } from "@/lib/mcp/plannerShapes";
 import {
   DAY_NOT_FOUND,
   DESTRUCTIVE_WRITE_TOOL_ANNOTATIONS,
@@ -354,10 +355,10 @@ const isToolResult = (value: object): value is CallToolResult => "content" in va
 const needsGeocoding = (place: z.infer<typeof placeField> | null | undefined) =>
   place != null && (place.lat === undefined || place.lng === undefined);
 
-/** One day, in the read tools' shape (order, computed times, warnings). */
+/** One day, in the read tools' shape (order, computed times, warnings, signed file links). */
 export const readDay = async (userId: string, tripId: string, tripDayId: string) => {
   const result = await getPlannerDayForUser({ userId, tripId, day: { id: tripDayId } });
-  return result?.day ? toPlannerDay(result.day) : null;
+  return result?.day ? toLinkedPlannerDay(tripId, result.day) : null;
 };
 
 const dayResult = async (caller: Caller, aiChangeId: string | null, tripDayId: string, activityId: string) => {
@@ -372,7 +373,8 @@ const readBucketActivity = async (caller: Caller, activityId: string) => {
   const item = items?.find((entry) => entry.id === activityId);
   if (!item) return null;
   const media = await listParkedItemMediaForPlanner({ userId: caller.userId, tripId: caller.tripId, itemIds: [item.id] });
-  return toBucketActivity(item, media.get(item.id));
+  const [activity] = await toLinkedBucketActivities(caller.tripId, [item], media);
+  return activity;
 };
 
 const bucketResult = async (caller: Caller, aiChangeId: string | null, activityId: string) =>

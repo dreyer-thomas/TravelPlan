@@ -39,4 +39,7 @@ export const register = async () => {
   // Story 15.1: with the connector on, a wrong APP_BASE_URL yields an issuer Claude silently cannot use.
   const { assertMcpConfigured } = await import("@/lib/oauth/config");
   assertMcpConfigured();
+  // Story 15.8: without the link secret every downloadUrl the connector hands out would be null.
+  const { assertFileLinksConfigured } = await import("@/lib/files/fileLinks");
+  assertFileLinksConfigured();
 };

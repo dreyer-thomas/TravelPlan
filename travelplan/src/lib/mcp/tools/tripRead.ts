@@ -2,7 +2,8 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { canTripAccessRoleWrite } from "@/lib/auth/tripAccess";
 import { toolError } from "@/lib/mcp/logging";
-import { toBucketActivity, toPlannerDay, toTripListEntry, toTripOverview } from "@/lib/mcp/plannerShapes";
+import { fileLinkNote, toLinkedBucketActivities, toLinkedPlannerDay } from "@/lib/mcp/fileLinkShapes";
+import { toTripListEntry, toTripOverview } from "@/lib/mcp/plannerShapes";
 import {
   DAY_NOT_FOUND,
   idSchema,
@@ -98,7 +99,9 @@ export const registerTripReadTools = (server: McpServer) => {
         "amountEurCents and dueDate YYYY-MM-DD), document and image ids with file names, the travel legs between " +
         "them (durationMinutes, distanceKm), tonight's stay with the same cost details, missingStay and plan " +
         "warnings. Give either dayId or date (YYYY-MM-DD). " +
-        UPDATED_AT_NOTE,
+        UPDATED_AT_NOTE +
+        " " +
+        fileLinkNote(),
       inputSchema: getDayInput,
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
@@ -113,7 +116,7 @@ export const registerTripReadTools = (server: McpServer) => {
         });
         if (!result) return toolError(TRIP_NOT_FOUND);
         if (!result.day) return toolError(DAY_NOT_FOUND);
-        return toolResult(toPlannerDay(result.day));
+        return toolResult(await toLinkedPlannerDay(args.tripId, result.day));
       }),
   );
 
@@ -126,7 +129,9 @@ export const registerTripReadTools = (server: McpServer) => {
         "creation, then id). Each has id, title, description, mode (always flexible here), durationMinutes, place, " +
         "link, cost in EUR cents (with the original currency), payments, document and image ids with file names. " +
         "They have no times until they are scheduled onto a day. " +
-        UPDATED_AT_NOTE,
+        UPDATED_AT_NOTE +
+        " " +
+        fileLinkNote(),
       inputSchema: tripInput,
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
@@ -141,7 +146,7 @@ export const registerTripReadTools = (server: McpServer) => {
           tripId: args.tripId,
           itemIds: items.map((item) => item.id),
         });
-        return toolResult({ activities: items.map((item) => toBucketActivity(item, media.get(item.id))) });
+        return toolResult({ activities: await toLinkedBucketActivities(args.tripId, items, media) });
       }),
   );
 };

@@ -225,7 +225,9 @@ describe.each(["owner", "contributor"] as const)("attach_file as %s", (role) => 
       fileId: row.id,
     });
     // `get_day` lists the file with the stamp delete_file takes back.
-    expect(result.day?.activities[0].documents).toEqual([{ id: row.id, fileName: "ticket.pdf", updatedAt: row.updatedAt.toISOString() }]);
+    expect(result.day?.activities[0].documents).toEqual([
+      { id: row.id, fileName: "ticket.pdf", downloadUrl: null, updatedAt: row.updatedAt.toISOString() },
+    ]);
     expect((await getDay<Day>(token, tripId, seed.day1.id)).activities[0].documents[0].updatedAt).toBe(result.file.updatedAt);
     const listed = structured<{ changes: { summary: string; undoable: boolean }[] }>(
       await callTool(token, "list_ai_changes", { tripId }),
@@ -501,6 +503,7 @@ describe.each(["owner", "contributor"] as const)("get_file as %s", (role) => {
       target: { type: "activity", id: train.id },
       mimeType: "application/pdf",
       sizeBytes: pdf.length,
+      downloadUrl: null,
       updatedAt: attached.file.updatedAt,
       aiChangedAt: expect.any(String),
       available: true,

@@ -40,14 +40,17 @@ const costSelect = {
   payments: paymentsSelect,
 };
 
-/** Story 15.7: each file's `updatedAt` too, which `delete_file` compares. */
+/**
+ * Story 15.7: each file's `updatedAt` too, which `delete_file` compares. Story 15.8: a document's stored URL,
+ * so its link is signed only when it lies on disk; it never reaches the model (`toFiles` drops it).
+ */
 const mediaSelect = {
   images: { select: { id: true, imageUrl: true, updatedAt: true }, orderBy: mediaOrder },
-  documents: { select: { id: true, fileName: true, updatedAt: true }, orderBy: mediaOrder },
+  documents: { select: { id: true, fileName: true, documentUrl: true, updatedAt: true }, orderBy: mediaOrder },
 };
 
 export type PlannerMedia = {
-  documents: { id: string; fileName: string; updatedAt: Date }[];
+  documents: { id: string; fileName: string; documentUrl: string; updatedAt: Date }[];
   images: { id: string; imageUrl: string; updatedAt: Date }[];
 };
 
@@ -335,7 +338,7 @@ export const listParkedItemMediaForPlanner = async (params: {
     prisma.dayPlanItemDocument.findMany({
       where,
       orderBy: [{ dayPlanItemId: "asc" }, ...mediaOrder],
-      select: { id: true, dayPlanItemId: true, fileName: true, updatedAt: true },
+      select: { id: true, dayPlanItemId: true, fileName: true, documentUrl: true, updatedAt: true },
     }),
     prisma.dayPlanItemImage.findMany({
       where,
@@ -352,7 +355,8 @@ export const listParkedItemMediaForPlanner = async (params: {
     return value;
   };
   for (const document of documents) {
-    entry(document.dayPlanItemId).documents.push({ id: document.id, fileName: document.fileName, updatedAt: document.updatedAt });
+    const { id, fileName, documentUrl, updatedAt } = document;
+    entry(document.dayPlanItemId).documents.push({ id, fileName, documentUrl, updatedAt });
   }
   for (const image of images) {
     entry(image.dayPlanItemId).images.push({ id: image.id, imageUrl: image.imageUrl, updatedAt: image.updatedAt });
@@ -680,6 +684,53 @@ export const findFileForPlanner = async (params: {
       url: stayImage.imageUrl,
       fileName: fileNameOfUrl(stayImage.imageUrl),
     };
+  }
+  return null;
+};
+
+/**
+ * Story 15.8. One file by id alone, for the `/f/` route: **no user or writer filter**, because there the
+ * verified link signature is the grant (it is minted only inside a tool call that passed the writer check).
+ * `tripId` is the trip whose upload tree the file must lie in; `url` is the stored address, never sent out.
+ */
+export type SignedLinkFileRow = {
+  id: string;
+  tripId: string;
+  media: "document" | "image";
+  url: string;
+  fileName: string;
+};
+
+export const findFileForSignedLink = async (fileId: string): Promise<SignedLinkFileRow | null> => {
+  const item = { select: { tripId: true } } as const;
+  const stay = { select: { tripDay: { select: { tripId: true } } } } as const;
+  const [itemDocument, itemImage, stayDocument, stayImage] = await Promise.all([
+    prisma.dayPlanItemDocument.findUnique({
+      where: { id: fileId },
+      select: { id: true, documentUrl: true, fileName: true, dayPlanItem: item },
+    }),
+    prisma.dayPlanItemImage.findUnique({ where: { id: fileId }, select: { id: true, imageUrl: true, dayPlanItem: item } }),
+    prisma.accommodationDocument.findUnique({
+      where: { id: fileId },
+      select: { id: true, documentUrl: true, fileName: true, accommodation: stay },
+    }),
+    prisma.accommodationImage.findUnique({ where: { id: fileId }, select: { id: true, imageUrl: true, accommodation: stay } }),
+  ]);
+  if (itemDocument) {
+    const { id, documentUrl, fileName, dayPlanItem } = itemDocument;
+    return { id, tripId: dayPlanItem.tripId, media: "document", url: documentUrl, fileName };
+  }
+  if (itemImage) {
+    const { id, imageUrl, dayPlanItem } = itemImage;
+    return { id, tripId: dayPlanItem.tripId, media: "image", url: imageUrl, fileName: fileNameOfUrl(imageUrl) };
+  }
+  if (stayDocument) {
+    const { id, documentUrl, fileName, accommodation } = stayDocument;
+    return { id, tripId: accommodation.tripDay.tripId, media: "document", url: documentUrl, fileName };
+  }
+  if (stayImage) {
+    const { id, imageUrl, accommodation } = stayImage;
+    return { id, tripId: accommodation.tripDay.tripId, media: "image", url: imageUrl, fileName: fileNameOfUrl(imageUrl) };
   }
   return null;
 };

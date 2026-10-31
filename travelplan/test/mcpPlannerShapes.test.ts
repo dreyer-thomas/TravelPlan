@@ -63,7 +63,9 @@ describe("plannerShapes (Story 15.2)", () => {
     expect(parked).not.toHaveProperty("startTime");
     expect(parked).toMatchObject({ title: null, description: "Hi", place: { label: null, lat: 1, lng: 2 } });
     // Story 15.7: the file's stamp, which `delete_file` takes back.
-    expect(parked.images).toEqual([{ id: "img", fileName: "y.jpg", updatedAt: "2027-01-02T09:00:00.000Z" }]);
+    expect(parked.images).toEqual([
+      { id: "img", fileName: "y.jpg", downloadUrl: null, width: null, height: null, updatedAt: "2027-01-02T09:00:00.000Z" },
+    ]);
     expect(JSON.stringify(parked)).not.toContain("/uploads/");
     expect(toActivity(item, undefined, { withTimes: true })).toMatchObject({
       startTime: "09:00",

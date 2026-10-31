@@ -1,5 +1,8 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-10-29 (15-2-claude-knows-the-trip -> done via bmad-code-review: D1 drawn legs only, D2 lower-case mode (AC 3 amended); 6 patches (effective previousStay check-out, tolerant tiptapDocToPlainText, list hard-break indent, name+code error log, bucket description); DW-420, DW-421 deferred; 238 files / 3791 passed, tsc clean)
+# last_updated: 2026-10-31 (15-8-signed-download-links -> done via bmad-code-review: D1 documents signed only when on disk (AC 6 over Task 6); 5 patches (disk check for documents, guarded head read 404, over-10 MB note only points to a non-null downloadUrl, TTL minutes rounded and pluralised, escaped test matchers); DW-425..427 deferred; 257 files / 4082 passed, tsc clean, lint 0/80, build ok)
+# previously: 2026-10-31 (15-8-signed-download-links -> review via bmad-dev-story: sharp direct dependency; /f/{fileId} HMAC links (300/min/IP, empty 403/404), images re-encoded without metadata, PDFs streamed; downloadUrl/width/height in get_day, get_bucket_list, get_file and every write tool day; FILE_LINK_SECRET startup check; DW-424 caption/isCover; tsc clean, lint 0/80, build ok, migrations ok, 4081 tests pass)
+# previously: 2026-10-31 (15-8-signed-download-links -> ready-for-dev via bmad-create-story: /f/{fileId} HMAC-signed short-lived links, sharp resize + metadata strip, downloadUrl/width/height in get_day, get_bucket_list, get_file; Story 15.8 added to epics.md)
+# previously: 2026-10-29 (15-2-claude-knows-the-trip -> done via bmad-code-review: D1 drawn legs only, D2 lower-case mode (AC 3 amended); 6 patches (effective previousStay check-out, tolerant tiptapDocToPlainText, list hard-break indent, name+code error log, bucket description); DW-420, DW-421 deferred; 238 files / 3791 passed, tsc clean)
 # previously: 2026-10-29 (15-2-claude-knows-the-trip -> review via bmad-dev-story: list_trips, get_trip, get_day, get_bucket_list + shared runTool (120/min, trip= log, generic error); connectorReadRepo; tiptapDocToPlainText; 238 files / 3786 passed, tsc clean, lint 0/80, build ok)
 # previously: 2026-10-29 (15-2-claude-knows-the-trip -> in-progress via bmad-dev-story)
 # previously: 2026-10-29 (15-2-claude-knows-the-trip -> ready-for-dev via bmad-create-story: read tools list_trips, get_trip, get_day, get_bucket_list; new connectorReadRepo day reader with updatedAt + media names; tiptapDocToPlainText; shared tool runtime with 120/min rate limit; budget and KI/AI marker recorded as deviations, questions to Tommy)
@@ -369,4 +372,5 @@ development_status:
   15-5-take-over-the-day-plan: done
   15-6-stays-legs-costs-and-links: done
   15-7-documents-and-images: done
+  15-8-signed-download-links: done
   epic-15-retrospective: optional

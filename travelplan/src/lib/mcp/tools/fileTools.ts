@@ -3,6 +3,9 @@ import path from "node:path";
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { guardedFetch, type GuardedFetchFailure, type GuardedFetchOptions, type GuardedFetchResult } from "@/lib/http/guardedFetch";
+import { MCP_IMAGE_LINK_WIDTH, signFileLink } from "@/lib/files/fileLinks";
+import { readImageSizes } from "@/lib/files/imageInfo";
+import { fileLinkNote } from "@/lib/mcp/fileLinkShapes";
 import { toolError } from "@/lib/mcp/logging";
 import {
   DESTRUCTIVE_WRITE_TOOL_ANNOTATIONS,
@@ -21,6 +24,7 @@ import { checkRateLimit } from "@/lib/security/rateLimit";
 import { DOCUMENT_LIMIT_ERROR_MESSAGE, MAX_DOCUMENTS_PER_ENTRY, sanitizeDocumentFileName } from "@/lib/trips/documentUploads";
 import { sniffDocumentContentType, sniffPhotoContentType } from "@/lib/trips/importPackage";
 import { removeManagedMediaFile } from "@/lib/trips/mediaCleanup";
+import { readFileHead, resolveTripFilePath } from "@/lib/trips/tripFilePath";
 import {
   getAccommodationDocumentUploadDir,
   getAccommodationImageUploadDir,
@@ -28,10 +32,8 @@ import {
   getDayPlanItemImageUploadDir,
   getParkedDayPlanItemDocumentUploadDir,
   getParkedDayPlanItemImageUploadDir,
-  getTripUploadDir,
   isExternalMediaUrl,
   resolveManagedItemMediaDir,
-  resolveStoredMediaPath,
 } from "@/lib/trips/uploadPaths";
 import { ChangedSinceReadError } from "@/lib/trips/writeOrigin";
 
@@ -197,62 +199,59 @@ type AttachArgs = z.infer<typeof attachInput>;
 // get_file
 
 /**
- * The file's path on disk, or `null` when its stored URL must not be read: external, outside this trip's
- * own upload tree (lexically, or through a symlink), or missing. The containment of `dayPacket.ts`, layer
- * for layer, against this trip's directory and not the uploads root.
+ * Story 15.8: the signed `downloadUrl`, and an image's original oriented size. An image is signed with
+ * `w=1600` like `get_day`'s; a document without a width, an image document included (it keeps its size).
+ * An unavailable file, an unreadable image or a missing secret gives `null`s.
  */
-const resolveTripFile = async (tripId: string, storedUrl: string): Promise<string | null> => {
-  if (!storedUrl || isExternalMediaUrl(storedUrl)) return null;
-  const tripRoot = path.resolve(getTripUploadDir(tripId));
-  const requested = path.resolve(resolveStoredMediaPath(storedUrl));
-  if (!requested.startsWith(`${tripRoot}${path.sep}`)) return null;
-  // The root realpath'd too: on macOS the test media root sits under a symlinked `/var`.
-  const tripRootReal = await fs.realpath(tripRoot).catch(() => tripRoot);
-  const real = await fs.realpath(requested).catch(() => null);
-  if (!real || !real.startsWith(`${tripRootReal}${path.sep}`)) return null;
-  return real;
-};
-
-const readHead = async (filePath: string, length: number) => {
-  const handle = await fs.open(filePath, "r");
-  try {
-    const buffer = Buffer.alloc(length);
-    const { bytesRead } = await handle.read(buffer, 0, length, 0);
-    return buffer.subarray(0, bytesRead);
-  } finally {
-    await handle.close();
+const fileLinkOf = async (file: PlannerFileRow, filePath: string | null) => {
+  if (file.media === "document") {
+    return { downloadUrl: filePath ? (signFileLink(file.id)?.url ?? null) : null };
   }
+  const url = filePath ? (signFileLink(file.id, { width: MCP_IMAGE_LINK_WIDTH })?.url ?? null) : null;
+  const size = url
+    ? (await readImageSizes([{ fileId: file.id, updatedAt: file.updatedAt, resolvePath: async () => filePath }])).get(file.id)
+    : null;
+  return size ? { downloadUrl: url, width: size.width, height: size.height } : { downloadUrl: null, width: null, height: null };
 };
 
-const fileMetadata = (file: PlannerFileRow, extra: { mimeType: string; sizeBytes: number | null; available: boolean }) => ({
+const fileMetadata = (
+  file: PlannerFileRow,
+  link: Awaited<ReturnType<typeof fileLinkOf>>,
+  extra: { mimeType: string; sizeBytes: number | null; available: boolean },
+) => ({
   id: file.id,
   fileName: file.fileName,
   media: file.media,
   target: { type: file.target, id: file.parentId },
   mimeType: extra.mimeType,
   sizeBytes: extra.sizeBytes,
+  ...link,
   updatedAt: file.updatedAt.toISOString(),
   aiChangedAt: file.aiChangedAt ? file.aiChangedAt.toISOString() : null,
   available: extra.available,
 });
 
 const getFile = async (tripId: string, file: PlannerFileRow): Promise<CallToolResult> => {
-  const filePath = await resolveTripFile(tripId, file.url);
+  const filePath = await resolveTripFilePath(tripId, file.url);
   const stat = filePath ? await fs.stat(filePath).catch(() => null) : null;
   if (!filePath || !stat?.isFile()) {
-    return toolResult(fileMetadata(file, { mimeType: mimeOfName(file.fileName), sizeBytes: null, available: false }));
+    const link = await fileLinkOf(file, null);
+    return toolResult(fileMetadata(file, link, { mimeType: mimeOfName(file.fileName), sizeBytes: null, available: false }));
   }
+  const link = await fileLinkOf(file, filePath);
   if (stat.size > MAX_TRANSFER_BYTES) {
-    const head = await readHead(filePath, 16);
+    const head = await readFileHead(filePath, 16);
     const mimeType = sniffDocumentContentType(head) ?? mimeOfName(file.fileName);
     return toolResult({
-      ...fileMetadata(file, { mimeType, sizeBytes: stat.size, available: true }),
-      note: `The file is larger than ${MAX_TRANSFER_BYTES / MIB} MB, too large to transfer; open it in TravelPlan.`,
+      ...fileMetadata(file, link, { mimeType, sizeBytes: stat.size, available: true }),
+      note: link.downloadUrl
+        ? `The file is larger than ${MAX_TRANSFER_BYTES / MIB} MB, too large to transfer here; download it from downloadUrl.`
+        : `The file is larger than ${MAX_TRANSFER_BYTES / MIB} MB, too large to transfer; open it in TravelPlan.`,
     });
   }
   const bytes = await fs.readFile(filePath);
   const mimeType = sniffDocumentContentType(bytes) ?? mimeOfName(file.fileName);
-  const metadata = fileMetadata(file, { mimeType, sizeBytes: bytes.length, available: true });
+  const metadata = fileMetadata(file, link, { mimeType, sizeBytes: bytes.length, available: true });
   return {
     content: [
       { type: "text", text: JSON.stringify(metadata) },
@@ -348,9 +347,11 @@ export const registerFileTools = (server: McpServer) => {
       description:
         "Returns one document or image attached to an activity or a stay, by the id get_day or get_bucket_list " +
         "gave it: its metadata (id, fileName, media document|image, target {type activity|stay, id}, mimeType " +
-        "judged from the content, sizeBytes, updatedAt, aiChangedAt, available) and, up to 10 MB, the file " +
+        "judged from the content, sizeBytes, downloadUrl, an image's width and height, updatedAt, aiChangedAt, " +
+        "available) and, up to 10 MB, the file " +
         "itself as an embedded resource. A larger file answers the metadata with a note; a file that is not on " +
-        "the server answers available false and no content.",
+        "the server answers available false and no content. " +
+        fileLinkNote(),
       inputSchema: getInput,
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },

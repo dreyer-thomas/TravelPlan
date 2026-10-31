@@ -33,6 +33,8 @@ The last five (Story 8.8) are the SMTP settings for password-reset email, read o
 | `SMTP_USER` | **Yes, in production** | SMTP login. Production: `webmaster@dreyer-travels.de`, the only mailbox in the Strato contract. |
 | `SMTP_PASS` | **Yes, in production** | The **mailbox** password of `SMTP_USER`, set in the Strato customer area under "Postfach bearbeiten". **Not** the Strato customer login. **A secret**: see the warning below. |
 | `MAIL_FROM` | **Yes, in production** | From header of every mail. Production: `TravelPlan <system@plan.dreyer-travels.de>` (no quotes in the value; the unit line below quotes the whole assignment). The address is an alias on the `SMTP_USER` mailbox; Strato accepts only addresses that mailbox owns. |
+| `FILE_LINK_SECRET` | **Yes, with `MCP_ENABLED=true` in production** | HMAC key for the connector's signed download links `/f/<fileId>?w=&exp=&sig=` (Story 15.8): base64url, at least 32 bytes after decoding. Generate with `openssl rand -base64 32 \| tr '+/' '-_' \| tr -d '='`. With the connector on, startup refuses a missing or short value (`instrumentation.ts`). Rotating it invalidates every open link at once, which is the only revocation besides expiry. **A secret**: see the warning below. |
+| `FILE_LINK_TTL_SECONDS` | No | Lifetime of the connector's signed download links in seconds (Story 15.8), an integer from 60 to 86400. Missing or anything else means `900` (15 minutes). The tool descriptions state it to the model. |
 
 ### Password-reset email
 

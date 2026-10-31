@@ -25,7 +25,7 @@ const DEV_FALLBACK_BASE_URL = "http://localhost:3000";
 
 export const isMcpEnabled = () => process.env.MCP_ENABLED === "true";
 
-const parseBaseUrl = (raw: string | undefined) => {
+export const parseBaseUrl = (raw: string | undefined) => {
   if (!raw?.trim()) return null;
   try {
     const url = new URL(raw.trim());

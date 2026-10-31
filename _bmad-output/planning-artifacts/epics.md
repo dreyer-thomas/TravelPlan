@@ -4942,3 +4942,34 @@ So that the documents end up where the day packet and the day email find them.
 **Then** a ticket attached through Claude by URL appears on the activity with the KI badge and is part of the day packet
 
 **Out of scope:** day images and trip hero images; OCR or reading ticket contents server-side.
+
+### Story 15.8: Signed Download Links for Images and Documents
+
+*Added 2026-10-31 (Tommy), from a request that came up while a client built a travel book from a trip.*
+
+As someone who lets an AI client build something from a trip (a travel book),
+I want every image and document the connector lists to come with a short-lived download link,
+So that the client can fetch the files over HTTPS like any other file instead of only as embedded resources.
+
+**Depends on:** Story 15.7.
+
+**Acceptance Criteria:**
+
+**Given** a public route `GET /f/{fileId}?w=&exp=&sig=`
+**Then** `sig` is HMAC-SHA256 over `fileId|w|exp` with `FILE_LINK_SECRET`, compared in constant time; a wrong signature, an expired `exp` or a `w` outside 800, 1600, 2400 answers 403 without detail, an unknown file 404
+**And** images are auto-oriented, scaled down only (never up) to `w`, re-encoded as JPEG or WebP and always stripped of metadata (EXIF, GPS), also without `w`; documents are streamed unchanged
+**And** the response has the right `Content-Type`, `Cache-Control: private, max-age` up to `exp`, `nosniff`, and the route reaches nothing but the file the link names
+**And** the route is rate-limited per IP
+
+**Given** `get_day`, `get_bucket_list` and `get_file`
+**Then** every image carries `downloadUrl` (`w=1600`), `width` and `height` (original pixels), every document `downloadUrl`; links live `FILE_LINK_TTL_SECONDS` (default 15 minutes)
+**And** the tool descriptions say the link is short-lived, works without login, and has `w` fixed by its signature, so another size needs a new read
+
+**Given** `MCP_ENABLED=true` in production
+**Then** the server refuses to start without a `FILE_LINK_SECRET` of at least 32 bytes; the secret is never committed
+
+**Given** the production server
+**When** deployed (Tommy, manual)
+**Then** a `downloadUrl` from `get_day` downloads with plain `curl`, without cookies or token, as an image at most 1600 px wide without EXIF, and answers 403 once expired
+
+**Out of scope:** `caption` and `isCover` per image (deferred); permanent public URLs.

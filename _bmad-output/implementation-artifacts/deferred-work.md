@@ -4119,3 +4119,45 @@ severity: low
 summary: In the 30 s grace path, `rotateRefreshToken` reads the family's revoked count before any write, so it holds no write lock at that point. A revoke committing between that read and `issueTokenPair` could leave a fresh unrevoked pair in a family the user just disconnected.
 evidence: Pre-existing 15.1 design shared by RFC 7009 revoke. SQLite's single writer and WAL snapshot upgrade (SQLITE_BUSY_SNAPSHOT) probably prevent it, but no test proves that. A fix would write first (for example touch the family) before counting.
 status: open
+
+### DW-424: caption and isCover per image
+
+source_spec: `_bmad-output/implementation-artifacts/15-8-signed-download-links.md`
+origin: scope agreed with Tommy for 15-8-signed-download-links (bmad-dev-story), 2026-10-31
+location: `travelplan/prisma/schema.prisma` (image tables), `travelplan/src/lib/mcp/plannerShapes.ts` (`toFiles`)
+severity: low
+summary: Tommy asked for a caption and a cover flag per image, so an AI client building a travel book knows what a photo shows and which one leads a day or a stay. Deferred from 15.8, which ships only the signed download links and the original pixel size.
+evidence: The image tables carry no caption or cover column today; adding them needs a migration, app UI to set them, and two new fields in the connector's image shape.
+status: open
+
+## Deferred from: code review of 15-8-signed-download-links (2026-10-31)
+
+### DW-425: Unbounded concurrent sharp renders on the `/f/` route
+
+source_spec: `_bmad-output/implementation-artifacts/15-8-signed-download-links.md`
+origin: bmad-code-review of 15-8, 2026-10-31
+location: `travelplan/src/app/f/[fileId]/route.ts` (`renderImage`)
+severity: low
+summary: Every request decodes and re-encodes the image in memory, with no cap on concurrent renders and no render cache. Anyone holding one valid link can drive up to 300 full re-encodes per minute per IP until `exp`, on the same Node process that serves the app.
+evidence: Needs a valid signature, so exposure is limited to link holders for the TTL; uploads are capped at 5 MB and sharp's default `limitInputPixels` applies. A small semaphore around `renderImage` would bound it.
+status: open
+
+### DW-426: PDF content-length taken from an earlier stat
+
+source_spec: `_bmad-output/implementation-artifacts/15-8-signed-download-links.md`
+origin: bmad-code-review of 15-8, 2026-10-31
+location: `travelplan/src/app/f/[fileId]/route.ts` (PDF branch)
+severity: low
+summary: `content-length` comes from `fs.stat`, and the stream reopens the path afterwards. A file replaced or truncated in between gives a length that disagrees with the body, which breaks the download.
+evidence: Files are never modified in place (replacement writes a new file and row), so the window is a delete race only. Opening one handle and using it for stat, sniff and stream would close it.
+status: open
+
+### DW-427: Signed file links land in Nginx access logs
+
+source_spec: `_bmad-output/implementation-artifacts/15-8-signed-download-links.md`
+origin: bmad-code-review of 15-8, 2026-10-31
+location: `deploy/README.md` (Connector section), Nginx config for `/f/`
+severity: low
+summary: The default Nginx access log stores the full request URI, `sig` included, so anyone who can read the logs holds working links to tickets and passports until `exp`. The deploy docs say to pass `/f/` but not to log it without the query.
+evidence: Exposure is bounded by the TTL (900 s default) and log access is root-only on the host. A `log_format` without `$args` for `location /f/` would remove it.
+status: open

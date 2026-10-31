@@ -34,7 +34,9 @@ describe("getPlannerDayForUser (Story 15.2)", () => {
       [seed.nightWalk.id, null, null],
     ]);
     expect(day.items.every((item) => item.updatedAt instanceof Date)).toBe(true);
-    expect(day.items[1].documents).toEqual([{ id: expect.any(String), fileName: "menu.pdf", updatedAt: expect.any(Date) }]);
+    expect(day.items[1].documents).toEqual([
+      { id: expect.any(String), fileName: "menu.pdf", documentUrl: `/uploads/trips/${seed.trip.id}/dinner/menu.pdf`, updatedAt: expect.any(Date) },
+    ]);
     expect(day.legs.map((leg) => leg.id)).toEqual([seed.walkLeg.id, seed.driveLeg.id]);
     expect(day.stay).toMatchObject({ id: seed.stay.id, name: "Hotel Old Town", status: "BOOKED" });
     expect(day.stay!.payments).toEqual([
@@ -155,7 +157,9 @@ describe("listParkedItemMediaForPlanner (Story 15.2)", () => {
 
     const media = await listParkedItemMediaForPlanner({ userId: owner.id, tripId: seed.trip.id, itemIds });
     expect(media.get(seed.castle.id)).toEqual({
-      documents: [{ id: expect.any(String), fileName: "ticket.pdf", updatedAt: expect.any(Date) }],
+      documents: [
+        { id: expect.any(String), fileName: "ticket.pdf", documentUrl: `/uploads/trips/${seed.trip.id}/castle/ticket.pdf`, updatedAt: expect.any(Date) },
+      ],
       images: [{ id: expect.any(String), imageUrl: `/uploads/trips/${seed.trip.id}/castle/view.jpg`, updatedAt: expect.any(Date) }],
     });
     expect(media.has(seed.zoo.id)).toBe(false);

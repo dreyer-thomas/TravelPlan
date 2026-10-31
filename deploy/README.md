@@ -53,6 +53,12 @@ TravelPlan can be added to Claude as a custom connector (remote MCP server with 
   All of them answer plain JSON or HTML, so no SSE or buffering settings are needed. Check with
   `curl -i https://plan.dreyer-travels.de/.well-known/oauth-authorization-server`: it must return JSON
   from the app, not an Nginx 404.
+- **Download links (Story 15.8):** `get_day`, `get_bucket_list` and `get_file` give each image and document
+  a short-lived signed `downloadUrl` on `/f/<fileId>`, which needs no session or token. `FILE_LINK_SECRET`
+  must be set (base64url, at least 32 bytes, see `travelplan.env.example`) or startup fails with the switch
+  on; `FILE_LINK_TTL_SECONDS` sets the lifetime (default 900). **Nginx must pass `/f/` to the app** like the
+  paths above. Check with `curl -I "<downloadUrl>"` on a link fresh from `get_day`: it must answer `200` with
+  `image/jpeg`, `image/webp` or `application/pdf` from the app, not an Nginx 404.
 - **State:** codes and tokens live in the database (`oauth_authorization_codes`, `oauth_tokens`, hashed),
   so connections survive restarts and deploys.
 

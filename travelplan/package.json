@@ -46,6 +46,7 @@
     "react-hook-form": "^7.71.1",
     "react-leaflet": "^5.0.0",
     "server-only": "^0.0.1",
+    "sharp": "^0.35.5",
     "zod": "^4.1.11"
   },
   "devDependencies": {
