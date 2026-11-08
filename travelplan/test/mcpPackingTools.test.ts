@@ -35,6 +35,8 @@ type Item = {
   name: string;
   category: string | null;
   packed: boolean;
+  notNeeded: boolean;
+  tags: string[];
   dayIds: string[];
   updatedAt: string;
   aiChangedAt: string | null;
@@ -52,7 +54,12 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 const list = async (token: string, tripId: string, dayId?: string) =>
   structured<{ items: Item[] }>(await callTool(token, "get_packing_list", { tripId, ...(dayId ? { dayId } : {}) })).items;
 
-const addItems = async (token: string, tripId: string, items: { name: string; category?: string | null }[], dayId?: string) =>
+const addItems = async (
+  token: string,
+  tripId: string,
+  items: { name: string; category?: string | null; tags?: string[] }[],
+  dayId?: string,
+) =>
   structured<AddResult>(await callTool(token, "add_packing_items", { tripId, items, ...(dayId ? { dayId } : {}) }));
 
 const undoChange = (token: string, tripId: string, changeId: string) => callTool(token, "undo_ai_change", { tripId, changeId });
@@ -82,6 +89,8 @@ describe("packing tools (Story 16.4)", () => {
       name: "Sonnencreme",
       category: "Hygiene",
       packed: false,
+      notNeeded: false,
+      tags: [],
       dayIds: [],
       updatedAt: expect.stringMatching(ISO),
       aiChangedAt: expect.stringMatching(ISO),
@@ -143,18 +152,18 @@ describe("packing tools (Story 16.4)", () => {
 
     const day = await getDay<{ packingItems: unknown[] }>(contributor.token, seed.trip.id, seed.day2.id);
     expect(day.packingItems).toEqual([
-      { id: added.items[0].id, name: "Badehose", category: null, packed: false },
-      { id: added.items[1].id, name: "Handtuch", category: null, packed: false },
+      { id: added.items[0].id, name: "Badehose", category: null, packed: false, tags: [] },
+      { id: added.items[1].id, name: "Handtuch", category: null, packed: false, tags: [] },
     ]);
     const other = await getDay<{ packingItems: unknown[] }>(contributor.token, seed.trip.id, seed.day1.id);
     expect(other.packingItems).toEqual([]);
 
     const handtuch = added.items[1];
     await updateTick(contributor.token, seed.trip.id, handtuch);
-    const trip = structured<{ packing: { total: number; packed: number } }>(
+    const trip = structured<{ packing: { total: number; packed: number; notNeeded: number } }>(
       await callTool(contributor.token, "get_trip", { tripId: seed.trip.id }),
     );
-    expect(trip.packing).toEqual({ total: 3, packed: 1 });
+    expect(trip.packing).toEqual({ total: 3, packed: 1, notNeeded: 0 });
   });
 
   it("lists items in name-key order, not in insertion order", async () => {
@@ -287,8 +296,233 @@ describe("packing tools (Story 16.4)", () => {
   });
 });
 
+describe("packing tools: not needed this time (Story 16.7)", () => {
+  const NOT_NEEDED = "Item is marked not needed; set notNeeded false first";
+
+  it("marks a linked, packed item not needed (unpacked, unlinked, KI, receipt); undo restores both", async () => {
+    const { seed, owner } = await setupConnectorTrip();
+    const added = await addItems(owner.token, seed.trip.id, [{ name: "Badehose", category: "Kleidung" }], seed.day1.id);
+    await tick();
+    const ticked = await updateTick(owner.token, seed.trip.id, added.items[0]);
+    const linkedTwice = structured<UpdateResult>(
+      await callTool(owner.token, "update_packing_item", {
+        tripId: seed.trip.id,
+        itemId: ticked.item.id,
+        updatedAt: ticked.item.updatedAt,
+        addDayIds: [seed.day2.id],
+      }),
+    );
+    const [before] = await list(owner.token, seed.trip.id);
+    expect(before).toMatchObject({ packed: true, notNeeded: false, dayIds: [seed.day1.id, seed.day2.id] });
+    await tick();
+
+    const marked = structured<UpdateResult>(
+      await callTool(owner.token, "update_packing_item", {
+        tripId: seed.trip.id,
+        itemId: before.id,
+        updatedAt: linkedTwice.item.updatedAt,
+        notNeeded: true,
+      }),
+    );
+    expect(marked.aiChangeId).toEqual(expect.any(String));
+    expect(marked.item).toMatchObject({ notNeeded: true, packed: false, dayIds: [], aiChangedAt: expect.stringMatching(ISO) });
+    const row = await prisma.aiChange.findUniqueOrThrow({ where: { id: marked.aiChangeId! } });
+    expect(row).toMatchObject({ action: "packingUpdated", subject: "Badehose" });
+    expect(JSON.parse(row.receiptJson!).entries[0].before).toMatchObject({ packed: true, notNeeded: false });
+
+    // get_trip counts it as not needed; get_day no longer lists it.
+    const trip = structured<{ packing: { total: number; packed: number; notNeeded: number } }>(
+      await callTool(owner.token, "get_trip", { tripId: seed.trip.id }),
+    );
+    expect(trip.packing).toEqual({ total: 0, packed: 0, notNeeded: 1 });
+    expect((await getDay<{ packingItems: unknown[] }>(owner.token, seed.trip.id, seed.day1.id)).packingItems).toEqual([]);
+
+    expect(structured(await undoChange(owner.token, seed.trip.id, marked.aiChangeId!))).toMatchObject({ undone: true });
+    expect(await list(owner.token, seed.trip.id)).toEqual([before]);
+  });
+
+  it("refuses addDayIds and packed on a not-needed item with the exact message; notNeeded false with them works", async () => {
+    const { seed, owner } = await setupConnectorTrip();
+    const added = await addItems(owner.token, seed.trip.id, [{ name: "Badehose" }]);
+    const marked = structured<UpdateResult>(
+      await callTool(owner.token, "update_packing_item", {
+        tripId: seed.trip.id,
+        itemId: added.items[0].id,
+        updatedAt: added.items[0].updatedAt,
+        notNeeded: true,
+      }),
+    );
+    const update = (args: Record<string, unknown>) =>
+      callTool(owner.token, "update_packing_item", { tripId: seed.trip.id, itemId: marked.item.id, updatedAt: marked.item.updatedAt, ...args });
+
+    expect(errorText(await update({ addDayIds: [seed.day1.id] }))).toBe(NOT_NEEDED);
+    expect(errorText(await update({ packed: true }))).toBe(NOT_NEEDED);
+    expect(errorText(await update({ notNeeded: true, packed: true }))).toBe(NOT_NEEDED);
+    expect(await list(owner.token, seed.trip.id)).toEqual([marked.item]);
+
+    const noop = structured<UpdateResult>(await update({ notNeeded: true }));
+    expect(noop.aiChangeId).toBeNull();
+
+    const back = structured<UpdateResult>(await update({ notNeeded: false, addDayIds: [seed.day1.id], packed: true }));
+    expect(back.aiChangeId).toEqual(expect.any(String));
+    expect(back.item).toMatchObject({ notNeeded: false, packed: true, dayIds: [seed.day1.id] });
+  });
+
+  it("refuses an add with a day that names a not-needed item, writing nothing; without a day it is existed", async () => {
+    const { seed, owner } = await setupConnectorTrip();
+    const added = await addItems(owner.token, seed.trip.id, [{ name: "Badehose" }]);
+    await callTool(owner.token, "update_packing_item", {
+      tripId: seed.trip.id,
+      itemId: added.items[0].id,
+      updatedAt: added.items[0].updatedAt,
+      notNeeded: true,
+    });
+    const changesBefore = await prisma.aiChange.count();
+
+    expect(
+      errorText(
+        await callTool(owner.token, "add_packing_items", {
+          tripId: seed.trip.id,
+          items: [{ name: "Neu" }, { name: "badehose" }],
+          dayId: seed.day1.id,
+        }),
+      ),
+    ).toBe(`items[1]: ${NOT_NEEDED}`);
+    expect(await prisma.packingItem.count()).toBe(1);
+    expect(await prisma.packingItemDay.count()).toBe(0);
+    expect(await prisma.aiChange.count()).toBe(changesBefore);
+
+    const resolved = await addItems(owner.token, seed.trip.id, [{ name: "BADEHOSE" }]);
+    expect(resolved.aiChangeId).toBeNull();
+    expect(resolved.results[0].status).toBe("existed");
+    expect(resolved.items[0]).toMatchObject({ notNeeded: true, dayIds: [] });
+  });
+});
+
 /** Ticks the item off through the tool and returns the result. */
 const updateTick = async (token: string, tripId: string, item: Item) =>
   structured<UpdateResult>(
     await callTool(token, "update_packing_item", { tripId, itemId: item.id, updatedAt: item.updatedAt, packed: true }),
   );
+
+describe("packing tools: tags (Story 16.8)", () => {
+  const LIMIT = "An item carries at most 10 tags";
+  const ten = Array.from({ length: 10 }, (_, index) => `T${index}`);
+
+  const update = (token: string, args: Record<string, unknown>) => callTool(token, "update_packing_item", args);
+
+  it("adds with tags, merges tags onto an existing name with an updated entry, reads them back; undo restores", async () => {
+    const { seed, owner } = await setupConnectorTrip();
+    const first = await addItems(owner.token, seed.trip.id, [{ name: "Pass", tags: ["Zoll anmelden"] }], seed.day1.id);
+    expect(first.items[0].tags).toEqual(["Zoll anmelden"]);
+    await tick();
+    const [before] = await list(owner.token, seed.trip.id);
+
+    const added = await addItems(owner.token, seed.trip.id, [
+      { name: "Powerbank", tags: ["Kaufen", "Aufladen", "kaufen"] },
+      { name: "pass", tags: ["zoll ANMELDEN", "Kopieren"] },
+    ]);
+    expect(added.aiChangeId).toEqual(expect.any(String));
+    expect(added.results.map((entry) => entry.status)).toEqual(["created", "existed"]);
+    expect(added.items.map((item) => item.tags)).toEqual([["Aufladen", "Kaufen"], ["Kopieren", "Zoll anmelden"]]);
+    expect(added.items[1].aiChangedAt).toEqual(expect.stringMatching(ISO));
+    const row = await prisma.aiChange.findUniqueOrThrow({ where: { id: added.aiChangeId! } });
+    expect(row.action).toBe("packingAdded");
+    expect(JSON.parse(row.receiptJson!).entries.map((entry: { change: string }) => entry.change)).toEqual([
+      "created",
+      "updated",
+    ]);
+
+    expect((await list(owner.token, seed.trip.id)).map((item) => [item.name, item.tags])).toEqual([
+      ["Pass", ["Kopieren", "Zoll anmelden"]],
+      ["Powerbank", ["Aufladen", "Kaufen"]],
+    ]);
+    const day = await getDay<{ packingItems: { name: string; tags: string[] }[] }>(owner.token, seed.trip.id, seed.day1.id);
+    expect(day.packingItems).toEqual([expect.objectContaining({ name: "Pass", tags: ["Kopieren", "Zoll anmelden"] })]);
+
+    expect(structured(await undoChange(owner.token, seed.trip.id, added.aiChangeId!))).toMatchObject({ undone: true });
+    expect(await list(owner.token, seed.trip.id)).toEqual([before]);
+  });
+
+  it("an add that only repeats existing tags writes nothing", async () => {
+    const { seed, owner } = await setupConnectorTrip();
+    await addItems(owner.token, seed.trip.id, [{ name: "Pass", tags: ["Zoll"] }]);
+    const again = await addItems(owner.token, seed.trip.id, [{ name: "PASS", tags: ["zoll"] }]);
+    expect(again.aiChangeId).toBeNull();
+  });
+
+  it("refuses the whole add for a merge past 10 tags or an invalid tag, naming the index and writing nothing", async () => {
+    const { seed, owner } = await setupConnectorTrip();
+    await addItems(owner.token, seed.trip.id, [{ name: "Koffer", tags: ten }]);
+    const items = await prisma.packingItem.count();
+    const changes = await prisma.aiChange.count();
+
+    const overflow = await callTool(owner.token, "add_packing_items", {
+      tripId: seed.trip.id,
+      items: [{ name: "Neu", tags: ["Kaufen"] }, { name: "koffer", tags: ["Elf"] }],
+    });
+    expect(errorText(overflow)).toBe(`items[1]: ${LIMIT}`);
+    for (const [tag, message] of [
+      ["x".repeat(31), "Tag must be at most 30 characters"],
+      ["a,b", "Tag must not contain a comma"],
+      ["  ", "Tag is required"],
+    ]) {
+      const body = await callTool(owner.token, "add_packing_items", {
+        tripId: seed.trip.id,
+        items: [{ name: "Neu" }, { name: "Neu2", tags: [tag] }],
+      });
+      expect(errorText(body)).toBe(`items[1]: ${message}.`);
+    }
+    expect(await prisma.packingItem.count()).toBe(items);
+    expect(await prisma.aiChange.count()).toBe(changes);
+  });
+
+  it("updates tags: addTags/removeTags, tags-only call, no-op, both lists, overflow; undo restores", async () => {
+    const { seed, owner } = await setupConnectorTrip();
+    const [item] = (await addItems(owner.token, seed.trip.id, [{ name: "Powerbank", tags: ["Aufladen"] }])).items;
+    await tick();
+    const base = { tripId: seed.trip.id, itemId: item.id };
+
+    const noop = structured<UpdateResult>(
+      await update(owner.token, { ...base, updatedAt: item.updatedAt, addTags: ["AUFLADEN"], removeTags: ["Nope"] }),
+    );
+    expect(noop.aiChangeId).toBeNull();
+
+    expect(
+      errorText(await update(owner.token, { ...base, updatedAt: item.updatedAt, addTags: ["Kaufen"], removeTags: ["kaufen"] })),
+    ).toBe("A tag cannot be in both addTags and removeTags.");
+    expect(errorText(await update(owner.token, { ...base, updatedAt: item.updatedAt, addTags: ["a,b"] }))).toBe(
+      "Tag must not contain a comma.",
+    );
+
+    const changed = structured<UpdateResult>(
+      await update(owner.token, { ...base, updatedAt: item.updatedAt, addTags: ["Kaufen"], removeTags: ["aufladen"] }),
+    );
+    expect(changed.aiChangeId).toEqual(expect.any(String));
+    expect(changed.item).toMatchObject({ tags: ["Kaufen"], aiChangedAt: expect.stringMatching(ISO) });
+    expect(await prisma.aiChange.findUniqueOrThrow({ where: { id: changed.aiChangeId! } })).toMatchObject({
+      action: "packingUpdated",
+      subject: "Powerbank",
+    });
+
+    expect(errorText(await update(owner.token, { ...base, updatedAt: changed.item.updatedAt, addTags: ten }))).toBe(LIMIT);
+    expect((await list(owner.token, seed.trip.id))[0].tags).toEqual(["Kaufen"]);
+
+    expect(structured(await undoChange(owner.token, seed.trip.id, changed.aiChangeId!))).toMatchObject({ undone: true });
+    expect((await list(owner.token, seed.trip.id))[0]).toMatchObject({ tags: ["Aufladen"], updatedAt: item.updatedAt });
+  });
+
+  it("ticking or marking not needed keeps the tags", async () => {
+    const { seed, owner } = await setupConnectorTrip();
+    const [item] = (await addItems(owner.token, seed.trip.id, [{ name: "Powerbank", tags: ["Kaufen"] }])).items;
+    const ticked = structured<UpdateResult>(
+      await update(owner.token, { tripId: seed.trip.id, itemId: item.id, updatedAt: item.updatedAt, packed: true }),
+    );
+    expect(ticked.item.tags).toEqual(["Kaufen"]);
+    const marked = structured<UpdateResult>(
+      await update(owner.token, { tripId: seed.trip.id, itemId: item.id, updatedAt: ticked.item.updatedAt, notNeeded: true }),
+    );
+    expect(marked.item.tags).toEqual(["Kaufen"]);
+  });
+});
+

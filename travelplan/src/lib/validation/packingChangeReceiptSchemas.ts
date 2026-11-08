@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PACKING_TAGS_PER_ITEM_MAX } from "@/lib/trips/packingList";
 
 /**
  * Story 16.4. The stored packing receipt (`packingChangeReceipt.ts`) as `ai_changes.receipt_json` holds it.
@@ -30,10 +31,15 @@ const snapshotSchema = z
     nameKey: z.string(),
     category: z.string().nullable(),
     packed: z.boolean(),
+    // Story 16.7. Optional: a receipt stored before 16.7 has no such field (read back as `false`).
+    notNeeded: z.boolean().optional(),
     aiChangedAt: isoDateSchema.nullable(),
     createdAt: isoDateSchema,
     updatedAt: isoDateSchema,
     dayIds: z.array(idSchema).max(MAX_DAY_IDS),
+    // Story 16.8. Optional: a receipt stored before 16.8 has none (undo leaves the tags alone). The cap is a
+    // body bound above the per-item limit; no length cap on the stored text.
+    tags: z.array(z.string()).max(PACKING_TAGS_PER_ITEM_MAX * 2).optional(),
   })
   .strict();
 

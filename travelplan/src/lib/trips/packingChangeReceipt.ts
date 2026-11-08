@@ -13,6 +13,13 @@
  *   writes back, its `updatedAt` and `aiChangedAt` included, so undoing newest first works across chains.
  * - `deleted`: the write deleted the item; undo recreates it with its own id and stamps.
  *
+ * Story 16.7 adds `notNeeded` to the snapshot, additive within `version: 1`: a receipt stored before it has
+ * no such field and reads back as `notNeeded: false` (deviation D5 in the story), so it still undoes.
+ *
+ * Story 16.8 adds `tags` (the stored spellings, tag-key order), additive within `version: 1` too, but optional
+ * in memory as well: a receipt stored before 16.8 has none, and its undo leaves the item's tags as they are
+ * (deviation D5 in the story; a tag change could not have been part of it).
+ *
  * No Prisma import on purpose, like `dayChangeReceipt.ts`.
  */
 
@@ -27,7 +34,11 @@ export type PackingItemSnapshot<T extends Date | string = Date> = {
   updatedAt: T;
   /** The days the item was linked to. */
   dayIds: string[];
-};
+  /** Story 16.8. The item's tags; absent in a receipt stored before 16.8 (undo then leaves tags alone). */
+  tags?: string[];
+} & (T extends Date
+  ? { /** Story 16.7. Always present in memory. */ notNeeded: boolean }
+  : { /** Story 16.7. Absent in a receipt stored before 16.7, which means `false`. */ notNeeded?: boolean });
 
 export type PackingReceiptEntry<T extends Date | string = Date> =
   | { change: "created"; itemId: string; updatedAt: T }
@@ -45,13 +56,25 @@ export type PackingChangeReceiptWire = PackingChangeReceipt<string>;
 const mapSnapshot = <A extends Date | string, B extends Date | string>(
   snapshot: PackingItemSnapshot<A>,
   convert: (value: A) => B,
-): PackingItemSnapshot<B> => ({
-  ...snapshot,
-  dayIds: [...snapshot.dayIds],
-  aiChangedAt: snapshot.aiChangedAt === null ? null : convert(snapshot.aiChangedAt),
-  createdAt: convert(snapshot.createdAt),
-  updatedAt: convert(snapshot.updatedAt),
-});
+): PackingItemSnapshot<B> => {
+  // An absent `notNeeded` (a receipt stored before 16.7) is `false`; both directions then carry a boolean.
+  const { notNeeded } = snapshot as { notNeeded?: boolean };
+  const mapped = {
+    id: snapshot.id,
+    name: snapshot.name,
+    nameKey: snapshot.nameKey,
+    category: snapshot.category,
+    packed: snapshot.packed,
+    notNeeded: notNeeded ?? false,
+    aiChangedAt: snapshot.aiChangedAt === null ? null : convert(snapshot.aiChangedAt),
+    createdAt: convert(snapshot.createdAt),
+    updatedAt: convert(snapshot.updatedAt),
+    dayIds: [...snapshot.dayIds],
+    ...(snapshot.tags !== undefined ? { tags: [...snapshot.tags] } : {}),
+  };
+  // TypeScript cannot resolve the `notNeeded` conditional for a generic `B`; `mapped` satisfies both arms.
+  return mapped as PackingItemSnapshot<B>;
+};
 
 const mapReceipt = <A extends Date | string, B extends Date | string>(
   receipt: PackingChangeReceipt<A>,

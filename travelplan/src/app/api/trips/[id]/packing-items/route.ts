@@ -27,6 +27,14 @@ import { authorizeWrite, type RouteContext, toWire } from "./shared";
  *
  * Story 16.2: `DELETE` takes the day count the person confirmed; when the item's links changed since,
  * it answers 409 `days_changed` with the current count and deletes nothing (DW-432).
+ *
+ * Story 16.7: `PATCH { notNeeded: true, confirmedDayCount }` marks the item not needed this time (unticked,
+ * removed from its days); a changed day count is the same 409 `days_changed`. `notNeeded: false` marks it
+ * needed again. Ticking an item that is not needed is a 409 `not_needed`.
+ *
+ * Story 16.8: `POST` and `PATCH` take `tags`. On `POST` they go on a new item, or are added to the existing
+ * one (D3); a merge past 10 tags is a 409 `too_many_tags` and writes nothing. On `PATCH` they replace the
+ * item's tags.
  */
 
 export const GET = async (request: NextRequest, context: RouteContext) => {
@@ -72,11 +80,15 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
       tripId,
       name: parsed.data.name,
       category: parsed.data.category ?? null,
+      tags: parsed.data.tags,
       origin: "user",
     });
 
     if (result.status === "not_found") {
       return fail(apiError("not_found", "Trip not found"), 404);
+    }
+    if (result.status === "too_many_tags") {
+      return fail(apiError("too_many_tags", "Packing item would carry more than 10 tags"), 409);
     }
 
     return ok({ item: toWire(result.item), existed: result.status === "existed" });
@@ -105,6 +117,9 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
       name: parsed.data.name,
       category: parsed.data.category,
       packed: parsed.data.packed,
+      notNeeded: parsed.data.notNeeded,
+      tags: parsed.data.tags,
+      confirmedDayCount: parsed.data.confirmedDayCount,
       origin: "user",
     });
 
@@ -116,6 +131,12 @@ export const PATCH = async (request: NextRequest, context: RouteContext) => {
     }
     if (result.status === "duplicate_name") {
       return fail(apiError("duplicate_name", "A packing item with this name already exists"), 409);
+    }
+    if (result.status === "days_changed") {
+      return fail(apiError("days_changed", "Packing item day links changed", { dayCount: result.dayCount }), 409);
+    }
+    if (result.status === "not_needed") {
+      return fail(apiError("not_needed", "Packing item is marked not needed"), 409);
     }
 
     return ok({ item: toWire(result.item) });

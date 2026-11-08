@@ -221,6 +221,8 @@ export const toPlannerDay = (day: PlannerDay, links?: FileLinks) => ({
     name: item.name,
     category: item.category,
     packed: item.packed,
+    // Story 16.8. The item's tags, in tag-key order.
+    tags: item.tags,
   })),
 });
 
@@ -252,8 +254,9 @@ export const toTripOverview = (trip: TripWithDays) => ({
     activityCount: day.dayPlanItems.length,
     warnings: day.planConflicts.map(toWarning),
   })),
-  // Story 16.4. The packing list's progress (get_packing_list reads the items).
-  packing: { total: trip.packing.total, packed: trip.packing.packed },
+  // Story 16.4. The packing list's progress (get_packing_list reads the items). Story 16.7: total and
+  // packed count needed items only; notNeeded counts the items marked not needed this time.
+  packing: { total: trip.packing.total, packed: trip.packing.packed, notNeeded: trip.packing.notNeeded },
 });
 
 export const toBucketActivity = (item: ParkedDayPlanItemDetail, media: PlannerMedia | undefined, links?: FileLinks) =>

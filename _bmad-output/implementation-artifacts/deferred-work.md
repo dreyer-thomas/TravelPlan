@@ -4336,3 +4336,47 @@ severity: low
 summary: An `add_packing_items` with `dayId` stores its `ai_changes` row on that day. Deleting the day cascades the row away, but the items it created are trip-wide and stay, so the change drops out of the packing page notice and `list_ai_changes` and can no longer be undone.
 evidence: AC 6 asks for the day on the row by design; a fix would set the row's `tripDayId` to null on day delete for packing actions (`onDelete: SetNull` plus a scope rule), a schema change outside this story.
 status: open
+
+## Deferred from: code review of 16-7-not-needed-this-time (2026-11-08)
+
+### DW-444: markNeeded link test does not prove a single write
+
+source_spec: `_bmad-output/implementation-artifacts/16-7-not-needed-this-time.md`
+origin: bmad-code-review of 16-7, 2026-11-08
+location: `travelplan/test/packingListRepo.test.ts` (link / add-to-day with `markNeeded`)
+severity: low
+summary: Task 10 asks for "marks needed and links in one write (one `updatedAt` bump)"; the test only asserts `updatedAt` moved forward, which a double write would also pass.
+evidence: The implementation folds `notNeeded: false` into the single `touchItem` update in `linkInTx` (verified in review), so this is test strength only, not a code defect.
+status: open
+
+## Deferred from: code review of 16-8-tags-on-packing-items (2026-11-08)
+
+### DW-445: Undo of a packing change can bring back a second spelling of a tag
+
+source_spec: `_bmad-output/implementation-artifacts/16-8-tags-on-packing-items.md`
+origin: bmad-code-review of 16-8, 2026-11-08
+location: `travelplan/src/lib/repositories/packingListRepo.ts` (`restoreTags`)
+severity: low
+summary: `restoreTags` recreates the snapshot's spellings as stored, without `resolveTags`, and with a new `createdAt`. If the trip's first spelling for that key changed in between (connector removes "kaufen" from A, user adds "Kaufen" to B, undo), A gets "kaufen" back while B keeps "Kaufen".
+evidence: AC 19 asks undo to restore the prior tags exactly; AC 2 asks for one spelling per trip. The two conflict only in this sequence. A fix would resolve spellings on restore (exact by key, not by case) and keep `createdAt`.
+status: open
+
+### DW-446: App add after two lost unique races answers existed without the given tags
+
+source_spec: `_bmad-output/implementation-artifacts/16-8-tags-on-packing-items.md`
+origin: bmad-code-review of 16-8, 2026-11-08
+location: `travelplan/src/lib/repositories/packingListRepo.ts` (`createPackingItem` catch)
+severity: low
+summary: `retryOnceOnUniqueViolation` reruns once; a second unique violation falls back to answering the name winner as `existed`, so the D3 tag merge does not happen and the client is not told.
+evidence: Needs two consecutive races on the same name or tag; the JSDoc states the fallback. A fix would answer a conflict or retry the merge when tags were given.
+status: open
+
+### DW-447: No index on packing_item_tags.tag_key
+
+source_spec: `_bmad-output/implementation-artifacts/16-8-tags-on-packing-items.md`
+origin: bmad-code-review of 16-8, 2026-11-08
+location: `travelplan/prisma/migrations/20261108160000_add_packing_item_tags/migration.sql`
+severity: low
+summary: `resolveTags` filters by `tag_key IN (...)` joined to the item's trip; the only index is the primary key `(packing_item_id, tag_key)`, whose first column is the item, so the lookup scans the table.
+evidence: Tables are small today (dozens of tags per trip). An `@@index([tagKey])` in a new migration would fix it.
+status: open

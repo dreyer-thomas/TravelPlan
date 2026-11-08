@@ -195,4 +195,186 @@ describe("packing list backup (Story 16.1)", () => {
       { name: "Taucherbrille", category: "Sport", packed: true, aiChangedAt: null, dayIndexes: [1, 3] },
     ]);
   });
+
+  it("round-trips notNeeded; an archive without it imports as needed (Story 16.7)", async () => {
+    const user = await createUser();
+    const source = await seedSourceTrip(user.id);
+    await prisma.packingItem.create({
+      data: { tripId: source.id, name: "Badehose", nameKey: "badehose", category: "Kleidung", notNeeded: true },
+    });
+    const manifest = await exportManifest(user.id, source.id);
+    expect((manifest.trip.packingItems as { name: string; notNeeded: boolean }[]).map((item) => [item.name, item.notNeeded])).toEqual([
+      ["Badehose", true],
+      ["Pass", false],
+      ["Taucherbrille", false],
+    ]);
+
+    const imported = expectImported(
+      await importTripFromExportForUser({ userId: user.id, payload: tripImportPayloadSchema.parse(manifest), strategy: "createNew" }),
+    );
+    const flags = await prisma.packingItem.findMany({ where: { tripId: imported.trip.id }, orderBy: { nameKey: "asc" }, select: { name: true, notNeeded: true } });
+    expect(flags).toEqual([
+      { name: "Badehose", notNeeded: true },
+      { name: "Pass", notNeeded: false },
+      { name: "Taucherbrille", notNeeded: false },
+    ]);
+
+    // Without the field (an archive from before 16.7): every item is needed.
+    manifest.trip.packingItems = (manifest.trip.packingItems as Record<string, unknown>[]).map((entry) => {
+      const legacyEntry = { ...entry };
+      delete legacyEntry.notNeeded;
+      return legacyEntry;
+    });
+    const legacy = expectImported(
+      await importTripFromExportForUser({ userId: user.id, payload: tripImportPayloadSchema.parse(manifest), strategy: "createNew" }),
+    );
+    expect(await prisma.packingItem.count({ where: { tripId: legacy.trip.id, notNeeded: true } })).toBe(0);
+  });
+
+  it("imports a not-needed entry unpacked and unlinked, whatever the archive says (Story 16.7)", async () => {
+    const user = await createUser();
+    const source = await seedSourceTrip(user.id);
+    const manifest = await exportManifest(user.id, source.id);
+    manifest.trip.packingItems = [{ name: "Badehose", category: null, packed: true, notNeeded: true, dayIndexes: [1, 3] }];
+
+    const imported = expectImported(
+      await importTripFromExportForUser({ userId: user.id, payload: tripImportPayloadSchema.parse(manifest), strategy: "createNew" }),
+    );
+    const [item] = await prisma.packingItem.findMany({ where: { tripId: imported.trip.id }, include: { days: true } });
+    expect(item).toMatchObject({ name: "Badehose", packed: false, notNeeded: true });
+    expect(item.days).toEqual([]);
+  });
+
+  it("merges entries of one name as not needed only if all of them are (Story 16.7)", async () => {
+    const user = await createUser();
+    const source = await seedSourceTrip(user.id);
+    const manifest = await exportManifest(user.id, source.id);
+    manifest.trip.packingItems = [
+      { name: "Badehose", notNeeded: true },
+      { name: "BADEHOSE", notNeeded: false, dayIndexes: [2] },
+      { name: "Schnorchel", notNeeded: true },
+      { name: " schnorchel ", notNeeded: true, packed: true, dayIndexes: [1] },
+    ];
+
+    const imported = expectImported(
+      await importTripFromExportForUser({ userId: user.id, payload: tripImportPayloadSchema.parse(manifest), strategy: "createNew" }),
+    );
+    const items = await prisma.packingItem.findMany({
+      where: { tripId: imported.trip.id },
+      orderBy: { nameKey: "asc" },
+      select: { name: true, notNeeded: true, packed: true, days: { select: { tripDay: { select: { dayIndex: true } } } } },
+    });
+    expect(items.map((item) => ({ ...item, days: item.days.map((link) => link.tripDay.dayIndex) }))).toEqual([
+      { name: "Badehose", notNeeded: false, packed: false, days: [2] },
+      { name: "Schnorchel", notNeeded: true, packed: false, days: [] },
+    ]);
+  });
+
+  it("takes packed state and days only from the needed entries when merging (Story 16.7 review)", async () => {
+    const user = await createUser();
+    const source = await seedSourceTrip(user.id);
+    const manifest = await exportManifest(user.id, source.id);
+    manifest.trip.packingItems = [
+      // The not-needed entry first and last: neither its packed state nor its days reach the needed item.
+      { name: "Badehose", notNeeded: true, packed: true, dayIndexes: [1] },
+      { name: "badehose", notNeeded: false, packed: false, dayIndexes: [2] },
+      { name: "BADEHOSE", notNeeded: true, packed: true, dayIndexes: [3] },
+    ];
+
+    const imported = expectImported(
+      await importTripFromExportForUser({ userId: user.id, payload: tripImportPayloadSchema.parse(manifest), strategy: "createNew" }),
+    );
+    const [item] = await prisma.packingItem.findMany({
+      where: { tripId: imported.trip.id },
+      select: { name: true, notNeeded: true, packed: true, days: { select: { tripDay: { select: { dayIndex: true } } } } },
+    });
+    expect({ ...item, days: item.days.map((link) => link.tripDay.dayIndex) }).toEqual({
+      name: "Badehose",
+      notNeeded: false,
+      packed: false,
+      days: [2],
+    });
+  });
+
+  describe("tags (Story 16.8)", () => {
+    const readTags = async (tripId: string) =>
+      Object.fromEntries(
+        (
+          await prisma.packingItem.findMany({
+            where: { tripId },
+            select: { name: true, tags: { select: { tag: true }, orderBy: { tagKey: "asc" } } },
+          })
+        ).map((item) => [item.name, item.tags.map((row) => row.tag)]),
+      );
+
+    it("round-trips tags, a not-needed item's included; an archive without tags imports none", async () => {
+      const user = await createUser();
+      const source = await seedSourceTrip(user.id);
+      const brille = await prisma.packingItem.findFirstOrThrow({ where: { tripId: source.id, nameKey: "taucherbrille" } });
+      const hose = await prisma.packingItem.create({
+        data: { tripId: source.id, name: "Badehose", nameKey: "badehose", notNeeded: true },
+      });
+      await prisma.packingItemTag.createMany({
+        data: [
+          { packingItemId: brille.id, tag: "Reparieren", tagKey: "reparieren" },
+          { packingItemId: brille.id, tag: "Kaufen", tagKey: "kaufen" },
+          { packingItemId: hose.id, tag: "Kaufen", tagKey: "kaufen" },
+        ],
+      });
+
+      const manifest = await exportManifest(user.id, source.id);
+      const imported = expectImported(
+        await importTripFromExportForUser({ userId: user.id, payload: tripImportPayloadSchema.parse(manifest), strategy: "createNew" }),
+      );
+      expect(await readTags(imported.trip.id)).toEqual({
+        Badehose: ["Kaufen"],
+        Pass: [],
+        Taucherbrille: ["Kaufen", "Reparieren"],
+      });
+
+      for (const entry of manifest.trip.packingItems as Record<string, unknown>[]) delete entry.tags;
+      const old = expectImported(
+        await importTripFromExportForUser({ userId: user.id, payload: tripImportPayloadSchema.parse(manifest), strategy: "createNew" }),
+      );
+      expect(await prisma.packingItemTag.count({ where: { packingItem: { tripId: old.trip.id } } })).toBe(0);
+    });
+
+    it("merges entries of one name with the union of their tags, one spelling per trip, capped at 10", async () => {
+      const user = await createUser();
+      const source = await seedSourceTrip(user.id);
+      const manifest = await exportManifest(user.id, source.id);
+      const many = Array.from({ length: 9 }, (_, index) => `t${index}`);
+      manifest.trip.packingItems = [
+        { name: "Powerbank", tags: ["Aufladen", "kaufen"] },
+        { name: "POWERBANK", tags: ["AUFLADEN", "Zoll"] },
+        { name: "Hut", tags: ["KAUFEN"] },
+        { name: "Koffer", tags: many },
+        { name: "koffer", tags: ["Elf", "Zwölf"] },
+        // Story 16.8 review: "Zwölf" is turned away by Koffer's cap, yet its archive spelling still counts.
+        { name: "Mütze", tags: ["ZWÖLF"] },
+      ];
+      const imported = expectImported(
+        await importTripFromExportForUser({ userId: user.id, payload: tripImportPayloadSchema.parse(manifest), strategy: "createNew" }),
+      );
+      const tags = await readTags(imported.trip.id);
+      expect(tags.Powerbank).toEqual(["Aufladen", "kaufen", "Zoll"]);
+      expect(tags.Hut).toEqual(["kaufen"]);
+      expect(tags.Koffer).toHaveLength(10);
+      expect(tags.Koffer).toContain("Elf");
+      expect(tags.Koffer).not.toContain("Zwölf");
+      expect(tags.Mütze).toEqual(["Zwölf"]);
+    });
+
+    it("refuses an invalid tag or more than 10 in one entry", async () => {
+      const user = await createUser();
+      const source = await seedSourceTrip(user.id);
+      const manifest = await exportManifest(user.id, source.id);
+      for (const tags of [["x".repeat(31)], ["a,b"], ["  "], Array.from({ length: 11 }, (_, index) => `t${index}`)]) {
+        manifest.trip.packingItems = [{ name: "ok", tags }];
+        expect(tripImportPayloadSchema.safeParse(manifest).success).toBe(false);
+      }
+      manifest.trip.packingItems = [{ name: "ok", tags: ["x".repeat(30)] }];
+      expect(tripImportPayloadSchema.safeParse(manifest).success).toBe(true);
+    });
+  });
 });

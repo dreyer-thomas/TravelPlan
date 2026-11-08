@@ -17,6 +17,8 @@ type WireItem = {
   name: string;
   category: string | null;
   packed: boolean;
+  notNeeded: boolean;
+  tags: string[];
   dayCount: number;
   days: { id: string; dayIndex: number; date: string }[];
   aiChangedAt: string | null;
@@ -251,5 +253,93 @@ describe("/api/trips/[id]/packing-items (Story 16.1)", () => {
     expect(await prisma.packingItemDay.count()).toBe(0);
 
     expect((await write("DELETE", ctx.trip.id, ctx.owner, { itemId: item.id, confirmedDayCount: -1 })).status).toBe(400);
+  });
+
+  it("marks an item not needed and needed again; the wire carries notNeeded (Story 16.7)", async () => {
+    const ctx = await setup();
+    const day = await prisma.tripDay.create({ data: { tripId: ctx.trip.id, dayIndex: 1, date: new Date("2026-12-01T00:00:00.000Z") } });
+    const item = await prisma.packingItem.create({ data: { tripId: ctx.trip.id, name: "Badehose", nameKey: "badehose", packed: true } });
+    await prisma.packingItemDay.create({ data: { packingItemId: item.id, tripDayId: day.id } });
+
+    const listed = await GET(buildRequest(url(ctx.trip.id), { session: ctx.viewer }), routeContext(ctx.trip.id));
+    expect(((await listed.json()) as ApiEnvelope<{ items: WireItem[] }>).data!.items[0].notNeeded).toBe(false);
+
+    const stale = await write("PATCH", ctx.trip.id, ctx.contributor, { itemId: item.id, notNeeded: true, confirmedDayCount: 0 });
+    expect(stale.status).toBe(409);
+    expect(((await stale.json()) as ApiEnvelope<unknown>).error).toMatchObject({ code: "days_changed", details: { dayCount: 1 } });
+    expect(await prisma.packingItemDay.count()).toBe(1);
+
+    const marked = await write("PATCH", ctx.trip.id, ctx.contributor, { itemId: item.id, notNeeded: true, confirmedDayCount: 1 });
+    expect(marked.status).toBe(200);
+    expect(((await marked.json()) as ApiEnvelope<{ item: WireItem }>).data!.item).toMatchObject({
+      notNeeded: true,
+      packed: false,
+      dayCount: 0,
+      days: [],
+      aiChangedAt: null,
+    });
+
+    const tick = await write("PATCH", ctx.trip.id, ctx.owner, { itemId: item.id, packed: true });
+    expect(tick.status).toBe(409);
+    expect(((await tick.json()) as ApiEnvelope<unknown>).error).toMatchObject({ code: "not_needed" });
+
+    const needed = await write("PATCH", ctx.trip.id, ctx.owner, { itemId: item.id, notNeeded: false });
+    expect(needed.status).toBe(200);
+    expect(((await needed.json()) as ApiEnvelope<{ item: WireItem }>).data!.item).toMatchObject({ notNeeded: false, packed: false });
+  });
+
+  it("answers 400 for notNeeded with packed true and for confirmedDayCount alone; 403 for a viewer (Story 16.7)", async () => {
+    const ctx = await setup();
+    const item = await prisma.packingItem.create({ data: { tripId: ctx.trip.id, name: "Pass", nameKey: "pass" } });
+
+    expect((await write("PATCH", ctx.trip.id, ctx.owner, { itemId: item.id, notNeeded: true, packed: true })).status).toBe(400);
+    expect((await write("PATCH", ctx.trip.id, ctx.owner, { itemId: item.id, confirmedDayCount: 0 })).status).toBe(400);
+    expect((await write("PATCH", ctx.trip.id, ctx.owner, { itemId: item.id, notNeeded: false, confirmedDayCount: 0 })).status).toBe(400);
+    expect((await write("PATCH", ctx.trip.id, ctx.owner, { itemId: item.id, notNeeded: "yes" })).status).toBe(400);
+    expect((await write("PATCH", ctx.trip.id, ctx.viewer, { itemId: item.id, notNeeded: true })).status).toBe(403);
+    expect((await prisma.packingItem.findUniqueOrThrow({ where: { id: item.id } })).notNeeded).toBe(false);
+  });
+
+  it("creates with tags, merges tags onto an existing name, replaces them on PATCH; the wire carries tags (Story 16.8)", async () => {
+    const ctx = await setup();
+    const created = await write("POST", ctx.trip.id, ctx.contributor, { name: "Powerbank", tags: ["Kaufen", " aufladen ", "kaufen"] });
+    const createdBody = (await created.json()) as ApiEnvelope<{ item: WireItem; existed: boolean }>;
+    expect(created.status).toBe(200);
+    expect(createdBody.data!.item.tags).toEqual(["aufladen", "Kaufen"]);
+
+    const merged = await write("POST", ctx.trip.id, ctx.owner, { name: "POWERBANK", tags: ["Reparieren"] });
+    const mergedBody = (await merged.json()) as ApiEnvelope<{ item: WireItem; existed: boolean }>;
+    expect(mergedBody.data!.existed).toBe(true);
+    expect(mergedBody.data!.item.tags).toEqual(["aufladen", "Kaufen", "Reparieren"]);
+
+    const patched = await write("PATCH", ctx.trip.id, ctx.owner, { itemId: createdBody.data!.item.id, tags: ["Aufladen"] });
+    const patchedBody = (await patched.json()) as ApiEnvelope<{ item: WireItem }>;
+    expect(patched.status).toBe(200);
+    expect(patchedBody.data!.item.tags).toEqual(["Aufladen"]);
+
+    const list = await GET(buildRequest(url(ctx.trip.id), { session: ctx.viewer }), routeContext(ctx.trip.id));
+    const listBody = (await list.json()) as ApiEnvelope<{ items: WireItem[] }>;
+    expect(listBody.data!.items[0].tags).toEqual(["Aufladen"]);
+  });
+
+  it("answers 400 for a 31-character tag, a comma or 11 tags; 409 too_many_tags for a merge past 10; 403 for a viewer (Story 16.8)", async () => {
+    const ctx = await setup();
+    const eleven = Array.from({ length: 11 }, (_, index) => `t${index}`);
+    expect((await write("POST", ctx.trip.id, ctx.owner, { name: "X", tags: ["a".repeat(31)] })).status).toBe(400);
+    expect((await write("POST", ctx.trip.id, ctx.owner, { name: "X", tags: ["a,b"] })).status).toBe(400);
+    expect((await write("POST", ctx.trip.id, ctx.owner, { name: "X", tags: eleven })).status).toBe(400);
+    expect((await write("POST", ctx.trip.id, ctx.owner, { name: "X", tags: ["a".repeat(30)] })).status).toBe(200);
+
+    const item = await write("POST", ctx.trip.id, ctx.owner, { name: "Koffer", tags: eleven.slice(0, 10) });
+    const itemId = ((await item.json()) as ApiEnvelope<{ item: WireItem }>).data!.item.id;
+    expect((await write("PATCH", ctx.trip.id, ctx.owner, { itemId, tags: eleven })).status).toBe(400);
+    const overflow = await write("POST", ctx.trip.id, ctx.owner, { name: "koffer", tags: ["Elf"] });
+    expect(overflow.status).toBe(409);
+    expect(((await overflow.json()) as ApiEnvelope<unknown>).error!.code).toBe("too_many_tags");
+    expect(await prisma.packingItemTag.count({ where: { packingItemId: itemId } })).toBe(10);
+
+    expect((await write("PATCH", ctx.trip.id, ctx.viewer, { itemId, tags: [] })).status).toBe(403);
+    expect((await write("POST", ctx.trip.id, ctx.viewer, { name: "Neu", tags: ["Kaufen"] })).status).toBe(403);
+    expect(await prisma.packingItemTag.count({ where: { packingItemId: itemId } })).toBe(10);
   });
 });

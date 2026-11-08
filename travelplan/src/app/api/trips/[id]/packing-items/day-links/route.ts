@@ -17,11 +17,15 @@ import { authorizeWrite, type RouteContext, toWire } from "../shared";
  * list, decides that a typed name already exists. `DELETE { tripDayId, itemId }` removes only the link.
  * Both are writes: writer gate here (viewer 403, outsider 404) plus the repository's writer clause. A day
  * or item of another trip is a 404 and writes nothing.
+ *
+ * Story 16.7: a not-needed item is a 409 `not_needed` and nothing is written, unless the payload says
+ * `markNeeded: true` - then it is marked needed and linked in one write.
  */
 
 const tripNotFound = () => fail(apiError("not_found", "Trip not found"), 404);
 const dayNotFound = () => fail(apiError("not_found", "Trip day not found"), 404);
 const itemNotFound = () => fail(apiError("not_found", "Packing item not found"), 404);
+const itemNotNeeded = () => fail(apiError("not_needed", "Packing item is marked not needed"), 409);
 
 export const POST = async (request: NextRequest, context: RouteContext) => {
   const gate = await authorizeWrite(request, context);
@@ -42,11 +46,13 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
         tripId,
         tripDayId: parsed.data.tripDayId,
         itemId: parsed.data.itemId,
+        markNeeded: parsed.data.markNeeded,
         origin: "user",
       });
       if (result.status === "not_found") return tripNotFound();
       if (result.status === "day_missing") return dayNotFound();
       if (result.status === "missing") return itemNotFound();
+      if (result.status === "not_needed") return itemNotNeeded();
       return ok({ item: toWire(result.item), created: false });
     }
 
@@ -56,10 +62,12 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
       tripDayId: parsed.data.tripDayId,
       name: parsed.data.name,
       category: parsed.data.category ?? null,
+      markNeeded: parsed.data.markNeeded,
       origin: "user",
     });
     if (result.status === "not_found") return tripNotFound();
     if (result.status === "day_missing") return dayNotFound();
+    if (result.status === "not_needed") return itemNotNeeded();
     return ok({ item: toWire(result.item), created: result.status === "created" });
   } catch {
     return fail(apiError("server_error", "Unable to add packing item to the day"), 500);

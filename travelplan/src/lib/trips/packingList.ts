@@ -134,3 +134,119 @@ export const resolvePackingCategorySelection = (
   const wanted = new Set(stored.map((key) => (key === null ? null : key.toLowerCase())));
   return groupKeys.filter((key) => wanted.has(key));
 };
+
+/*
+ * Story 16.8 (FR58). Free tags on packing items ("Kaufen", "Aufladen"). A tag is NFC, trimmed, 1–30
+ * characters, without a comma; an item carries at most 10, unique ignoring case. Across the trip one
+ * spelling per key is stored (the repository resolves it, as it does for categories).
+ */
+
+export const PACKING_TAG_MAX = 30;
+export const PACKING_TAGS_PER_ITEM_MAX = 10;
+
+/** The stored spelling of a tag: NFC, trimmed. */
+export const normalizePackingTag = (raw: string) => raw.normalize("NFC").trim();
+
+/** The tag's key: NFC, trimmed, lower-cased (the same folding as `packingNameKey`). */
+export const packingTagKey = (tag: string) => normalizePackingTag(tag).toLowerCase();
+
+/** Normalized, empties dropped, the first spelling per key kept, in input order. */
+export const dedupePackingTags = (tags: readonly string[]): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of tags) {
+    const tag = normalizePackingTag(raw);
+    if (tag.length === 0) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(tag);
+  }
+  return result;
+};
+
+const tagCollator = (locale: string) => new Intl.Collator(locale, { sensitivity: "base", numeric: true });
+
+const compareTags = (collator: Intl.Collator) => (left: string, right: string) => {
+  const byLabel = collator.compare(left, right);
+  if (byLabel !== 0) return byLabel;
+  const leftKey = packingTagKey(left);
+  const rightKey = packingTagKey(right);
+  return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+};
+
+/** Alphabetical (locale collator, ignoring case), ties by key (D2). A new array. */
+export const sortPackingTags = (tags: readonly string[], locale = "en"): string[] =>
+  [...tags].sort(compareTags(tagCollator(locale)));
+
+/**
+ * The tags input's suggestions: the localized defaults first, then every tag already used on the trip that
+ * is not one of them (ignoring case), alphabetically. The twin of `suggestedPackingCategories`.
+ */
+export const suggestedPackingTags = (
+  defaults: readonly string[],
+  usedTags: readonly string[],
+  locale = "en",
+): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const label of defaults) {
+    const tag = normalizePackingTag(label);
+    const key = tag.toLowerCase();
+    if (key.length === 0 || seen.has(key)) continue;
+    seen.add(key);
+    result.push(tag);
+  }
+  const extra: string[] = [];
+  for (const raw of usedTags) {
+    const tag = normalizePackingTag(raw);
+    const key = tag.toLowerCase();
+    if (key.length === 0 || seen.has(key)) continue;
+    seen.add(key);
+    extra.push(tag);
+  }
+  return [...result, ...sortPackingTags(extra, locale)];
+};
+
+export type PackingTagChip = { key: string; label: string };
+
+/** Every tag of the trip's items, the first spelling met per key, sorted by label — the tag filter's chips. */
+export const collectPackingTags = (
+  items: readonly { tags: readonly string[] }[],
+  locale = "en",
+): PackingTagChip[] => {
+  const byKey = new Map<string, string>();
+  for (const item of items) {
+    for (const raw of item.tags) {
+      const tag = normalizePackingTag(raw);
+      const key = tag.toLowerCase();
+      if (key.length === 0 || byKey.has(key)) continue;
+      byKey.set(key, tag);
+    }
+  }
+  const collator = tagCollator(locale);
+  return [...byKey.entries()]
+    .map(([key, label]) => ({ key, label }))
+    .sort((left, right) => {
+      const byLabel = collator.compare(left.label, right.label);
+      if (byLabel !== 0) return byLabel;
+      return left.key < right.key ? -1 : left.key > right.key ? 1 : 0;
+    });
+};
+
+/**
+ * The effective tag selection: the stored keys (lower-cased again) that exist among `tagKeys`, in
+ * `tagKeys` order. Unlike categories, one tag is enough for a filter. A vanished key is only ignored here,
+ * never erased.
+ */
+export const resolvePackingTagSelection = (stored: readonly string[], tagKeys: readonly string[]): string[] => {
+  const wanted = new Set(stored.filter((key) => typeof key === "string").map((key) => key.toLowerCase()));
+  return tagKeys.filter((key) => wanted.has(key));
+};
+
+/** Whether the item carries any of the selected tag keys; `true` for an empty selection (no tag filter). */
+export const itemHasAnyPackingTag = (item: { tags: readonly string[] }, selectedKeys: readonly string[]): boolean => {
+  if (selectedKeys.length === 0) return true;
+  const selected = new Set(selectedKeys);
+  return item.tags.some((tag) => selected.has(packingTagKey(tag)));
+};

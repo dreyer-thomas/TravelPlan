@@ -102,5 +102,13 @@ describe("plannerShapes (Story 15.2)", () => {
     expect(previousStayOf("  ")).toMatchObject({ checkOutTime: "10:00" });
     expect(previousStayOf("late")).toMatchObject({ checkOutTime: "10:00" });
     expect(toPlannerDay({ ...day, previousStay: null }).previousStay).toBeNull();
+    // Story 16.8. The day's packing items carry their tags.
+    expect(
+      toPlannerDay({
+        ...day,
+        previousStay: null,
+        packingItems: [{ id: "p", name: "Powerbank", category: null, packed: false, tags: ["Aufladen", "Kaufen"] }],
+      }).packingItems,
+    ).toEqual([{ id: "p", name: "Powerbank", category: null, packed: false, tags: ["Aufladen", "Kaufen"] }]);
   });
 });

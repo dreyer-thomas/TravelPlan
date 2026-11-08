@@ -42,6 +42,8 @@ const APP_VERSION = process.env.npm_package_version ?? "0.1.0";
  * version 2.
  *
  * Story 16.1 adds `trip.packingItems` (name, category, packed, linked `dayIndexes`), additive within v2.
+ * Story 16.7 adds `notNeeded` to each of them, additive within v2.
+ * Story 16.8 adds `tags` (strings, in tag-key order) to each of them, additive within v2.
  */
 const FORMAT_VERSION = 2;
 const MANIFEST_ENTRY_NAME = "trip.json";

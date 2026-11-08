@@ -70,7 +70,8 @@ type TripSummary = {
   /** Versions the hero URL; see `withImageCacheBuster`. Optional so an older cached payload still renders. */
   updatedAt?: string;
   /** Story 16.1. The packing list's progress; optional so an older payload or a fixture still renders. */
-  packing?: { total: number; packed: number };
+  /** Story 16.7: `total`/`packed` count needed items; `notNeeded` is optional for the same reason. */
+  packing?: { total: number; packed: number; notNeeded?: number };
 };
 
 type TripDay = {
@@ -139,6 +140,21 @@ type TripTimelineProps = {
 // Only reached when the header is absent or unparseable - the route always sends one, so this is
 // the "something upstream changed" name, not the normal one.
 const EXPORT_FILENAME_FALLBACK = "trip-backup.zip";
+
+/**
+ * Story 16.7 (AC 6). The packing entry's line, shared by its visible text and its aria-label: "Empty yet"
+ * for an empty list, the needed-items progress otherwise, with "· N not needed" whenever N > 0 (also when
+ * every item is not needed: "0 of 0 packed · 4 not needed").
+ */
+const packingCardTextOf = (packing: TripSummary["packing"], t: (key: string) => string) => {
+  const total = packing?.total ?? 0;
+  const notNeeded = packing?.notNeeded ?? 0;
+  if (!packing || (total === 0 && notNeeded === 0)) return t("trips.packingList.emptyShort");
+  if (notNeeded > 0) {
+    return formatMessage(t("trips.packingList.progressWithNotNeeded"), { packed: packing.packed, total, notNeeded });
+  }
+  return formatMessage(t("trips.packingList.progress"), { packed: packing.packed, total });
+};
 
 // The one breakpoint the day card's stacked/inline layout turns on, read by `data-layout`, by the
 // card's grid templates and by its photo's size - see the comments at those three sites. Annotated
@@ -1234,14 +1250,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
               <Box
                 component={Link}
                 href={`/trips/${tripId}/packing`}
-                aria-label={`${t("trips.packingList.openAria")}, ${
-                  detail.trip.packing && detail.trip.packing.total > 0
-                    ? formatMessage(t("trips.packingList.progress"), {
-                        packed: detail.trip.packing.packed,
-                        total: detail.trip.packing.total,
-                      })
-                    : t("trips.packingList.emptyShort")
-                }`}
+                aria-label={`${t("trips.packingList.openAria")}, ${packingCardTextOf(detail.trip.packing, t)}`}
                 data-testid="trip-packing-card"
                 sx={{
                   display: "block",
@@ -1261,12 +1270,7 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                   {t("trips.packingList.title")}
                 </Typography>
                 <Typography variant="body1" sx={{ color: tokens.ink }} data-testid="trip-packing-card-progress">
-                  {detail.trip.packing && detail.trip.packing.total > 0
-                    ? formatMessage(t("trips.packingList.progress"), {
-                        packed: detail.trip.packing.packed,
-                        total: detail.trip.packing.total,
-                      })
-                    : t("trips.packingList.emptyShort")}
+                  {packingCardTextOf(detail.trip.packing, t)}
                 </Typography>
               </Box>
 

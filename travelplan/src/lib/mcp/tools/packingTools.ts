@@ -30,7 +30,8 @@ import {
 import type { TransactionClient } from "@/lib/repositories/travelSegmentRepo";
 import type { PackingChangeReceipt } from "@/lib/trips/packingChangeReceipt";
 import { ChangedSinceReadError } from "@/lib/trips/writeOrigin";
-import { categoryField, nameField } from "@/lib/validation/packingListSchemas";
+import { PACKING_TAGS_PER_ITEM_MAX, dedupePackingTags, packingTagKey } from "@/lib/trips/packingList";
+import { categoryField, nameField, tagField } from "@/lib/validation/packingListSchemas";
 
 /**
  * Story 16.4 (FR53, FR54, FR57). The trip's packing list through the connector, on the 15.4 rails: writers
@@ -38,13 +39,21 @@ import { categoryField, nameField } from "@/lib/validation/packingListSchemas";
  * with the packing receipt in the write's own transaction, so it is undoable from the tool and the app.
  * Names and categories follow the app's rules (`packingListSchemas.ts`); every write goes through
  * `packingListRepo.ts`, which sets the item's KI/AI marker.
+ *
+ * Story 16.8: items carry `tags`; `add_packing_items` takes them per item (added to an existing name),
+ * `update_packing_item` takes `addTags` / `removeTags`. No new tool and no new `ai_changes` action.
  */
 
 export const PACKING_ITEM_NOT_FOUND = "Packing item not found";
+/** Story 16.7. Ticking or linking an item that is, or would end up, not needed. */
+export const PACKING_ITEM_NOT_NEEDED = "Item is marked not needed; set notNeeded false first";
 export const PACKING_CHANGED_SINCE_READ = "Packing item changed since you read it; read the list again";
 const UNSTORABLE_RECEIPT = "This packing list holds data the undo cannot keep, so nothing was written.";
 const NOTHING_TO_CHANGE = "Nothing to change.";
 const DAY_IN_BOTH = "A day cannot be in both addDayIds and removeDayIds.";
+/** Story 16.8. */
+export const PACKING_TAG_LIMIT = "An item carries at most 10 tags";
+export const TAG_IN_BOTH = "A tag cannot be in both addTags and removeTags.";
 /** The longest `subject` an add stores, in code points. */
 const MAX_SUBJECT_LENGTH = 120;
 /** The most items one `add_packing_items` call takes. */
@@ -52,6 +61,7 @@ export const MAX_PACKING_ITEMS_PER_CALL = 50;
 
 const itemIdField = idSchema.describe("The packing item's id, from get_packing_list.");
 const dayIdsField = z.array(idSchema).max(366);
+const tagListField = z.array(z.string()).max(PACKING_TAGS_PER_ITEM_MAX);
 
 const getInput = z.object({
   tripId: tripIdField,
@@ -69,6 +79,12 @@ const addInput = z.object({
           .nullable()
           .optional()
           .describe("Optional category (at most 40 characters), e.g. Kleidung, Technik, Dokumente."),
+        tags: tagListField
+          .optional()
+          .describe(
+            "Optional tags (at most 10, each 1-30 characters, no comma), e.g. Kaufen, Aufladen. For a name that " +
+              "exists, these are added to the item's tags.",
+          ),
       }),
     )
     .min(1)
@@ -90,9 +106,32 @@ const updateInput = z.object({
     .optional()
     .describe("New category (at most 40 characters); null or an empty string removes it."),
   packed: z.boolean().optional().describe("true = ticked off as packed."),
+  notNeeded: z
+    .boolean()
+    .optional()
+    .describe(
+      "true = not needed on this trip (kept on the list): unticks the item and removes it from every day it " +
+        "is linked to. false = needed again (open).",
+    ),
   addDayIds: dayIdsField.optional().describe("Days to link the item to (ids from get_trip)."),
   removeDayIds: dayIdsField.optional().describe("Days to unlink the item from."),
+  addTags: tagListField
+    .optional()
+    .describe("Tags to add (each 1-30 characters, no comma); one the item has (ignoring case) is skipped."),
+  removeTags: tagListField.optional().describe("Tags to remove (ignoring case); one the item lacks is skipped."),
 });
+
+/** Each tag through the app's tag rules; the first invalid one answers its message. */
+const parseTags = (tags: readonly string[] | undefined): { tags?: string[]; error?: string } => {
+  if (tags === undefined) return {};
+  const parsed: string[] = [];
+  for (const raw of tags) {
+    const tag = tagField.safeParse(raw);
+    if (!tag.success) return { error: firstMessage(tag.error) };
+    parsed.push(tag.data);
+  }
+  return { tags: dedupePackingTags(parsed) };
+};
 
 const deleteInput = z.object({ tripId: tripIdField, itemId: itemIdField });
 
@@ -150,7 +189,9 @@ export const registerPackingTools = (server: McpServer) => {
       title: "Read the trip's packing list",
       description:
         "Returns the trip's shared packing list, sorted by name: per item id, name, category (or null), packed " +
-        "(ticked off), dayIds (the days the item is needed on, in day order), updatedAt and aiChangedAt (ISO " +
+        "(ticked off), notNeeded (kept on the list but not needed on this trip; such an item is never packed " +
+        "and never linked to a day), tags (free labels such as Kaufen or Aufladen, at most 10 per item; matched " +
+        "ignoring case across the trip and stored in the trip's first spelling), dayIds (the days the item is needed on, in day order), updatedAt and aiChangedAt (ISO " +
         "8601; aiChangedAt is set while the last change came through this connector). Give dayId for one day's " +
         "items only. There are no quantities. Pass an item's updatedAt to update_packing_item.",
       inputSchema: getInput,
@@ -177,10 +218,14 @@ export const registerPackingTools = (server: McpServer) => {
       title: "Add items to the packing list",
       description:
         `Adds 1-${MAX_PACKING_ITEMS_PER_CALL} items to the trip's shared packing list, each with a name (1-80 ` +
-        "characters) and an optional category (at most 40). Names are unique per trip ignoring case: a name " +
-        "that exists resolves to that item (status existed; its category and packed state stay), so this " +
+        "characters), an optional category (at most 40) and optional tags (at most 10 per item). Names are unique " +
+        "per trip ignoring case: a name that exists resolves to that item (status existed; the given tags are " +
+        "added to it, and its category, packed and notNeeded state stay, " +
+        "so a name marked not needed stays not needed and comes back with notNeeded true), so this " +
         "never makes a duplicate. There are no quantities. With dayId every item is also linked to that day " +
-        "(the things the day needs). One invalid item refuses the whole call. Returns results (one per input: " +
+        "(the things the day needs); with dayId, a name that is an item marked not needed refuses the whole call " +
+        "(set notNeeded false with update_packing_item first). One invalid item, or an item that would end up " +
+        "with more than 10 tags, refuses the whole call. Returns results (one per input: " +
         "name, itemId, status created or existed), items (as get_packing_list shows them) and aiChangeId (null " +
         "when nothing was written). Undo with undo_ai_change.",
       inputSchema: addInput,
@@ -191,13 +236,15 @@ export const registerPackingTools = (server: McpServer) => {
         const caller = await startWrite(userId, args.tripId, clientId);
         if (!isCaller(caller)) return caller;
 
-        const items: { name: string; category: string | null | undefined }[] = [];
+        const items: { name: string; category: string | null | undefined; tags?: string[] }[] = [];
         for (const [index, input] of args.items.entries()) {
           const name = nameField.safeParse(input.name);
           if (!name.success) return toolError(`items[${index}]: ${firstMessage(name.error)}.`);
           const category = input.category === undefined ? undefined : categoryField.safeParse(input.category);
           if (category && !category.success) return toolError(`items[${index}]: ${firstMessage(category.error)}.`);
-          items.push({ name: name.data, category: category?.data });
+          const tags = parseTags(input.tags);
+          if (tags.error !== undefined) return toolError(`items[${index}]: ${tags.error}.`);
+          items.push({ name: name.data, category: category?.data, tags: tags.tags });
         }
 
         const change = recordPackingChange(caller, "packingAdded", args.dayId ?? null, async (tx, receipt) =>
@@ -217,6 +264,8 @@ export const registerPackingTools = (server: McpServer) => {
         }
         if (result.status === "not_found") return toolError(TRIP_NOT_FOUND);
         if (result.status === "day_missing") return toolError(DAY_NOT_FOUND);
+        if (result.status === "not_needed") return toolError(`items[${result.index}]: ${PACKING_ITEM_NOT_NEEDED}`);
+        if (result.status === "too_many_tags") return toolError(`items[${result.index}]: ${PACKING_TAG_LIMIT}`);
 
         return toolResult({
           aiChangeId: result.written ? change.id() : null,
@@ -237,7 +286,11 @@ export const registerPackingTools = (server: McpServer) => {
       description:
         "Changes one packing item: name (must not be another item's name, ignoring case), category (null or an " +
         "empty string removes it), packed (tick off or untick), and the days it is linked to (addDayIds, " +
-        "removeDayIds). Only the given fields change. Pass the item's updatedAt exactly as get_packing_list " +
+        "removeDayIds), tags (addTags, removeTags; an item carries at most 10, and ticking off or marking not " +
+        "needed keeps them), and notNeeded. notNeeded true marks the item not needed on this trip: it unticks it " +
+        "and removes it from every day it is linked to, so confirm with the user first, naming those days. A " +
+        "not-needed item cannot be ticked off or linked to a day until notNeeded is set false (in the same " +
+        "call is fine). Only the given fields change. Pass the item's updatedAt exactly as get_packing_list " +
         "returned it: if the item changed since, nothing is written. Returns aiChangeId (null when nothing " +
         "changed) and the item as get_packing_list shows it. Undo with undo_ai_change.",
       inputSchema: updateInput,
@@ -252,13 +305,22 @@ export const registerPackingTools = (server: McpServer) => {
           args.name === undefined &&
           args.category === undefined &&
           args.packed === undefined &&
+          args.notNeeded === undefined &&
           (args.addDayIds ?? []).length === 0 &&
-          (args.removeDayIds ?? []).length === 0
+          (args.removeDayIds ?? []).length === 0 &&
+          (args.addTags ?? []).length === 0 &&
+          (args.removeTags ?? []).length === 0
         ) {
           return toolError(NOTHING_TO_CHANGE);
         }
         const removing = new Set(args.removeDayIds ?? []);
         if ((args.addDayIds ?? []).some((dayId) => removing.has(dayId))) return toolError(DAY_IN_BOTH);
+        const addTags = parseTags(args.addTags);
+        if (addTags.error !== undefined) return toolError(`${addTags.error}.`);
+        const removeTags = parseTags(args.removeTags);
+        if (removeTags.error !== undefined) return toolError(`${removeTags.error}.`);
+        const removingTags = new Set((removeTags.tags ?? []).map(packingTagKey));
+        if ((addTags.tags ?? []).some((tag) => removingTags.has(packingTagKey(tag)))) return toolError(TAG_IN_BOTH);
 
         let name: string | undefined;
         if (args.name !== undefined) {
@@ -286,8 +348,11 @@ export const registerPackingTools = (server: McpServer) => {
             name,
             category,
             packed: args.packed,
+            notNeeded: args.notNeeded,
             addDayIds: args.addDayIds,
             removeDayIds: args.removeDayIds,
+            addTags: addTags.tags,
+            removeTags: removeTags.tags,
             inTransaction: change.hook,
           });
         } catch (error) {
@@ -302,6 +367,10 @@ export const registerPackingTools = (server: McpServer) => {
             return toolError(DAY_NOT_FOUND);
           case "duplicate_name":
             return toolError(`A packing item named "${name ?? args.name}" already exists.`);
+          case "not_needed":
+            return toolError(PACKING_ITEM_NOT_NEEDED);
+          case "too_many_tags":
+            return toolError(PACKING_TAG_LIMIT);
           case "unchanged":
             return toolResult({ aiChangeId: null, item: toPackingItem(result.item) });
           case "updated":

@@ -112,3 +112,8 @@ export type PackingItem = Prisma.PackingItemModel
  * 
  */
 export type PackingItemDay = Prisma.PackingItemDayModel
+/**
+ * Model PackingItemTag
+ * 
+ */
+export type PackingItemTag = Prisma.PackingItemTagModel

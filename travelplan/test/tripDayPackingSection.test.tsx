@@ -18,6 +18,8 @@ const item = (overrides: Partial<PackingItemWire> & { id: string; name: string }
   return {
     category: null,
     packed: false,
+    notNeeded: false,
+    tags: [],
     aiChangedAt: null,
     createdAt: "2026-11-01T10:00:00.000Z",
     updatedAt: "2026-11-01T10:00:00.000Z",
@@ -39,7 +41,8 @@ const installApi = (items: PackingItemWire[], writeAnswer?: (call: Call) => Resp
       const call = { url, method, body };
       calls.push(call);
       if (url.includes("/api/auth/csrf")) return mockFetchResponse({ data: { csrfToken: "csrf" }, error: null });
-      if (method === "GET") return mockFetchResponse({ data: { accessRole: "owner", items }, error: null });
+      // A fresh array per read, as from the server: a test that changes `items` sees the change after a reload.
+      if (method === "GET") return mockFetchResponse({ data: { accessRole: "owner", items: [...items] }, error: null });
       const custom = writeAnswer?.(call);
       if (custom) return custom;
       if (method === "POST" && body?.itemId) {
@@ -306,4 +309,110 @@ describe("TripDayPackingSection (Story 16.2)", () => {
     expect(screen.getByRole("button", { name: "Mitnehmen hinzufügen" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Eingepackt" })).toBeInTheDocument();
   });
+
+  it("does not offer a not-needed item; its exact name offers mark needed and add, which posts markNeeded (Story 16.7)", async () => {
+    const api = installApi([item({ id: "1", name: "Swimwear", notNeeded: true }), item({ id: "2", name: "Sunscreen" })]);
+    const user = userEvent.setup();
+    renderWithProviders(<TripDayPackingSection tripId="trip-1" dayId={DAY.id} canEdit />);
+
+    const dialog = await openPicker(user);
+    await user.type(dialog.getByRole("combobox"), "s");
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["Sunscreen", "Create 's'"]);
+
+    await user.clear(dialog.getByRole("combobox"));
+    await user.type(dialog.getByRole("combobox"), "SWIMWEAR");
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["Mark 'Swimwear' needed and add"]);
+    await user.click(screen.getByRole("option", { name: "Mark 'Swimwear' needed and add" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(api.writes()).toEqual([
+      expect.objectContaining({ method: "POST", body: { tripDayId: DAY.id, itemId: "1", markNeeded: true } }),
+    ]);
+    expect(rowNames()).toEqual(["Swimwear"]);
+  });
+
+  it("marks needed and adds on Enter for the exact name of a not-needed item, in German (Story 16.7)", async () => {
+    const api = installApi([item({ id: "1", name: "Badehose", notNeeded: true })]);
+    const user = userEvent.setup();
+    renderWithProviders(<TripDayPackingSection tripId="trip-1" dayId={DAY.id} canEdit />, { language: "de" });
+
+    await user.click(await screen.findByRole("button", { name: "Mitnehmen hinzufügen" }));
+    const dialog = within(await screen.findByRole("dialog"));
+    await user.type(dialog.getByRole("combobox"), " badehose ");
+    expect(await screen.findByRole("option", { name: "„Badehose“ wieder als nötig markieren und hinzufügen" })).toBeInTheDocument();
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(api.writes()).toEqual([expect.objectContaining({ body: { tripDayId: DAY.id, itemId: "1", markNeeded: true } })]);
+  });
+
+  it("shows the not-needed message on a refused create and offers mark needed after the reload (Story 16.7)", async () => {
+    const items = [item({ id: "1", name: "Sunscreen" })];
+    const api = installApi(items, (call) => {
+      if (call.method !== "POST" || !call.body?.name) return undefined;
+      // Someone else added "Swimwear" and marked it not needed after this list was read.
+      items.push(item({ id: "9", name: "Swimwear", notNeeded: true }));
+      return mockFetchResponse({ data: null, error: { code: "not_needed", message: "not needed" } }, { status: 409 });
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TripDayPackingSection tripId="trip-1" dayId={DAY.id} canEdit />);
+
+    const dialog = await openPicker(user);
+    await user.type(dialog.getByRole("combobox"), "Swimwear{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Create" }));
+
+    expect(await screen.findByTestId("day-packing-picker-error")).toHaveTextContent("This item is marked not needed this time.");
+    await waitFor(() => expect(api.calls.filter((call) => call.method === "GET" && call.url.endsWith("/packing-items"))).toHaveLength(2));
+    await user.click(screen.getByRole("combobox"));
+    expect(await screen.findByRole("option", { name: "Mark 'Swimwear' needed and add" })).toBeInTheDocument();
+  });
+
+  it("re-reads the list when a pick by id is refused as not needed, so the item leaves the picker (Story 16.7 review)", async () => {
+    const items = [item({ id: "1", name: "Sunscreen" })];
+    const api = installApi(items, (call) => {
+      if (call.method !== "POST" || call.body?.itemId !== "1") return undefined;
+      // Someone else marked "Sunscreen" not needed after this list was read.
+      items[0] = item({ id: "1", name: "Sunscreen", notNeeded: true });
+      return mockFetchResponse({ data: null, error: { code: "not_needed", message: "not needed" } }, { status: 409 });
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TripDayPackingSection tripId="trip-1" dayId={DAY.id} canEdit />);
+
+    const dialog = await openPicker(user);
+    await user.type(dialog.getByRole("combobox"), "sun");
+    await user.click(await screen.findByRole("option", { name: "Sunscreen" }));
+
+    expect(await screen.findByTestId("day-packing-picker-error")).toHaveTextContent("This item is marked not needed this time.");
+    await waitFor(() => expect(api.calls.filter((call) => call.method === "GET" && call.url.endsWith("/packing-items"))).toHaveLength(2));
+    await user.clear(screen.getByRole("combobox"));
+    await user.type(screen.getByRole("combobox"), "sun");
+    await waitFor(() =>
+      expect(screen.queryAllByRole("option").map((option) => option.textContent)).toEqual(["Create 'sun'"]),
+    );
+  });
 });
+
+describe("TripDayPackingSection tags (Story 16.8)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("shows each item's tags as chips after its name, alphabetically, to a planner and a viewer", async () => {
+    for (const canEdit of [true, false]) {
+      installApi([
+        item({ id: "1", name: "Powerbank", category: "Electronics", days: [DAY], tags: ["Kaufen", "Aufladen"] }),
+        item({ id: "2", name: "Cap", days: [DAY] }),
+      ]);
+      const { unmount } = renderWithProviders(<TripDayPackingSection tripId="trip-1" dayId={DAY.id} canEdit={canEdit} />);
+      await waitFor(() => expect(screen.getAllByTestId("day-packing-row")).toHaveLength(2));
+      const [powerbank, cap] = screen.getAllByTestId("day-packing-row");
+      expect(within(powerbank).getByText("Powerbank")).toBeInTheDocument();
+      expect(within(powerbank).getAllByTestId("packing-tag").map((tag) => tag.textContent)).toEqual(["Aufladen", "Kaufen"]);
+      expect(within(cap).queryAllByTestId("packing-tag")).toEqual([]);
+      unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+

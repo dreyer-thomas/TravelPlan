@@ -31,6 +31,7 @@ export type PackingItemMinAggregateOutputType = {
   nameKey: string | null
   category: string | null
   packed: boolean | null
+  notNeeded: boolean | null
   aiChangedAt: Date | null
   createdAt: Date | null
   updatedAt: Date | null
@@ -43,6 +44,7 @@ export type PackingItemMaxAggregateOutputType = {
   nameKey: string | null
   category: string | null
   packed: boolean | null
+  notNeeded: boolean | null
   aiChangedAt: Date | null
   createdAt: Date | null
   updatedAt: Date | null
@@ -55,6 +57,7 @@ export type PackingItemCountAggregateOutputType = {
   nameKey: number
   category: number
   packed: number
+  notNeeded: number
   aiChangedAt: number
   createdAt: number
   updatedAt: number
@@ -69,6 +72,7 @@ export type PackingItemMinAggregateInputType = {
   nameKey?: true
   category?: true
   packed?: true
+  notNeeded?: true
   aiChangedAt?: true
   createdAt?: true
   updatedAt?: true
@@ -81,6 +85,7 @@ export type PackingItemMaxAggregateInputType = {
   nameKey?: true
   category?: true
   packed?: true
+  notNeeded?: true
   aiChangedAt?: true
   createdAt?: true
   updatedAt?: true
@@ -93,6 +98,7 @@ export type PackingItemCountAggregateInputType = {
   nameKey?: true
   category?: true
   packed?: true
+  notNeeded?: true
   aiChangedAt?: true
   createdAt?: true
   updatedAt?: true
@@ -178,6 +184,7 @@ export type PackingItemGroupByOutputType = {
   nameKey: string
   category: string | null
   packed: boolean
+  notNeeded: boolean
   aiChangedAt: Date | null
   createdAt: Date
   updatedAt: Date
@@ -211,11 +218,13 @@ export type PackingItemWhereInput = {
   nameKey?: Prisma.StringFilter<"PackingItem"> | string
   category?: Prisma.StringNullableFilter<"PackingItem"> | string | null
   packed?: Prisma.BoolFilter<"PackingItem"> | boolean
+  notNeeded?: Prisma.BoolFilter<"PackingItem"> | boolean
   aiChangedAt?: Prisma.DateTimeNullableFilter<"PackingItem"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"PackingItem"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"PackingItem"> | Date | string
   trip?: Prisma.XOR<Prisma.TripScalarRelationFilter, Prisma.TripWhereInput>
   days?: Prisma.PackingItemDayListRelationFilter
+  tags?: Prisma.PackingItemTagListRelationFilter
 }
 
 export type PackingItemOrderByWithRelationInput = {
@@ -225,11 +234,13 @@ export type PackingItemOrderByWithRelationInput = {
   nameKey?: Prisma.SortOrder
   category?: Prisma.SortOrderInput | Prisma.SortOrder
   packed?: Prisma.SortOrder
+  notNeeded?: Prisma.SortOrder
   aiChangedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   trip?: Prisma.TripOrderByWithRelationInput
   days?: Prisma.PackingItemDayOrderByRelationAggregateInput
+  tags?: Prisma.PackingItemTagOrderByRelationAggregateInput
 }
 
 export type PackingItemWhereUniqueInput = Prisma.AtLeast<{
@@ -243,11 +254,13 @@ export type PackingItemWhereUniqueInput = Prisma.AtLeast<{
   nameKey?: Prisma.StringFilter<"PackingItem"> | string
   category?: Prisma.StringNullableFilter<"PackingItem"> | string | null
   packed?: Prisma.BoolFilter<"PackingItem"> | boolean
+  notNeeded?: Prisma.BoolFilter<"PackingItem"> | boolean
   aiChangedAt?: Prisma.DateTimeNullableFilter<"PackingItem"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"PackingItem"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"PackingItem"> | Date | string
   trip?: Prisma.XOR<Prisma.TripScalarRelationFilter, Prisma.TripWhereInput>
   days?: Prisma.PackingItemDayListRelationFilter
+  tags?: Prisma.PackingItemTagListRelationFilter
 }, "id" | "tripId_nameKey">
 
 export type PackingItemOrderByWithAggregationInput = {
@@ -257,6 +270,7 @@ export type PackingItemOrderByWithAggregationInput = {
   nameKey?: Prisma.SortOrder
   category?: Prisma.SortOrderInput | Prisma.SortOrder
   packed?: Prisma.SortOrder
+  notNeeded?: Prisma.SortOrder
   aiChangedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -275,6 +289,7 @@ export type PackingItemScalarWhereWithAggregatesInput = {
   nameKey?: Prisma.StringWithAggregatesFilter<"PackingItem"> | string
   category?: Prisma.StringNullableWithAggregatesFilter<"PackingItem"> | string | null
   packed?: Prisma.BoolWithAggregatesFilter<"PackingItem"> | boolean
+  notNeeded?: Prisma.BoolWithAggregatesFilter<"PackingItem"> | boolean
   aiChangedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"PackingItem"> | Date | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"PackingItem"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"PackingItem"> | Date | string
@@ -286,11 +301,13 @@ export type PackingItemCreateInput = {
   nameKey: string
   category?: string | null
   packed?: boolean
+  notNeeded?: boolean
   aiChangedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   trip: Prisma.TripCreateNestedOneWithoutPackingItemsInput
   days?: Prisma.PackingItemDayCreateNestedManyWithoutPackingItemInput
+  tags?: Prisma.PackingItemTagCreateNestedManyWithoutPackingItemInput
 }
 
 export type PackingItemUncheckedCreateInput = {
@@ -300,10 +317,12 @@ export type PackingItemUncheckedCreateInput = {
   nameKey: string
   category?: string | null
   packed?: boolean
+  notNeeded?: boolean
   aiChangedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   days?: Prisma.PackingItemDayUncheckedCreateNestedManyWithoutPackingItemInput
+  tags?: Prisma.PackingItemTagUncheckedCreateNestedManyWithoutPackingItemInput
 }
 
 export type PackingItemUpdateInput = {
@@ -312,11 +331,13 @@ export type PackingItemUpdateInput = {
   nameKey?: Prisma.StringFieldUpdateOperationsInput | string
   category?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   packed?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  notNeeded?: Prisma.BoolFieldUpdateOperationsInput | boolean
   aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   trip?: Prisma.TripUpdateOneRequiredWithoutPackingItemsNestedInput
   days?: Prisma.PackingItemDayUpdateManyWithoutPackingItemNestedInput
+  tags?: Prisma.PackingItemTagUpdateManyWithoutPackingItemNestedInput
 }
 
 export type PackingItemUncheckedUpdateInput = {
@@ -326,10 +347,12 @@ export type PackingItemUncheckedUpdateInput = {
   nameKey?: Prisma.StringFieldUpdateOperationsInput | string
   category?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   packed?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  notNeeded?: Prisma.BoolFieldUpdateOperationsInput | boolean
   aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   days?: Prisma.PackingItemDayUncheckedUpdateManyWithoutPackingItemNestedInput
+  tags?: Prisma.PackingItemTagUncheckedUpdateManyWithoutPackingItemNestedInput
 }
 
 export type PackingItemCreateManyInput = {
@@ -339,6 +362,7 @@ export type PackingItemCreateManyInput = {
   nameKey: string
   category?: string | null
   packed?: boolean
+  notNeeded?: boolean
   aiChangedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -350,6 +374,7 @@ export type PackingItemUpdateManyMutationInput = {
   nameKey?: Prisma.StringFieldUpdateOperationsInput | string
   category?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   packed?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  notNeeded?: Prisma.BoolFieldUpdateOperationsInput | boolean
   aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -362,6 +387,7 @@ export type PackingItemUncheckedUpdateManyInput = {
   nameKey?: Prisma.StringFieldUpdateOperationsInput | string
   category?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   packed?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  notNeeded?: Prisma.BoolFieldUpdateOperationsInput | boolean
   aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -389,6 +415,7 @@ export type PackingItemCountOrderByAggregateInput = {
   nameKey?: Prisma.SortOrder
   category?: Prisma.SortOrder
   packed?: Prisma.SortOrder
+  notNeeded?: Prisma.SortOrder
   aiChangedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -401,6 +428,7 @@ export type PackingItemMaxOrderByAggregateInput = {
   nameKey?: Prisma.SortOrder
   category?: Prisma.SortOrder
   packed?: Prisma.SortOrder
+  notNeeded?: Prisma.SortOrder
   aiChangedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -413,6 +441,7 @@ export type PackingItemMinOrderByAggregateInput = {
   nameKey?: Prisma.SortOrder
   category?: Prisma.SortOrder
   packed?: Prisma.SortOrder
+  notNeeded?: Prisma.SortOrder
   aiChangedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -479,16 +508,32 @@ export type PackingItemUpdateOneRequiredWithoutDaysNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.PackingItemUpdateToOneWithWhereWithoutDaysInput, Prisma.PackingItemUpdateWithoutDaysInput>, Prisma.PackingItemUncheckedUpdateWithoutDaysInput>
 }
 
+export type PackingItemCreateNestedOneWithoutTagsInput = {
+  create?: Prisma.XOR<Prisma.PackingItemCreateWithoutTagsInput, Prisma.PackingItemUncheckedCreateWithoutTagsInput>
+  connectOrCreate?: Prisma.PackingItemCreateOrConnectWithoutTagsInput
+  connect?: Prisma.PackingItemWhereUniqueInput
+}
+
+export type PackingItemUpdateOneRequiredWithoutTagsNestedInput = {
+  create?: Prisma.XOR<Prisma.PackingItemCreateWithoutTagsInput, Prisma.PackingItemUncheckedCreateWithoutTagsInput>
+  connectOrCreate?: Prisma.PackingItemCreateOrConnectWithoutTagsInput
+  upsert?: Prisma.PackingItemUpsertWithoutTagsInput
+  connect?: Prisma.PackingItemWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.PackingItemUpdateToOneWithWhereWithoutTagsInput, Prisma.PackingItemUpdateWithoutTagsInput>, Prisma.PackingItemUncheckedUpdateWithoutTagsInput>
+}
+
 export type PackingItemCreateWithoutTripInput = {
   id?: string
   name: string
   nameKey: string
   category?: string | null
   packed?: boolean
+  notNeeded?: boolean
   aiChangedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   days?: Prisma.PackingItemDayCreateNestedManyWithoutPackingItemInput
+  tags?: Prisma.PackingItemTagCreateNestedManyWithoutPackingItemInput
 }
 
 export type PackingItemUncheckedCreateWithoutTripInput = {
@@ -497,10 +542,12 @@ export type PackingItemUncheckedCreateWithoutTripInput = {
   nameKey: string
   category?: string | null
   packed?: boolean
+  notNeeded?: boolean
   aiChangedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   days?: Prisma.PackingItemDayUncheckedCreateNestedManyWithoutPackingItemInput
+  tags?: Prisma.PackingItemTagUncheckedCreateNestedManyWithoutPackingItemInput
 }
 
 export type PackingItemCreateOrConnectWithoutTripInput = {
@@ -538,6 +585,7 @@ export type PackingItemScalarWhereInput = {
   nameKey?: Prisma.StringFilter<"PackingItem"> | string
   category?: Prisma.StringNullableFilter<"PackingItem"> | string | null
   packed?: Prisma.BoolFilter<"PackingItem"> | boolean
+  notNeeded?: Prisma.BoolFilter<"PackingItem"> | boolean
   aiChangedAt?: Prisma.DateTimeNullableFilter<"PackingItem"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"PackingItem"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"PackingItem"> | Date | string
@@ -549,10 +597,12 @@ export type PackingItemCreateWithoutDaysInput = {
   nameKey: string
   category?: string | null
   packed?: boolean
+  notNeeded?: boolean
   aiChangedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   trip: Prisma.TripCreateNestedOneWithoutPackingItemsInput
+  tags?: Prisma.PackingItemTagCreateNestedManyWithoutPackingItemInput
 }
 
 export type PackingItemUncheckedCreateWithoutDaysInput = {
@@ -562,9 +612,11 @@ export type PackingItemUncheckedCreateWithoutDaysInput = {
   nameKey: string
   category?: string | null
   packed?: boolean
+  notNeeded?: boolean
   aiChangedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  tags?: Prisma.PackingItemTagUncheckedCreateNestedManyWithoutPackingItemInput
 }
 
 export type PackingItemCreateOrConnectWithoutDaysInput = {
@@ -589,10 +641,12 @@ export type PackingItemUpdateWithoutDaysInput = {
   nameKey?: Prisma.StringFieldUpdateOperationsInput | string
   category?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   packed?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  notNeeded?: Prisma.BoolFieldUpdateOperationsInput | boolean
   aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   trip?: Prisma.TripUpdateOneRequiredWithoutPackingItemsNestedInput
+  tags?: Prisma.PackingItemTagUpdateManyWithoutPackingItemNestedInput
 }
 
 export type PackingItemUncheckedUpdateWithoutDaysInput = {
@@ -602,9 +656,83 @@ export type PackingItemUncheckedUpdateWithoutDaysInput = {
   nameKey?: Prisma.StringFieldUpdateOperationsInput | string
   category?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   packed?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  notNeeded?: Prisma.BoolFieldUpdateOperationsInput | boolean
   aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  tags?: Prisma.PackingItemTagUncheckedUpdateManyWithoutPackingItemNestedInput
+}
+
+export type PackingItemCreateWithoutTagsInput = {
+  id?: string
+  name: string
+  nameKey: string
+  category?: string | null
+  packed?: boolean
+  notNeeded?: boolean
+  aiChangedAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  trip: Prisma.TripCreateNestedOneWithoutPackingItemsInput
+  days?: Prisma.PackingItemDayCreateNestedManyWithoutPackingItemInput
+}
+
+export type PackingItemUncheckedCreateWithoutTagsInput = {
+  id?: string
+  tripId: string
+  name: string
+  nameKey: string
+  category?: string | null
+  packed?: boolean
+  notNeeded?: boolean
+  aiChangedAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  days?: Prisma.PackingItemDayUncheckedCreateNestedManyWithoutPackingItemInput
+}
+
+export type PackingItemCreateOrConnectWithoutTagsInput = {
+  where: Prisma.PackingItemWhereUniqueInput
+  create: Prisma.XOR<Prisma.PackingItemCreateWithoutTagsInput, Prisma.PackingItemUncheckedCreateWithoutTagsInput>
+}
+
+export type PackingItemUpsertWithoutTagsInput = {
+  update: Prisma.XOR<Prisma.PackingItemUpdateWithoutTagsInput, Prisma.PackingItemUncheckedUpdateWithoutTagsInput>
+  create: Prisma.XOR<Prisma.PackingItemCreateWithoutTagsInput, Prisma.PackingItemUncheckedCreateWithoutTagsInput>
+  where?: Prisma.PackingItemWhereInput
+}
+
+export type PackingItemUpdateToOneWithWhereWithoutTagsInput = {
+  where?: Prisma.PackingItemWhereInput
+  data: Prisma.XOR<Prisma.PackingItemUpdateWithoutTagsInput, Prisma.PackingItemUncheckedUpdateWithoutTagsInput>
+}
+
+export type PackingItemUpdateWithoutTagsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  nameKey?: Prisma.StringFieldUpdateOperationsInput | string
+  category?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  packed?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  notNeeded?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  trip?: Prisma.TripUpdateOneRequiredWithoutPackingItemsNestedInput
+  days?: Prisma.PackingItemDayUpdateManyWithoutPackingItemNestedInput
+}
+
+export type PackingItemUncheckedUpdateWithoutTagsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  tripId?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  nameKey?: Prisma.StringFieldUpdateOperationsInput | string
+  category?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  packed?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  notNeeded?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  days?: Prisma.PackingItemDayUncheckedUpdateManyWithoutPackingItemNestedInput
 }
 
 export type PackingItemCreateManyTripInput = {
@@ -613,6 +741,7 @@ export type PackingItemCreateManyTripInput = {
   nameKey: string
   category?: string | null
   packed?: boolean
+  notNeeded?: boolean
   aiChangedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -624,10 +753,12 @@ export type PackingItemUpdateWithoutTripInput = {
   nameKey?: Prisma.StringFieldUpdateOperationsInput | string
   category?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   packed?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  notNeeded?: Prisma.BoolFieldUpdateOperationsInput | boolean
   aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   days?: Prisma.PackingItemDayUpdateManyWithoutPackingItemNestedInput
+  tags?: Prisma.PackingItemTagUpdateManyWithoutPackingItemNestedInput
 }
 
 export type PackingItemUncheckedUpdateWithoutTripInput = {
@@ -636,10 +767,12 @@ export type PackingItemUncheckedUpdateWithoutTripInput = {
   nameKey?: Prisma.StringFieldUpdateOperationsInput | string
   category?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   packed?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  notNeeded?: Prisma.BoolFieldUpdateOperationsInput | boolean
   aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   days?: Prisma.PackingItemDayUncheckedUpdateManyWithoutPackingItemNestedInput
+  tags?: Prisma.PackingItemTagUncheckedUpdateManyWithoutPackingItemNestedInput
 }
 
 export type PackingItemUncheckedUpdateManyWithoutTripInput = {
@@ -648,6 +781,7 @@ export type PackingItemUncheckedUpdateManyWithoutTripInput = {
   nameKey?: Prisma.StringFieldUpdateOperationsInput | string
   category?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   packed?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  notNeeded?: Prisma.BoolFieldUpdateOperationsInput | boolean
   aiChangedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -660,10 +794,12 @@ export type PackingItemUncheckedUpdateManyWithoutTripInput = {
 
 export type PackingItemCountOutputType = {
   days: number
+  tags: number
 }
 
 export type PackingItemCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   days?: boolean | PackingItemCountOutputTypeCountDaysArgs
+  tags?: boolean | PackingItemCountOutputTypeCountTagsArgs
 }
 
 /**
@@ -683,6 +819,13 @@ export type PackingItemCountOutputTypeCountDaysArgs<ExtArgs extends runtime.Type
   where?: Prisma.PackingItemDayWhereInput
 }
 
+/**
+ * PackingItemCountOutputType without action
+ */
+export type PackingItemCountOutputTypeCountTagsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.PackingItemTagWhereInput
+}
+
 
 export type PackingItemSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -691,11 +834,13 @@ export type PackingItemSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   nameKey?: boolean
   category?: boolean
   packed?: boolean
+  notNeeded?: boolean
   aiChangedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   trip?: boolean | Prisma.TripDefaultArgs<ExtArgs>
   days?: boolean | Prisma.PackingItem$daysArgs<ExtArgs>
+  tags?: boolean | Prisma.PackingItem$tagsArgs<ExtArgs>
   _count?: boolean | Prisma.PackingItemCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["packingItem"]>
 
@@ -706,6 +851,7 @@ export type PackingItemSelectCreateManyAndReturn<ExtArgs extends runtime.Types.E
   nameKey?: boolean
   category?: boolean
   packed?: boolean
+  notNeeded?: boolean
   aiChangedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
@@ -719,6 +865,7 @@ export type PackingItemSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.E
   nameKey?: boolean
   category?: boolean
   packed?: boolean
+  notNeeded?: boolean
   aiChangedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
@@ -732,15 +879,17 @@ export type PackingItemSelectScalar = {
   nameKey?: boolean
   category?: boolean
   packed?: boolean
+  notNeeded?: boolean
   aiChangedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type PackingItemOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tripId" | "name" | "nameKey" | "category" | "packed" | "aiChangedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["packingItem"]>
+export type PackingItemOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tripId" | "name" | "nameKey" | "category" | "packed" | "notNeeded" | "aiChangedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["packingItem"]>
 export type PackingItemInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   trip?: boolean | Prisma.TripDefaultArgs<ExtArgs>
   days?: boolean | Prisma.PackingItem$daysArgs<ExtArgs>
+  tags?: boolean | Prisma.PackingItem$tagsArgs<ExtArgs>
   _count?: boolean | Prisma.PackingItemCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type PackingItemIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -755,6 +904,7 @@ export type $PackingItemPayload<ExtArgs extends runtime.Types.Extensions.Interna
   objects: {
     trip: Prisma.$TripPayload<ExtArgs>
     days: Prisma.$PackingItemDayPayload<ExtArgs>[]
+    tags: Prisma.$PackingItemTagPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -763,6 +913,7 @@ export type $PackingItemPayload<ExtArgs extends runtime.Types.Extensions.Interna
     nameKey: string
     category: string | null
     packed: boolean
+    notNeeded: boolean
     aiChangedAt: Date | null
     createdAt: Date
     updatedAt: Date
@@ -1162,6 +1313,7 @@ export interface Prisma__PackingItemClient<T, Null = never, ExtArgs extends runt
   readonly [Symbol.toStringTag]: "PrismaPromise"
   trip<T extends Prisma.TripDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.TripDefaultArgs<ExtArgs>>): Prisma.Prisma__TripClient<runtime.Types.Result.GetResult<Prisma.$TripPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   days<T extends Prisma.PackingItem$daysArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.PackingItem$daysArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$PackingItemDayPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  tags<T extends Prisma.PackingItem$tagsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.PackingItem$tagsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$PackingItemTagPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1197,6 +1349,7 @@ export interface PackingItemFieldRefs {
   readonly nameKey: Prisma.FieldRef<"PackingItem", 'String'>
   readonly category: Prisma.FieldRef<"PackingItem", 'String'>
   readonly packed: Prisma.FieldRef<"PackingItem", 'Boolean'>
+  readonly notNeeded: Prisma.FieldRef<"PackingItem", 'Boolean'>
   readonly aiChangedAt: Prisma.FieldRef<"PackingItem", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"PackingItem", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"PackingItem", 'DateTime'>
@@ -1620,6 +1773,30 @@ export type PackingItem$daysArgs<ExtArgs extends runtime.Types.Extensions.Intern
   take?: number
   skip?: number
   distinct?: Prisma.PackingItemDayScalarFieldEnum | Prisma.PackingItemDayScalarFieldEnum[]
+}
+
+/**
+ * PackingItem.tags
+ */
+export type PackingItem$tagsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the PackingItemTag
+   */
+  select?: Prisma.PackingItemTagSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the PackingItemTag
+   */
+  omit?: Prisma.PackingItemTagOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.PackingItemTagInclude<ExtArgs> | null
+  where?: Prisma.PackingItemTagWhereInput
+  orderBy?: Prisma.PackingItemTagOrderByWithRelationInput | Prisma.PackingItemTagOrderByWithRelationInput[]
+  cursor?: Prisma.PackingItemTagWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.PackingItemTagScalarFieldEnum | Prisma.PackingItemTagScalarFieldEnum[]
 }
 
 /**

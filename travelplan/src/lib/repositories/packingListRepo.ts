@@ -1,7 +1,15 @@
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { deriveTripAccessRole, type TripAccessRole } from "@/lib/auth/tripAccessRole";
-import { normalizePackingCategory, normalizePackingName, packingNameKey } from "@/lib/trips/packingList";
+import {
+  PACKING_TAGS_PER_ITEM_MAX,
+  dedupePackingTags,
+  normalizePackingCategory,
+  normalizePackingName,
+  normalizePackingTag,
+  packingNameKey,
+  packingTagKey,
+} from "@/lib/trips/packingList";
 import { aiChangedAtFor, ChangedSinceReadError, type WriteOrigin } from "@/lib/trips/writeOrigin";
 import { UndoStaleError } from "@/lib/repositories/dayPlanChangeRepo";
 import type {
@@ -36,6 +44,23 @@ import type {
  * runs last in the write's transaction with the packing receipt, so the connector records its `ai_changes`
  * row with the write; and `undoPackingChangeForTrip`, the undo of such a receipt. Every connector write
  * sets `aiChangedAt` on each item it created or changed, and a no-op writes nothing and runs no hook.
+ *
+ * Story 16.7 (FR58 amended) adds the third item state, "not needed this time" (`notNeeded`), and its
+ * invariant: a not-needed item is never packed and never linked to a day. Every write here keeps it.
+ * Marking an item not needed unticks it and removes its day links (the app confirms the day count first,
+ * `days_changed` as for the delete); ticking or linking a not-needed item is refused (`not_needed`, nothing
+ * written) unless the same request marks it needed again (`notNeeded: false` / `markNeeded`). The connector's
+ * add with a day refuses the whole batch when a name is a not-needed item. Undo restores the snapshot's
+ * `notNeeded`, which was read from a consistent row.
+ *
+ * Story 16.8 (FR58 amended) adds free tags (`PackingItemTag`, one row per tag, unique per item by key).
+ * Across the trip a tag key keeps the spelling first stored (`resolveTags`, the twin of `resolveCategory`).
+ * Every tag write path also writes the item (`aiChangedAt` per origin, `updatedAt` by Prisma), like a link
+ * change: the app's add (a created item gets its tags; an existing name gets the missing ones added, D3),
+ * the app's PATCH (full replacement), the connector's add (as the app's add) and update (`addTags` /
+ * `removeTags`), and undo (restores the snapshot's tags when it has any; an older receipt has none, D5).
+ * A merge that would leave an item with more than 10 tags is refused and writes nothing
+ * (`PackingTagLimitError` → `too_many_tags`). State changes (pack, not needed) never touch tags.
  */
 
 export type PackingItemDetail = {
@@ -43,6 +68,10 @@ export type PackingItemDetail = {
   name: string;
   category: string | null;
   packed: boolean;
+  /** Story 16.7. Kept on the list but not needed this time: then never packed and never linked to a day. */
+  notNeeded: boolean;
+  /** Story 16.8. The item's tags in tag-key order (the client sorts for display). */
+  tags: string[];
   /** How many days the item is linked to (= `days.length`). */
   dayCount: number;
   /** Story 16.2. The days the item is linked to, ascending by `dayIndex`. */
@@ -57,6 +86,8 @@ export type PackingItemDayRef = { id: string; dayIndex: number; date: Date };
 
 export type PackingItemCreateResult =
   | { status: "not_found" }
+  /** Story 16.8. Adding the tags to the existing item would leave it with more than 10; nothing written. */
+  | { status: "too_many_tags" }
   | { status: "created"; item: PackingItemDetail }
   | { status: "existed"; item: PackingItemDetail };
 
@@ -64,6 +95,10 @@ export type PackingItemUpdateResult =
   | { status: "not_found" }
   | { status: "missing" }
   | { status: "duplicate_name" }
+  /** Story 16.7. Marking not needed: the item's day links changed since the person confirmed their count. */
+  | { status: "days_changed"; dayCount: number }
+  /** Story 16.7. Ticking an item that is (and stays) not needed. */
+  | { status: "not_needed" }
   | { status: "updated"; item: PackingItemDetail };
 
 export type PackingItemDeleteResult =
@@ -76,11 +111,15 @@ export type PackingItemLinkResult =
   | { status: "not_found" }
   | { status: "day_missing" }
   | { status: "missing" }
+  /** Story 16.7. The item is not needed and the request did not say `markNeeded`. */
+  | { status: "not_needed" }
   | { status: "linked"; item: PackingItemDetail };
 
 export type PackingItemAddToDayResult =
   | { status: "not_found" }
   | { status: "day_missing" }
+  /** Story 16.7. The name is an existing not-needed item and the request did not say `markNeeded`. */
+  | { status: "not_needed" }
   | { status: "created"; item: PackingItemDetail }
   | { status: "existed"; item: PackingItemDetail };
 
@@ -91,6 +130,17 @@ export type PackingItemUnlinkResult =
   | { status: "unlinked"; item: PackingItemDetail };
 
 type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+/**
+ * Story 16.8. A tag merge would leave an item with more than 10 tags. Thrown (never returned) so the whole
+ * transaction rolls back, a batch's earlier creates included; `index` is the connector input it came from.
+ */
+export class PackingTagLimitError extends Error {
+  constructor(readonly index = -1) {
+    super("packing item would carry more than 10 tags");
+    this.name = "PackingTagLimitError";
+  }
+}
 
 /**
  * The write gate. The explicit `role: "CONTRIBUTOR"` is load-bearing: a bare `members: { some: { userId } }`
@@ -110,11 +160,13 @@ const detailSelect = {
   name: true,
   category: true,
   packed: true,
+  notNeeded: true,
   aiChangedAt: true,
   createdAt: true,
   updatedAt: true,
   // Prisma cannot order by a field of the related row through the link table; `toDetail` sorts.
   days: { select: { tripDay: { select: { id: true, dayIndex: true, date: true } } } },
+  tags: { select: { tag: true, tagKey: true }, orderBy: { tagKey: "asc" } },
 } as const;
 
 type DetailRow = {
@@ -122,10 +174,12 @@ type DetailRow = {
   name: string;
   category: string | null;
   packed: boolean;
+  notNeeded: boolean;
   aiChangedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   days: { tripDay: PackingItemDayRef }[];
+  tags: { tag: string; tagKey: string }[];
 };
 
 const toDetail = (row: DetailRow): PackingItemDetail => {
@@ -135,6 +189,8 @@ const toDetail = (row: DetailRow): PackingItemDetail => {
     name: row.name,
     category: row.category,
     packed: row.packed,
+    notNeeded: row.notNeeded,
+    tags: row.tags.map((tag) => tag.tag),
     dayCount: days.length,
     days,
     aiChangedAt: row.aiChangedAt,
@@ -171,6 +227,68 @@ const resolveCategory = async (
 };
 
 /**
+ * Story 16.8. The tags as stored: for each given tag whose key another item of the trip already uses, that
+ * item's earliest spelling (by row creation), else the given spelling, normalized. So "kaufen" joins
+ * "Kaufen". `excludeItemId` keeps an item's own old spelling from blocking a case fix on it. The input is
+ * expected deduplicated by key; order is kept.
+ */
+const resolveTags = async (
+  tx: TransactionClient,
+  tripId: string,
+  tags: readonly string[],
+  excludeItemId?: string,
+): Promise<string[]> => {
+  if (tags.length === 0) return [];
+  const keys = tags.map(packingTagKey);
+  const used = await tx.packingItemTag.findMany({
+    where: {
+      tagKey: { in: keys },
+      packingItem: { tripId, ...(excludeItemId ? { id: { not: excludeItemId } } : {}) },
+    },
+    select: { tag: true, tagKey: true },
+    orderBy: [{ createdAt: "asc" }, { packingItemId: "asc" }],
+  });
+  const spelling = new Map<string, string>();
+  for (const row of used) if (!spelling.has(row.tagKey)) spelling.set(row.tagKey, row.tag);
+  return tags.map((tag) => spelling.get(packingTagKey(tag)) ?? normalizePackingTag(tag));
+};
+
+/**
+ * Story 16.8. Makes the item's tag rows exactly `nextTags` (by key): removed keys deleted, a changed
+ * spelling updated, added keys created one by one (`createMany({ skipDuplicates })` is not available on
+ * SQLite). Kept rows keep their `createdAt`, so the trip's first spelling stays stable. Answers whether
+ * anything changed; the caller writes the item.
+ */
+const writeTagsInTx = async (tx: TransactionClient, itemId: string, nextTags: readonly string[]) => {
+  const current = await tx.packingItemTag.findMany({
+    where: { packingItemId: itemId },
+    select: { tag: true, tagKey: true },
+  });
+  const have = new Map(current.map((row) => [row.tagKey, row.tag]));
+  const next = new Map(nextTags.map((tag) => [packingTagKey(tag), normalizePackingTag(tag)]));
+  const removed = current.filter((row) => !next.has(row.tagKey)).map((row) => row.tagKey);
+  let changed = false;
+  if (removed.length > 0) {
+    await tx.packingItemTag.deleteMany({ where: { packingItemId: itemId, tagKey: { in: removed } } });
+    changed = true;
+  }
+  for (const [tagKey, tag] of next) {
+    const existing = have.get(tagKey);
+    if (existing === undefined) {
+      await tx.packingItemTag.create({ data: { packingItemId: itemId, tag, tagKey } });
+      changed = true;
+    } else if (existing !== tag) {
+      await tx.packingItemTag.update({
+        where: { packingItemId_tagKey: { packingItemId: itemId, tagKey } },
+        data: { tag },
+      });
+      changed = true;
+    }
+  }
+  return changed;
+};
+
+/**
  * Every participant reads: owner, contributor, viewer. Answers the caller's role with the items (the
  * page derives its edit controls from it), or `null` for a non-participant. Items in name-key order;
  * grouping is `groupPackingItems` on the client.
@@ -194,13 +312,21 @@ export const listPackingItemsForTrip = async (params: {
   return { accessRole, items: trip.packingItems.map(toDetail) };
 };
 
-export type PackingItemForDay = { id: string; name: string; category: string | null; packed: boolean };
+export type PackingItemForDay = {
+  id: string;
+  name: string;
+  category: string | null;
+  packed: boolean;
+  /** Story 16.8. The item's tags in tag-key order (the day email sorts for display). */
+  tags: string[];
+};
 
 /**
  * Story 16.3. The items linked to one day, in name-key order, with the four fields the day email groups
  * by - not the trip-wide read with every day link. Every participant reads (viewer included); the route
  * already checked read access, so the participant clause is defence in depth: a non-participant, or a day
- * of another trip, gets `[]`.
+ * of another trip, gets `[]`. Story 16.7: a not-needed item is never linked; `notNeeded: false` is defence in
+ * depth too, so the day email never shows one.
  */
 export const listPackingItemsForDay = async (params: {
   userId: string;
@@ -208,15 +334,23 @@ export const listPackingItemsForDay = async (params: {
   tripDayId: string;
 }): Promise<PackingItemForDay[]> => {
   const { userId, tripId, tripDayId } = params;
-  return prisma.packingItem.findMany({
+  const rows = await prisma.packingItem.findMany({
     where: {
       tripId,
+      notNeeded: false,
       days: { some: { tripDayId } },
       trip: { OR: [{ userId }, { members: { some: { userId } } }] },
     },
-    select: { id: true, name: true, category: true, packed: true },
+    select: {
+      id: true,
+      name: true,
+      category: true,
+      packed: true,
+      tags: { select: { tag: true }, orderBy: { tagKey: "asc" } },
+    },
     orderBy: [{ nameKey: "asc" }, { id: "asc" }],
   });
+  return rows.map((row) => ({ ...row, tags: row.tags.map((tag) => tag.tag) }));
 };
 
 /**
@@ -224,20 +358,44 @@ export const listPackingItemsForDay = async (params: {
  * state stay) or a new unpacked one (`created`). Shared by the list's add and the day's add, so the
  * duplicate-name rule lives in one place. A concurrent create of the same name throws `P2002`; callers
  * resolve the winner.
+ *
+ * Story 16.8: a created item gets `tags` (resolved to the trip's spellings). With `mergeTags` (the list's
+ * add and the connector's add, D3), an `existed` item gets the given tags it lacks added, and the item is
+ * written (`tagsAdded`); more than 10 after the merge throws `PackingTagLimitError`, so nothing is written.
+ * Without `mergeTags` (the day's add) an existing item stays unchanged.
  */
 const createOrResolveInTx = async (
   tx: TransactionClient,
-  params: { tripId: string; name: string; category?: string | null; origin: WriteOrigin },
-): Promise<{ status: "created" | "existed"; item: PackingItemDetail }> => {
+  params: {
+    tripId: string;
+    name: string;
+    category?: string | null;
+    tags?: readonly string[];
+    mergeTags?: boolean;
+    origin: WriteOrigin;
+  },
+): Promise<{ status: "created" | "existed"; item: PackingItemDetail; tagsAdded: boolean }> => {
   const name = normalizePackingName(params.name);
   const nameKey = packingNameKey(name);
+  const tags = dedupePackingTags(params.tags ?? []);
   const existing = await tx.packingItem.findUnique({
     where: { tripId_nameKey: { tripId: params.tripId, nameKey } },
     select: detailSelect,
   });
-  if (existing) return { status: "existed", item: toDetail(existing) };
+  if (existing) {
+    const haveKeys = new Set(existing.tags.map((row) => row.tagKey));
+    const missing = params.mergeTags ? tags.filter((tag) => !haveKeys.has(packingTagKey(tag))) : [];
+    if (missing.length === 0) return { status: "existed", item: toDetail(existing), tagsAdded: false };
+    if (existing.tags.length + missing.length > PACKING_TAGS_PER_ITEM_MAX) throw new PackingTagLimitError();
+    const resolved = await resolveTags(tx, params.tripId, missing, existing.id);
+    for (const tag of resolved) {
+      await tx.packingItemTag.create({ data: { packingItemId: existing.id, tag, tagKey: packingTagKey(tag) } });
+    }
+    return { status: "existed", item: await touchItem(tx, existing.id, params.origin), tagsAdded: true };
+  }
 
   const category = await resolveCategory(tx, params.tripId, params.category);
+  const resolvedTags = await resolveTags(tx, params.tripId, tags);
   const created = await tx.packingItem.create({
     data: {
       tripId: params.tripId,
@@ -245,30 +403,46 @@ const createOrResolveInTx = async (
       nameKey,
       category,
       aiChangedAt: aiChangedAtFor(params.origin, new Date()),
+      ...(resolvedTags.length > 0
+        ? { tags: { create: resolvedTags.map((tag) => ({ tag, tagKey: packingTagKey(tag) })) } }
+        : {}),
     },
     select: detailSelect,
   });
-  return { status: "created", item: toDetail(created) };
+  return { status: "created", item: toDetail(created), tagsAdded: false };
 };
 
 /**
  * Adds an item, or answers the existing one when the trip already has the name (ignoring case and
  * surrounding spaces) - `existed`, nothing written. A concurrent create of the same name loses on the
  * unique index and answers the winner as `existed` too.
+ *
+ * Story 16.8 (D3): `tags` go on a new item, and onto an existing one as a merge (only the missing ones are
+ * added; the item is then written). A merge past 10 tags is `too_many_tags`, nothing written. A lost race
+ * on a unique index (the name, or the same tag added meanwhile) reruns once, so the merge applies to the
+ * winner; a second loss falls back to answering the winner as before.
  */
 export const createPackingItem = async (params: {
   userId: string;
   tripId: string;
   name: string;
   category?: string | null;
+  tags?: string[];
   origin: WriteOrigin;
 }): Promise<PackingItemCreateResult> => {
   const trip = await findTripForTripWriter(params.userId, params.tripId);
   if (!trip) return { status: "not_found" };
 
   try {
-    return await prisma.$transaction((tx) => createOrResolveInTx(tx, params));
+    return await retryOnceOnUniqueViolation(async () => {
+      const { status, item } = await prisma.$transaction((tx) =>
+        createOrResolveInTx(tx, { ...params, mergeTags: true }),
+      );
+      return { status, item };
+    });
   } catch (error) {
+    // Checked first: the tag limit is not a name race.
+    if (error instanceof PackingTagLimitError) return { status: "too_many_tags" };
     if (!isUniqueViolation(error)) throw error;
     const winner = await prisma.packingItem.findUnique({
       where: { tripId_nameKey: { tripId: params.tripId, nameKey: packingNameKey(normalizePackingName(params.name)) } },
@@ -283,6 +457,14 @@ export const createPackingItem = async (params: {
  * Renames, re-categorizes (`null` or `""` clears) and ticks or unticks an item; absent fields are kept.
  * A rename onto another item's name (ignoring case) is `duplicate_name` and writes nothing; a different
  * spelling of the item's own name (a case fix) is allowed.
+ *
+ * Story 16.7: `notNeeded: true` marks the item not needed - unticked, and removed from every day it is
+ * linked to. With `confirmedDayCount` (the app), a linked item whose day count differs from the confirmed
+ * one is `days_changed` and nothing is written. `notNeeded: false` marks it needed again (open, never
+ * packed). `packed: true` on an item that is and stays not needed is `not_needed`, nothing written.
+ *
+ * Story 16.8: `tags` replaces the item's tags (the schema caps them at 10), each resolved to the trip's
+ * spelling except the item's own (a case fix). Marking packed or not needed never touches tags.
  */
 export const updatePackingItem = async (params: {
   userId: string;
@@ -291,18 +473,33 @@ export const updatePackingItem = async (params: {
   name?: string;
   category?: string | null;
   packed?: boolean;
+  notNeeded?: boolean;
+  tags?: string[];
+  confirmedDayCount?: number;
   origin: WriteOrigin;
 }): Promise<PackingItemUpdateResult> => {
   const trip = await findTripForTripWriter(params.userId, params.tripId);
   if (!trip) return { status: "not_found" };
 
-  try {
-    return await prisma.$transaction(async (tx): Promise<PackingItemUpdateResult> => {
+  const run = () =>
+    prisma.$transaction(async (tx): Promise<PackingItemUpdateResult> => {
       const current = await tx.packingItem.findFirst({
         where: { id: params.itemId, tripId: params.tripId },
-        select: { id: true },
+        select: { id: true, notNeeded: true, _count: { select: { days: true } } },
       });
       if (!current) return { status: "missing" };
+
+      // Story 16.7. Every refusal is decided before anything is written.
+      if (params.packed === true && (params.notNeeded ?? current.notNeeded)) return { status: "not_needed" };
+      const dayCount = current._count.days;
+      if (
+        params.notNeeded === true &&
+        params.confirmedDayCount !== undefined &&
+        dayCount > 0 &&
+        dayCount !== params.confirmedDayCount
+      ) {
+        return { status: "days_changed", dayCount };
+      }
 
       const data: Prisma.PackingItemUpdateInput = { aiChangedAt: aiChangedAtFor(params.origin, new Date()) };
 
@@ -326,12 +523,31 @@ export const updatePackingItem = async (params: {
         data.packed = params.packed;
       }
 
+      if (params.notNeeded === true) {
+        data.notNeeded = true;
+        data.packed = false;
+        if (dayCount > 0) await tx.packingItemDay.deleteMany({ where: { packingItemId: params.itemId } });
+      } else if (params.notNeeded === false) {
+        data.notNeeded = false;
+      }
+
+      if (params.tags !== undefined) {
+        const tags = dedupePackingTags(params.tags);
+        await writeTagsInTx(tx, params.itemId, await resolveTags(tx, params.tripId, tags, params.itemId));
+      }
+
       const updated = await tx.packingItem.update({ where: { id: params.itemId }, data, select: detailSelect });
       return { status: "updated", item: toDetail(updated) };
     });
+
+  try {
+    // Story 16.8. A unique violation is a concurrent create or rename taking the name, or the same tag added
+    // meanwhile. The rerun tells them apart: its own clash check answers a name taken meanwhile as
+    // `duplicate_name`, and a tag added meanwhile is then simply kept.
+    return await retryOnceOnUniqueViolation(run);
   } catch (error) {
-    // A concurrent create or rename took the name between the check and the write.
-    if (isUniqueViolation(error)) return { status: "duplicate_name" };
+    // Lost twice: only a rename can clash on the name.
+    if (params.name !== undefined && isUniqueViolation(error)) return { status: "duplicate_name" };
     throw error;
   }
 };
@@ -371,26 +587,39 @@ export const deletePackingItem = async (params: {
 const dayOfTrip = (tx: TransactionClient, tripId: string, tripDayId: string) =>
   tx.tripDay.findFirst({ where: { id: tripDayId, tripId }, select: { id: true } });
 
-/** Writes the item after a link change: `aiChangedAt` per origin, `updatedAt` by Prisma. */
-const touchItem = async (tx: TransactionClient, itemId: string, origin: WriteOrigin) =>
+/**
+ * Writes the item after a link change: `aiChangedAt` per origin, `updatedAt` by Prisma. Story 16.7:
+ * `markNeeded` folds marking the item needed again into the same write.
+ */
+const touchItem = async (tx: TransactionClient, itemId: string, origin: WriteOrigin, markNeeded = false) =>
   toDetail(
     await tx.packingItem.update({
       where: { id: itemId },
-      data: { aiChangedAt: aiChangedAtFor(origin, new Date()) },
+      data: { aiChangedAt: aiChangedAtFor(origin, new Date()), ...(markNeeded ? { notNeeded: false } : {}) },
       select: detailSelect,
     }),
   );
 
-/** Links the item to the day unless it already is; writes the item only when a link was created. */
-const linkInTx = async (tx: TransactionClient, itemId: string, tripDayId: string, origin: WriteOrigin) => {
+/**
+ * Links the item to the day unless it already is; writes the item only when a link was created, or when
+ * `markNeeded` (Story 16.7: the item is not needed and the request marks it needed again).
+ */
+const linkInTx = async (
+  tx: TransactionClient,
+  itemId: string,
+  tripDayId: string,
+  origin: WriteOrigin,
+  markNeeded = false,
+) => {
   const link = await tx.packingItemDay.findUnique({
     where: { packingItemId_tripDayId: { packingItemId: itemId, tripDayId } },
     select: { packingItemId: true },
   });
   if (!link) {
     await tx.packingItemDay.create({ data: { packingItemId: itemId, tripDayId } });
-    return touchItem(tx, itemId, origin);
+    return touchItem(tx, itemId, origin, markNeeded);
   }
+  if (markNeeded) return touchItem(tx, itemId, origin, true);
   return toDetail(await tx.packingItem.findUniqueOrThrow({ where: { id: itemId }, select: detailSelect }));
 };
 
@@ -410,12 +639,16 @@ const retryOnceOnUniqueViolation = async <T>(write: () => Promise<T>): Promise<T
 /**
  * Story 16.2. Links an item of the trip to a day of the trip. Linking an item already on the day is
  * success and writes nothing. A day or item of another trip is `day_missing` / `missing`.
+ *
+ * Story 16.7: a not-needed item is `not_needed` (nothing written), unless `markNeeded`: then it is marked
+ * needed and linked in one write.
  */
 export const linkPackingItemToDay = async (params: {
   userId: string;
   tripId: string;
   tripDayId: string;
   itemId: string;
+  markNeeded?: boolean;
   origin: WriteOrigin;
 }): Promise<PackingItemLinkResult> => {
   const trip = await findTripForTripWriter(params.userId, params.tripId);
@@ -426,10 +659,14 @@ export const linkPackingItemToDay = async (params: {
       if (!(await dayOfTrip(tx, params.tripId, params.tripDayId))) return { status: "day_missing" };
       const item = await tx.packingItem.findFirst({
         where: { id: params.itemId, tripId: params.tripId },
-        select: { id: true },
+        select: { id: true, notNeeded: true },
       });
       if (!item) return { status: "missing" };
-      return { status: "linked", item: await linkInTx(tx, item.id, params.tripDayId, params.origin) };
+      if (item.notNeeded && !params.markNeeded) return { status: "not_needed" };
+      return {
+        status: "linked",
+        item: await linkInTx(tx, item.id, params.tripDayId, params.origin, item.notNeeded),
+      };
     }),
   );
 };
@@ -438,6 +675,9 @@ export const linkPackingItemToDay = async (params: {
  * Story 16.2. Adds `name` to the day: the trip's item of that name (ignoring case and surrounding spaces;
  * its category and packed state unchanged) or a new unpacked one, then links it. Never a second item of
  * the same name.
+ *
+ * Story 16.7: when the name is an existing not-needed item, `not_needed` (nothing written) unless
+ * `markNeeded`, which marks it needed and links it in one write. A just-created item is always needed.
  */
 export const addPackingItemToDay = async (params: {
   userId: string;
@@ -445,6 +685,7 @@ export const addPackingItemToDay = async (params: {
   tripDayId: string;
   name: string;
   category?: string | null;
+  markNeeded?: boolean;
   origin: WriteOrigin;
 }): Promise<PackingItemAddToDayResult> => {
   const trip = await findTripForTripWriter(params.userId, params.tripId);
@@ -454,7 +695,10 @@ export const addPackingItemToDay = async (params: {
     prisma.$transaction(async (tx): Promise<PackingItemAddToDayResult> => {
       if (!(await dayOfTrip(tx, params.tripId, params.tripDayId))) return { status: "day_missing" };
       const resolved = await createOrResolveInTx(tx, params);
-      const item = await linkInTx(tx, resolved.item.id, params.tripDayId, params.origin);
+      // Only a resolved item can be not needed; `existed` wrote nothing, so the refusal writes nothing.
+      const notNeeded = resolved.status === "existed" && resolved.item.notNeeded;
+      if (notNeeded && !params.markNeeded) return { status: "not_needed" };
+      const item = await linkInTx(tx, resolved.item.id, params.tripDayId, params.origin, notNeeded);
       return { status: resolved.status, item };
     }),
   );
@@ -507,10 +751,12 @@ const snapshotSelect = {
   nameKey: true,
   category: true,
   packed: true,
+  notNeeded: true,
   aiChangedAt: true,
   createdAt: true,
   updatedAt: true,
   days: { select: { tripDayId: true } },
+  tags: { select: { tag: true, tagKey: true }, orderBy: { tagKey: "asc" } },
 } as const;
 
 const toSnapshot = (row: {
@@ -519,20 +765,24 @@ const toSnapshot = (row: {
   nameKey: string;
   category: string | null;
   packed: boolean;
+  notNeeded: boolean;
   aiChangedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   days: { tripDayId: string }[];
+  tags: { tag: string; tagKey: string }[];
 }): PackingItemSnapshot => ({
   id: row.id,
   name: row.name,
   nameKey: row.nameKey,
   category: row.category,
   packed: row.packed,
+  notNeeded: row.notNeeded,
   aiChangedAt: row.aiChangedAt,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
   dayIds: row.days.map((link) => link.tripDayId),
+  tags: row.tags.map((tag) => tag.tag),
 });
 
 const receiptOf = (entries: PackingReceiptEntry[]): PackingChangeReceipt => ({
@@ -544,6 +794,10 @@ const receiptOf = (entries: PackingReceiptEntry[]): PackingChangeReceipt => ({
 export type PackingConnectorAddResult =
   | { status: "not_found" }
   | { status: "day_missing" }
+  /** Story 16.7. With a day, the input at `index` names a not-needed item; nothing was written. */
+  | { status: "not_needed"; index: number }
+  /** Story 16.8. The input at `index` would leave its item with more than 10 tags; nothing was written. */
+  | { status: "too_many_tags"; index: number }
   | {
       status: "added";
       /** One per input, in input order. */
@@ -560,11 +814,18 @@ export type PackingConnectorAddResult =
  * item gets a `created` entry; an existing item whose link to the day is new gets an `updated` entry with
  * its state before. An existing item without a day, or already on it, writes nothing and gets no entry.
  * The hook runs only when there is an entry. A lost race on a unique index reruns the whole batch once.
+ *
+ * Story 16.7: with `tripDayId`, a name that resolves to a not-needed item refuses the whole call
+ * (`not_needed` with the first such input's index), decided before anything is written.
+ *
+ * Story 16.8: an input's `tags` go on a created item, and are added to an existing one (an `updated` entry
+ * when a tag was actually added). A merge past 10 tags refuses the whole call (`too_many_tags` with that
+ * input's index): it throws, so the batch's earlier creates roll back too.
  */
 export const addPackingItemsForConnector = async (params: {
   userId: string;
   tripId: string;
-  items: { name: string; category?: string | null }[];
+  items: { name: string; category?: string | null; tags?: string[] }[];
   tripDayId?: string;
   inTransaction: PackingInTransactionHook;
 }): Promise<PackingConnectorAddResult> => {
@@ -572,27 +833,57 @@ export const addPackingItemsForConnector = async (params: {
   const trip = await findTripForTripWriter(userId, tripId);
   if (!trip) return { status: "not_found" };
 
-  return retryOnceOnUniqueViolation(() =>
+  const addInTx = () =>
     prisma.$transaction(async (tx): Promise<PackingConnectorAddResult> => {
       if (tripDayId !== undefined && !(await dayOfTrip(tx, tripId, tripDayId))) return { status: "day_missing" };
+
+      if (tripDayId !== undefined) {
+        // Before any write: a return after a create would commit half the batch (only a throw rolls back).
+        const keys = params.items.map((input) => packingNameKey(normalizePackingName(input.name)));
+        const notNeeded = await tx.packingItem.findMany({
+          where: { tripId, notNeeded: true, nameKey: { in: keys } },
+          select: { nameKey: true },
+        });
+        if (notNeeded.length > 0) {
+          const refused = new Set(notNeeded.map((row) => row.nameKey));
+          return { status: "not_needed", index: keys.findIndex((key) => refused.has(key)) };
+        }
+      }
 
       const entries = new Map<string, PackingReceiptEntry>();
       const results: { name: string; itemId: string; status: "created" | "existed" }[] = [];
       const order: string[] = [];
 
-      for (const input of params.items) {
+      for (const [index, input] of params.items.entries()) {
         const nameKey = packingNameKey(normalizePackingName(input.name));
         // The item's state before this call, read before the resolve: only an existing item has one.
         const before = await tx.packingItem.findUnique({
           where: { tripId_nameKey: { tripId, nameKey } },
           select: snapshotSelect,
         });
-        const resolved = await createOrResolveInTx(tx, { tripId, name: input.name, category: input.category, origin: "ai" });
+        let resolved: Awaited<ReturnType<typeof createOrResolveInTx>>;
+        try {
+          resolved = await createOrResolveInTx(tx, {
+            tripId,
+            name: input.name,
+            category: input.category,
+            tags: input.tags,
+            mergeTags: true,
+            origin: "ai",
+          });
+        } catch (error) {
+          // A throw, never a return: it rolls back the creates made earlier in the batch.
+          if (error instanceof PackingTagLimitError) throw new PackingTagLimitError(index);
+          throw error;
+        }
         const itemId = resolved.item.id;
         results.push({ name: input.name, itemId, status: resolved.status });
         if (!order.includes(itemId)) order.push(itemId);
         if (resolved.status === "created") {
           entries.set(itemId, { change: "created", itemId, updatedAt: resolved.item.updatedAt });
+        }
+        if (resolved.tagsAdded && !entries.has(itemId) && before) {
+          entries.set(itemId, { change: "updated", before: toSnapshot(before), updatedAt: before.updatedAt });
         }
         if (tripDayId !== undefined) {
           const link = await tx.packingItemDay.findUnique({
@@ -624,8 +915,14 @@ export const addPackingItemsForConnector = async (params: {
         items: order.map((id) => byId.get(id)!),
         written: receiptEntries.length > 0,
       };
-    }),
-  );
+    });
+
+  try {
+    return await retryOnceOnUniqueViolation(addInTx);
+  } catch (error) {
+    if (error instanceof PackingTagLimitError) return { status: "too_many_tags", index: error.index };
+    throw error;
+  }
 };
 
 export type PackingConnectorUpdateResult =
@@ -633,6 +930,10 @@ export type PackingConnectorUpdateResult =
   | { status: "missing" }
   | { status: "day_missing" }
   | { status: "duplicate_name" }
+  /** Story 16.7. Ticking or linking an item that is, or would end up, not needed; nothing written. */
+  | { status: "not_needed" }
+  /** Story 16.8. The tags would end up more than 10; nothing written. */
+  | { status: "too_many_tags" }
   | { status: "unchanged"; item: PackingItemDetail }
   | { status: "updated"; item: PackingItemDetail };
 
@@ -641,6 +942,14 @@ export type PackingConnectorUpdateResult =
  * spelling, "Other" as `null`), and links or unlinks days, checked against the `updatedAt` the caller read
  * (`ChangedSinceReadError` otherwise, nothing written). A call that changes nothing writes nothing and
  * runs no hook (`unchanged`).
+ *
+ * Story 16.7: `notNeeded: true` unticks the item and removes every day link (whatever `removeDayIds` says);
+ * `notNeeded: false` marks it needed again. `packed: true` or `addDayIds` on an item that is, or would end
+ * up, not needed is `not_needed`, nothing written.
+ *
+ * Story 16.8: `addTags` adds the tags the item lacks (ignoring case; resolved to the trip's spelling),
+ * `removeTags` removes the given ones it has; both no-ops otherwise. More than 10 at the end is
+ * `too_many_tags`, decided before anything is written. The caller refuses a tag in both lists.
  */
 export const updatePackingItemForConnector = async (params: {
   userId: string;
@@ -650,16 +959,19 @@ export const updatePackingItemForConnector = async (params: {
   name?: string;
   category?: string | null;
   packed?: boolean;
+  notNeeded?: boolean;
   addDayIds?: string[];
   removeDayIds?: string[];
+  addTags?: string[];
+  removeTags?: string[];
   inTransaction: PackingInTransactionHook;
 }): Promise<PackingConnectorUpdateResult> => {
   const { userId, tripId, itemId, inTransaction } = params;
   const trip = await findTripForTripWriter(userId, tripId);
   if (!trip) return { status: "not_found" };
 
-  try {
-    return await prisma.$transaction(async (tx): Promise<PackingConnectorUpdateResult> => {
+  const run = () =>
+    prisma.$transaction(async (tx): Promise<PackingConnectorUpdateResult> => {
       const current = await tx.packingItem.findFirst({ where: { id: itemId, tripId }, select: snapshotSelect });
       if (!current) return { status: "missing" };
       if (current.updatedAt.getTime() !== params.expectedUpdatedAt.getTime()) throw new ChangedSinceReadError();
@@ -671,6 +983,17 @@ export const updatePackingItemForConnector = async (params: {
         const found = await tx.tripDay.count({ where: { id: { in: givenDays }, tripId } });
         if (found !== givenDays.length) return { status: "day_missing" };
       }
+
+      const endsNotNeeded = params.notNeeded ?? current.notNeeded;
+      if (endsNotNeeded && (addDayIds.length > 0 || params.packed === true)) return { status: "not_needed" };
+
+      // Story 16.8. The next tag set, checked against the limit before anything is written.
+      const removeTagKeys = new Set((params.removeTags ?? []).map(packingTagKey));
+      const keptTags = current.tags.filter((row) => !removeTagKeys.has(row.tagKey));
+      const keptTagKeys = new Set(keptTags.map((row) => row.tagKey));
+      const addedTags = dedupePackingTags(params.addTags ?? []).filter((tag) => !keptTagKeys.has(packingTagKey(tag)));
+      const tagsChanged = addedTags.length > 0 || keptTags.length !== current.tags.length;
+      if (keptTags.length + addedTags.length > PACKING_TAGS_PER_ITEM_MAX) return { status: "too_many_tags" };
 
       const data: Prisma.PackingItemUpdateInput = {};
       if (params.name !== undefined) {
@@ -691,12 +1014,18 @@ export const updatePackingItemForConnector = async (params: {
         if (category !== current.category) data.category = category;
       }
       if (params.packed !== undefined && params.packed !== current.packed) data.packed = params.packed;
+      const markingNotNeeded = params.notNeeded === true && !current.notNeeded;
+      if (markingNotNeeded) {
+        data.notNeeded = true;
+        if (current.packed) data.packed = false;
+      }
+      if (params.notNeeded === false && current.notNeeded) data.notNeeded = false;
 
       const linked = new Set(current.days.map((link) => link.tripDayId));
       const toLink = addDayIds.filter((id) => !linked.has(id));
-      const toUnlink = removeDayIds.filter((id) => linked.has(id));
+      const toUnlink = markingNotNeeded ? [...linked] : removeDayIds.filter((id) => linked.has(id));
 
-      if (Object.keys(data).length === 0 && toLink.length === 0 && toUnlink.length === 0) {
+      if (Object.keys(data).length === 0 && toLink.length === 0 && toUnlink.length === 0 && !tagsChanged) {
         const item = await tx.packingItem.findUniqueOrThrow({ where: { id: itemId }, select: detailSelect });
         return { status: "unchanged", item: toDetail(item) };
       }
@@ -704,6 +1033,10 @@ export const updatePackingItemForConnector = async (params: {
       for (const tripDayId of toLink) await tx.packingItemDay.create({ data: { packingItemId: itemId, tripDayId } });
       if (toUnlink.length > 0) {
         await tx.packingItemDay.deleteMany({ where: { packingItemId: itemId, tripDayId: { in: toUnlink } } });
+      }
+      if (tagsChanged) {
+        const resolvedAdded = await resolveTags(tx, tripId, addedTags, itemId);
+        await writeTagsInTx(tx, itemId, [...keptTags.map((row) => row.tag), ...resolvedAdded]);
       }
       const updated = await tx.packingItem.update({
         where: { id: itemId },
@@ -715,9 +1048,13 @@ export const updatePackingItemForConnector = async (params: {
       });
       return { status: "updated", item: toDetail(updated) };
     });
+
+  try {
+    // Story 16.8. A unique violation (a name, day link or tag taken meanwhile) reruns once: the rerun's
+    // stale check and clash check give the precise answer.
+    return await retryOnceOnUniqueViolation(run);
   } catch (error) {
-    // A concurrent create or rename took the name between the check and the write. Only a rename can
-    // clash on the name; any other unique violation (a day link added meanwhile) is not a name clash.
+    // Lost twice: only a rename can clash on the name; any other unique violation is not a name clash.
     if (params.name !== undefined && isUniqueViolation(error)) return { status: "duplicate_name" };
     throw error;
   }
@@ -770,6 +1107,17 @@ const restoreLinks = async (tx: TransactionClient, tripId: string, itemId: strin
 };
 
 /**
+ * Story 16.8. Makes the item's tags exactly `tags`, in order. Called only for a snapshot that has tags; a
+ * receipt from before 16.8 leaves the tags as they are (D5).
+ */
+const restoreTags = async (tx: TransactionClient, itemId: string, tags: readonly string[]) => {
+  await tx.packingItemTag.deleteMany({ where: { packingItemId: itemId } });
+  for (const tag of tags) {
+    await tx.packingItemTag.create({ data: { packingItemId: itemId, tag, tagKey: packingTagKey(tag) } });
+  }
+};
+
+/**
  * Undoes one stored packing receipt in one transaction, newest entry first, then runs `inTransaction` (which
  * marks the change undone). `stale` when any touched item changed since (another `updatedAt`, gone, or a
  * restore would take another item's name); everything rolls back. `invalid` when an item id of the receipt
@@ -812,6 +1160,8 @@ export const undoPackingChangeForTrip = async (params: {
           });
           if (clash) throw new UndoStaleError("packing item name taken since");
           await restoreLinks(tx, tripId, before.id, before.dayIds);
+          // Before the item write that puts `updatedAt` back, so nothing bumps the stamp afterwards.
+          if (before.tags !== undefined) await restoreTags(tx, before.id, before.tags);
           await tx.packingItem.update({
             where: { id: before.id },
             data: {
@@ -819,6 +1169,7 @@ export const undoPackingChangeForTrip = async (params: {
               nameKey: before.nameKey,
               category: before.category,
               packed: before.packed,
+              notNeeded: before.notNeeded,
               aiChangedAt: before.aiChangedAt,
               updatedAt: before.updatedAt,
             },
@@ -838,12 +1189,14 @@ export const undoPackingChangeForTrip = async (params: {
             nameKey: before.nameKey,
             category: before.category,
             packed: before.packed,
+            notNeeded: before.notNeeded,
             aiChangedAt: before.aiChangedAt,
             createdAt: before.createdAt,
             updatedAt: before.updatedAt,
           },
         });
         await restoreLinks(tx, tripId, before.id, before.dayIds);
+        if (before.tags !== undefined) await restoreTags(tx, before.id, before.tags);
       }
       if (inTransaction) await inTransaction(tx);
     });

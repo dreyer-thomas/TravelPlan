@@ -1,5 +1,12 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-11-08 (16-7-not-needed-this-time -> ready-for-dev via bmad-create-story; defaults D1-D5 flagged: server refuses link/tick of not-needed items, add-with-day refuses batch, overview suffix always, all-not-needed message, receipt stays v1)
+# last_updated: 2026-11-08 (16-8-tags-on-packing-items -> done via bmad-code-review; 1 decision resolved, 9 patches applied, 3 deferred (DW-445..447), 13 dismissed, full suite 269 files / 4451 tests green)
+# previously: 2026-11-08 (16-8-tags-on-packing-items -> review via bmad-dev-story; all 14 tasks done, full suite 269 files / 4448 tests green, typecheck/lint(0 errors)/check:migrations/build pass)
+# previously: 2026-11-08 (16-8-tags-on-packing-items -> in-progress via bmad-dev-story)
+# previously: 2026-11-08 (16-8-tags-on-packing-items -> ready-for-dev via bmad-create-story; defaults D1-D7 flagged: own tag table, alphabetical tags, app add of an existing name merges tags, no comma in tags, receipt stays v1, heading counts ignore tag filter, over-limit merges refused)
+# previously: 2026-11-08 (16-7-not-needed-this-time -> done via bmad-code-review; 2 decisions resolved, 6 patches applied, 1 deferred (DW-444), full suite 269 files / 4393 tests green)
+# previously: 2026-11-08 (16-7-not-needed-this-time -> review via bmad-dev-story; all 10 tasks done, full suite 269 files / 4385 tests green, typecheck/lint(0 errors)/check:migrations/build pass)
+# previously: 2026-11-08 (16-7-not-needed-this-time -> in-progress via bmad-dev-story)
+# previously: 2026-11-08 (16-7-not-needed-this-time -> ready-for-dev via bmad-create-story; defaults D1-D5 flagged: server refuses link/tick of not-needed items, add-with-day refuses batch, overview suffix always, all-not-needed message, receipt stays v1)
 # previously: 2026-11-08 (16-7-not-needed-this-time and 16-8-tags-on-packing-items added to backlog by PM: "Nicht nötig" item state and free tags with a tag filter; reverses the "no tags" ruling; sequenced after 16-4, before 16-5; FR58/FR60 amended, epics.md Stories 16.7/16.8)
 # previously: 2026-11-08 (16-4-the-packing-list-through-the-connector -> done via bmad-code-review; 5 patches applied, 1 deferred (DW-443), 23 dismissed, full suite 269 files / 4342 tests green, typecheck/lint clean)
 # previously: 2026-11-08 (16-4-the-packing-list-through-the-connector -> review via bmad-dev-story; all 8 tasks done, full suite 269 files / 4338 tests green, typecheck/lint(0 errors)/build pass)
@@ -415,7 +422,7 @@ development_status:
   16-6-my-part-of-the-list: done
   16-3-take-along-in-the-day-email: done
   16-4-the-packing-list-through-the-connector: done
-  16-7-not-needed-this-time: ready-for-dev
-  16-8-tags-on-packing-items: backlog
+  16-7-not-needed-this-time: done
+  16-8-tags-on-packing-items: done
   16-5-copy-from-another-trip: backlog
   epic-16-retrospective: optional

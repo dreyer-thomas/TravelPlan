@@ -77,11 +77,12 @@ const build = (
   packingItems: readonly PackingItemForDay[] = [],
 ) => buildDayEmail({ payload: p, language, t: tFor(language), dayUrl: DAY_URL, documents, packingItems });
 
-const packing = (name: string, category: string | null, packed = false): PackingItemForDay => ({
+const packing = (name: string, category: string | null, packed = false, tags: string[] = []): PackingItemForDay => ({
   id: `pack-${name}`,
   name,
   category,
   packed,
+  tags,
 });
 
 /** Two categories plus the "Other" group, given out of order so the grouping has work to do. */
@@ -340,6 +341,25 @@ describe("buildDayEmail", () => {
       expect(mail.html).toContain(`<li style="word-break:break-word;overflow-wrap:anywhere">&lt;b&gt;name&lt;/b&gt; &amp; &quot;n&quot;</li>`);
       expect(mail.html).toContain(">&lt;i&gt;cat&lt;/i&gt; &amp; &#39;c&#39;</div>");
       expect(mail.text).toContain(`${hostileCategory}\n- ${hostileName}`);
+    });
+
+    it.each(["en", "de"] as const)("shows an item's tags alphabetically after its name (%s, Story 16.8)", (language) => {
+      const mail = build(payload([]), language, "none", [
+        packing("Powerbank", "Technik", false, ["Kaufen", "Aufladen"]),
+        packing("Hut", "Technik"),
+      ]);
+      expect(mail.text).toContain("- Powerbank (Aufladen, Kaufen)");
+      expect(mail.text).toContain("- Hut");
+      expect(mail.text).not.toContain("Hut (");
+      expect(mail.html).toContain(`<li style="word-break:break-word;overflow-wrap:anywhere">Powerbank (Aufladen, Kaufen)</li>`);
+      expect(mail.html).toContain(`<li style="word-break:break-word;overflow-wrap:anywhere">Hut</li>`);
+    });
+
+    it("escapes every tag in the HTML and leaves it raw in the text (Story 16.8)", () => {
+      const mail = build(payload([]), "en", "none", [packing("Lamp", null, false, ["<b>hot</b>", "a&b"])]);
+      expect(mail.html).not.toContain("<b>");
+      expect(mail.html).toContain("Lamp (&lt;b&gt;hot&lt;/b&gt;, a&amp;b)</li>");
+      expect(mail.text).toContain("- Lamp (<b>hot</b>, a&b)");
     });
   });
 });

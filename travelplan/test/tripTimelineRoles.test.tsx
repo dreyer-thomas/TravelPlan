@@ -184,7 +184,7 @@ describe("TripTimeline role gating", () => {
   type TripOverrides = { name: string; accessRole?: "owner" | "contributor" | "viewer" };
 
   const buildDetailResponse = (
-    trip: TripOverrides & { heroImageUrl?: string | null; updatedAt?: string; packing?: { total: number; packed: number } },
+    trip: TripOverrides & { heroImageUrl?: string | null; updatedAt?: string; packing?: { total: number; packed: number; notNeeded?: number } },
     day: { missingAccommodation: boolean; accommodation: unknown; planConflicts?: unknown[] },
   ) => ({
     data: {
@@ -355,6 +355,27 @@ describe("TripTimeline role gating", () => {
       expect(card).toHaveAttribute("href", "/trips/trip-1/packing");
       expect(screen.getByRole("link", { name: "Open packing list, 18 of 30 packed" })).toBe(card);
 
+      unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("adds the not-needed count to the packing card, also when nothing is needed (Story 16.7)", async () => {
+    const cases = [
+      { packing: { total: 30, packed: 18, notNeeded: 4 }, language: "en" as const, text: "18 of 30 packed · 4 not needed" },
+      { packing: { total: 0, packed: 0, notNeeded: 4 }, language: "de" as const, text: "0 von 0 eingepackt · 4 nicht nötig" },
+      { packing: { total: 0, packed: 0, notNeeded: 4 }, language: "en" as const, text: "0 of 0 packed · 4 not needed" },
+      { packing: { total: 30, packed: 18, notNeeded: 0 }, language: "en" as const, text: "18 of 30 packed" },
+      { packing: { total: 0, packed: 0, notNeeded: 0 }, language: "en" as const, text: "Empty yet" },
+    ];
+    for (const { packing, language, text } of cases) {
+      stubDetailFetch(
+        buildDetailResponse({ name: "Packing Trip", accessRole: "owner", packing }, { missingAccommodation: true, accommodation: null }),
+      );
+      const { unmount } = renderWithProviders(<TripTimeline tripId="trip-1" />, { language });
+      expect(await screen.findByTestId("trip-packing-card-progress")).toHaveTextContent(new RegExp(`^${text}$`));
+      const opener = language === "de" ? "Packliste öffnen" : "Open packing list";
+      expect(screen.getByTestId("trip-packing-card")).toHaveAttribute("aria-label", `${opener}, ${text}`);
       unmount();
       vi.unstubAllGlobals();
     }

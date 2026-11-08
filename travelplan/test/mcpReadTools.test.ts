@@ -143,7 +143,7 @@ describe("get_trip", () => {
       name: "Prague",
       startDate: "2027-05-01",
       endDate: "2027-05-03",
-      packing: { total: 0, packed: 0 },
+      packing: { total: 0, packed: 0, notNeeded: 0 },
       days: [
         { id: seed.day1.id, date: "2027-05-01", dayIndex: 1, stay: { name: "Hotel Arrival", status: "planned" }, missingStay: false, hasNote: false, hasImage: false, activityCount: 0, warnings: [] },
         {
@@ -163,6 +163,19 @@ describe("get_trip", () => {
         { id: seed.day3.id, date: "2027-05-03", dayIndex: 3, stay: null, missingStay: true, hasNote: false, hasImage: false, activityCount: 0, warnings: [] },
       ],
     });
+  });
+
+  it("counts needed items in packing.total and packed, and the not-needed ones in notNeeded (Story 16.7)", async () => {
+    const { seed, owner } = await setupTrip();
+    await prisma.packingItem.createMany({
+      data: [
+        { tripId: seed.trip.id, name: "Pass", nameKey: "pass", packed: true },
+        { tripId: seed.trip.id, name: "Hut", nameKey: "hut" },
+        { tripId: seed.trip.id, name: "Badehose", nameKey: "badehose", notNeeded: true },
+      ],
+    });
+    const trip = structured<{ packing: unknown }>(await callTool(owner.token, "get_trip", { tripId: seed.trip.id }));
+    expect(trip.packing).toEqual({ total: 2, packed: 1, notNeeded: 1 });
   });
 });
 
@@ -396,6 +409,31 @@ describe("get_trip_route", () => {
     const body = (await response.json()) as { result: { tools: { name: string; description: string }[] } };
     const description = body.result.tools.find((tool) => tool.name === "get_trip_route")?.description ?? "";
     expect(description).toContain("straight lines in plan order, not along roads; no routing service is used");
+  });
+
+  it("tells the model about not-needed packing items in get_day and add_packing_items (Story 16.7 review)", async () => {
+    const user = await createUser();
+    const token = await issueAccessToken(user.id);
+    const response = await POST(rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, { authorization: `Bearer ${token}` }));
+    const body = (await response.json()) as { result: { tools: { name: string; description: string }[] } };
+    const descriptionOf = (name: string) => body.result.tools.find((tool) => tool.name === name)?.description ?? "";
+    expect(descriptionOf("get_day")).toContain("an item marked not needed this time is never linked, so it is never here");
+    expect(descriptionOf("add_packing_items")).toContain(
+      "so a name marked not needed stays not needed and comes back with notNeeded true",
+    );
+  });
+
+  it("tells the model about packing tags in get_packing_list, get_day, add_packing_items and update_packing_item (Story 16.8 review)", async () => {
+    const user = await createUser();
+    const token = await issueAccessToken(user.id);
+    const response = await POST(rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, { authorization: `Bearer ${token}` }));
+    const body = (await response.json()) as { result: { tools: { name: string; description: string }[] } };
+    const descriptionOf = (name: string) => body.result.tools.find((tool) => tool.name === name)?.description ?? "";
+    expect(descriptionOf("get_packing_list")).toContain("tags (free labels such as Kaufen or Aufladen, at most 10 per item");
+    expect(descriptionOf("get_packing_list")).toContain("stored in the trip's first spelling");
+    expect(descriptionOf("get_day")).toContain("id, name, category, packed, tags");
+    expect(descriptionOf("add_packing_items")).toContain("the given tags are added to it");
+    expect(descriptionOf("update_packing_item")).toContain("tags (addTags, removeTags; an item carries at most 10");
   });
 });
 

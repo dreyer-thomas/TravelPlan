@@ -14,7 +14,12 @@ import { TRANSPORT_TYPES } from "@/lib/trips/transportTypes";
 import { costCurrencyFields, paymentOriginalField, refineCostCurrency } from "@/lib/validation/costCurrencySchemas";
 import { isValidDateOnly } from "@/lib/validation/dateOnly";
 import { MAX_ACTIVITY_DURATION_MINUTES, MIN_ACTIVITY_DURATION_MINUTES } from "@/lib/validation/dayPlanItemSchemas";
-import { PACKING_CATEGORY_MAX, PACKING_ITEM_NAME_MAX } from "@/lib/trips/packingList";
+import {
+  PACKING_CATEGORY_MAX,
+  PACKING_ITEM_NAME_MAX,
+  PACKING_TAG_MAX,
+  PACKING_TAGS_PER_ITEM_MAX,
+} from "@/lib/trips/packingList";
 import { isSafeExternalUrl } from "@/lib/validation/safeExternalUrl";
 import { isSafeStoredImageUrl } from "@/lib/validation/safeStoredImageUrl";
 
@@ -624,7 +629,26 @@ const packingItemImportSchema = z.object({
     .optional()
     .transform((value) => (value && value.length > 0 ? value : null)),
   packed: z.boolean().optional().default(false),
+  // Story 16.7. Absent in an archive from before 16.7: needed.
+  notNeeded: z.boolean().optional().default(false),
   dayIndexes: z.array(z.number().int().min(1)).max(MAX_IMPORT_DAYS).optional().default([]),
+  // Story 16.8. Absent in an archive from before 16.8: no tags. The app's tag rules, measured after NFC.
+  tags: z
+    .array(
+      z
+        .string()
+        .transform((value) => value.normalize("NFC").trim())
+        .pipe(
+          z
+            .string()
+            .min(1, "Packing tag is required")
+            .max(PACKING_TAG_MAX)
+            .refine((value) => !value.includes(","), "Packing tag must not contain a comma"),
+        ),
+    )
+    .max(PACKING_TAGS_PER_ITEM_MAX)
+    .optional()
+    .default([]),
 });
 
 const tripImportSchema = z

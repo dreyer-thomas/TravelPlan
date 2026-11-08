@@ -613,6 +613,43 @@ describe("aiChangeRepo packing receipts (Story 16.4)", () => {
     expect(results.map((result) => result.status).sort()).toEqual(["already_undone", "undone"]);
   });
 
+  it("parses and undoes a receipt stored before Story 16.7 (no notNeeded in the snapshot)", async () => {
+    const seeded = await seedTrip();
+    const added = await addByAi(seeded, ["Pass"]);
+    const linked = await addByAi(seeded, ["Pass"], seeded.day.id);
+    const row = await prisma.aiChange.findUniqueOrThrow({ where: { id: linked.changeId } });
+    const stored = JSON.parse(row.receiptJson!) as { entries: { before?: Record<string, unknown> }[] };
+    expect(stored.entries[0].before).toMatchObject({ notNeeded: false });
+    delete stored.entries[0].before!.notNeeded;
+    await prisma.aiChange.update({ where: { id: linked.changeId }, data: { receiptJson: JSON.stringify(stored) } });
+
+    expect(await undoAiChange({ userId: seeded.user.id, tripId: seeded.trip.id, changeId: linked.changeId, now: new Date() })).toEqual({
+      status: "undone",
+    });
+    const item = await prisma.packingItem.findUniqueOrThrow({ where: { id: added.items[0].id }, include: { days: true } });
+    expect(item.notNeeded).toBe(false);
+    expect(item.days).toEqual([]);
+  });
+
+  it("parses and undoes a receipt stored before Story 16.8 (no tags in the snapshot), leaving the tags alone", async () => {
+    const seeded = await seedTrip();
+    const added = await addByAi(seeded, ["Pass"]);
+    await prisma.packingItemTag.create({ data: { packingItemId: added.items[0].id, tag: "Zoll", tagKey: "zoll" } });
+    const linked = await addByAi(seeded, ["Pass"], seeded.day.id);
+    const row = await prisma.aiChange.findUniqueOrThrow({ where: { id: linked.changeId } });
+    const stored = JSON.parse(row.receiptJson!) as { entries: { before?: Record<string, unknown> }[] };
+    expect(stored.entries[0].before).toMatchObject({ tags: ["Zoll"] });
+    delete stored.entries[0].before!.tags;
+    await prisma.aiChange.update({ where: { id: linked.changeId }, data: { receiptJson: JSON.stringify(stored) } });
+
+    expect(await undoAiChange({ userId: seeded.user.id, tripId: seeded.trip.id, changeId: linked.changeId, now: new Date() })).toEqual({
+      status: "undone",
+    });
+    const item = await prisma.packingItem.findUniqueOrThrow({ where: { id: added.items[0].id }, include: { days: true, tags: true } });
+    expect(item.days).toEqual([]);
+    expect(item.tags.map((tag) => tag.tag)).toEqual(["Zoll"]);
+  });
+
   it("narrows the list to the given actions", async () => {
     const seeded = await seedTrip();
     await createByAi(seeded, "Louvre");

@@ -415,7 +415,8 @@ export const ModelName = {
   OAuthToken: 'OAuthToken',
   AiChange: 'AiChange',
   PackingItem: 'PackingItem',
-  PackingItemDay: 'PackingItemDay'
+  PackingItemDay: 'PackingItemDay',
+  PackingItemTag: 'PackingItemTag'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -431,7 +432,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "passwordResetToken" | "trip" | "tripMember" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "costPayment" | "accommodationImage" | "dayPlanItemImage" | "accommodationDocument" | "dayPlanItemDocument" | "aiUsageRecord" | "oAuthAuthorizationCode" | "oAuthToken" | "aiChange" | "packingItem" | "packingItemDay"
+    modelProps: "user" | "passwordResetToken" | "trip" | "tripMember" | "tripDay" | "travelSegment" | "accommodation" | "dayPlanItem" | "costPayment" | "accommodationImage" | "dayPlanItemImage" | "accommodationDocument" | "dayPlanItemDocument" | "aiUsageRecord" | "oAuthAuthorizationCode" | "oAuthToken" | "aiChange" | "packingItem" | "packingItemDay" | "packingItemTag"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1841,6 +1842,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    PackingItemTag: {
+      payload: Prisma.$PackingItemTagPayload<ExtArgs>
+      fields: Prisma.PackingItemTagFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.PackingItemTagFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PackingItemTagPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.PackingItemTagFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PackingItemTagPayload>
+        }
+        findFirst: {
+          args: Prisma.PackingItemTagFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PackingItemTagPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.PackingItemTagFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PackingItemTagPayload>
+        }
+        findMany: {
+          args: Prisma.PackingItemTagFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PackingItemTagPayload>[]
+        }
+        create: {
+          args: Prisma.PackingItemTagCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PackingItemTagPayload>
+        }
+        createMany: {
+          args: Prisma.PackingItemTagCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.PackingItemTagCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PackingItemTagPayload>[]
+        }
+        delete: {
+          args: Prisma.PackingItemTagDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PackingItemTagPayload>
+        }
+        update: {
+          args: Prisma.PackingItemTagUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PackingItemTagPayload>
+        }
+        deleteMany: {
+          args: Prisma.PackingItemTagDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.PackingItemTagUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.PackingItemTagUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PackingItemTagPayload>[]
+        }
+        upsert: {
+          args: Prisma.PackingItemTagUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PackingItemTagPayload>
+        }
+        aggregate: {
+          args: Prisma.PackingItemTagAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregatePackingItemTag>
+        }
+        groupBy: {
+          args: Prisma.PackingItemTagGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.PackingItemTagGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.PackingItemTagCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.PackingItemTagCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -2174,6 +2249,7 @@ export const PackingItemScalarFieldEnum = {
   nameKey: 'nameKey',
   category: 'category',
   packed: 'packed',
+  notNeeded: 'notNeeded',
   aiChangedAt: 'aiChangedAt',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
@@ -2189,6 +2265,16 @@ export const PackingItemDayScalarFieldEnum = {
 } as const
 
 export type PackingItemDayScalarFieldEnum = (typeof PackingItemDayScalarFieldEnum)[keyof typeof PackingItemDayScalarFieldEnum]
+
+
+export const PackingItemTagScalarFieldEnum = {
+  packingItemId: 'packingItemId',
+  tag: 'tag',
+  tagKey: 'tagKey',
+  createdAt: 'createdAt'
+} as const
+
+export type PackingItemTagScalarFieldEnum = (typeof PackingItemTagScalarFieldEnum)[keyof typeof PackingItemTagScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -2480,6 +2566,7 @@ export type GlobalOmitConfig = {
   aiChange?: Prisma.AiChangeOmit
   packingItem?: Prisma.PackingItemOmit
   packingItemDay?: Prisma.PackingItemDayOmit
+  packingItemTag?: Prisma.PackingItemTagOmit
 }
 
 /* Types for Logging */

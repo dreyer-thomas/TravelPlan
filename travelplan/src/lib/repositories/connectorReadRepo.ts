@@ -128,8 +128,8 @@ export type PlannerDay = {
   imageUrl: string | null;
   updatedAt: Date;
   aiChangedAt: Date | null;
-  /** Story 16.4. The packing items linked to the day, in name-key order. */
-  packingItems: { id: string; name: string; category: string | null; packed: boolean }[];
+  /** Story 16.4. The packing items linked to the day, in name-key order. Story 16.8: with their tags (tag-key order). */
+  packingItems: { id: string; name: string; category: string | null; packed: boolean; tags: string[] }[];
 };
 
 /** `null`: no trip this user may plan. `{ day: null }`: the trip, but no such day in it. */
@@ -258,12 +258,20 @@ export const getPlannerDayForUser = async (params: {
     });
     if (!day) return { day: null };
 
-    // Story 16.4. The things the day needs, in the same snapshot.
-    const packingItems = await tx.packingItem.findMany({
-      where: { tripId: trip.id, days: { some: { tripDayId: target.id } } },
-      select: { id: true, name: true, category: true, packed: true },
+    // Story 16.4. The things the day needs, in the same snapshot. Story 16.7: a not-needed item is never
+    // linked; `notNeeded: false` is defence in depth.
+    const packingRows = await tx.packingItem.findMany({
+      where: { tripId: trip.id, notNeeded: false, days: { some: { tripDayId: target.id } } },
+      select: {
+        id: true,
+        name: true,
+        category: true,
+        packed: true,
+        tags: { select: { tag: true }, orderBy: { tagKey: "asc" } },
+      },
       orderBy: [{ nameKey: "asc" }, { id: "asc" }],
     });
+    const packingItems = packingRows.map((row) => ({ ...row, tags: row.tags.map((tag) => tag.tag) }));
 
     const orderedItems = [...day.dayPlanItems].sort(compareDayPlanItemsByOrder);
     const warnings = derivePlanConflicts(

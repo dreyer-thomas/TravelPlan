@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  collectPackingTags,
+  dedupePackingTags,
+  itemHasAnyPackingTag,
+  normalizePackingTag,
+  packingTagKey,
+  resolvePackingTagSelection,
+  sortPackingTags,
+  suggestedPackingTags,
   groupPackingItems,
   normalizePackingCategory,
   normalizePackingName,
@@ -119,5 +127,73 @@ describe("packing category selection (Story 16.6)", () => {
   it("answers [] with fewer than two groups", () => {
     expect(resolvePackingCategorySelection(["kleidung"], ["kleidung"])).toEqual([]);
     expect(resolvePackingCategorySelection([null], [])).toEqual([]);
+  });
+});
+
+describe("packing tags (Story 16.8)", () => {
+  it("normalizes and keys a tag: NFC, trimmed, lower-cased", () => {
+    expect(normalizePackingTag("  Kaufen ")).toBe("Kaufen");
+    expect(packingTagKey(" Äußern ")).toBe("äußern");
+    expect(packingTagKey("Cafe\u0301")).toBe(packingTagKey("Café"));
+  });
+
+  it("dedupes ignoring case, keeps the first spelling and the input order, drops empties", () => {
+    expect(dedupePackingTags(["Kaufen", " ", "aufladen", "KAUFEN", " Aufladen "])).toEqual(["Kaufen", "aufladen"]);
+  });
+
+  it("sorts alphabetically, ignoring case", () => {
+    expect(sortPackingTags(["kaufen", "Aufladen", "Zoll anmelden", "Ärger"], "de")).toEqual([
+      "Ärger",
+      "Aufladen",
+      "kaufen",
+      "Zoll anmelden",
+    ]);
+  });
+
+  it("suggests the defaults first, then the trip's tags not among them, alphabetically", () => {
+    expect(
+      suggestedPackingTags(["Kaufen", "Aufladen"], ["zoll", "kaufen", "Batterie", "Zoll"], "de"),
+    ).toEqual(["Kaufen", "Aufladen", "Batterie", "zoll"]);
+  });
+
+  it("collects the trip's tags with the first spelling met, sorted by label", () => {
+    expect(
+      collectPackingTags([{ tags: ["kaufen", "Zoll"] }, { tags: ["Kaufen", "Aufladen"] }, { tags: [] }], "de"),
+    ).toEqual([
+      { key: "aufladen", label: "Aufladen" },
+      { key: "kaufen", label: "kaufen" },
+      { key: "zoll", label: "Zoll" },
+    ]);
+  });
+
+  it("resolves the stored selection: existing keys in chip order, vanished keys ignored, one tag is enough", () => {
+    expect(resolvePackingTagSelection(["KAUFEN"], ["kaufen"])).toEqual(["kaufen"]);
+    expect(resolvePackingTagSelection(["zoll", "aufladen", "gone"], ["aufladen", "kaufen", "zoll"])).toEqual([
+      "aufladen",
+      "zoll",
+    ]);
+    expect(resolvePackingTagSelection(["gone"], ["kaufen"])).toEqual([]);
+  });
+
+  it("matches an item against any selected tag, and everything for no selection", () => {
+    expect(itemHasAnyPackingTag({ tags: [] }, [])).toBe(true);
+    expect(itemHasAnyPackingTag({ tags: ["Kaufen"] }, ["aufladen", "kaufen"])).toBe(true);
+    expect(itemHasAnyPackingTag({ tags: ["Kaufen"] }, ["aufladen"])).toBe(false);
+    expect(itemHasAnyPackingTag({ tags: [] }, ["kaufen"])).toBe(false);
+  });
+
+  it("validates tags: 1-30 characters after NFC, no comma, at most 10, deduped", async () => {
+    const { packingItemCreateSchema, packingItemUpdateSchema } = await import("@/lib/validation/packingListSchemas");
+    expect(packingItemCreateSchema.safeParse({ name: "x", tags: ["a".repeat(31)] }).success).toBe(false);
+    expect(packingItemCreateSchema.safeParse({ name: "x", tags: ["a".repeat(30)] }).success).toBe(true);
+    expect(packingItemCreateSchema.safeParse({ name: "x", tags: ["a,b"] }).success).toBe(false);
+    expect(packingItemCreateSchema.safeParse({ name: "x", tags: ["  "] }).success).toBe(false);
+    const eleven = Array.from({ length: 11 }, (_, index) => `t${index}`);
+    expect(packingItemCreateSchema.safeParse({ name: "x", tags: eleven }).success).toBe(false);
+    expect(packingItemCreateSchema.parse({ name: "x", tags: [" Kaufen", "kaufen", "Aufladen"] }).tags).toEqual([
+      "Kaufen",
+      "Aufladen",
+    ]);
+    expect(packingItemUpdateSchema.safeParse({ itemId: "i", tags: [] }).success).toBe(true);
   });
 });

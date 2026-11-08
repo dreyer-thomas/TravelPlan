@@ -50,7 +50,7 @@ type ExportManifest = {
       images: { sortOrder: number; photoId: string }[];
       documents: ExportDocumentRef[];
     }[];
-    packingItems: { name: string; category: string | null; packed: boolean; dayIndexes: number[] }[];
+    packingItems: { name: string; category: string | null; packed: boolean; dayIndexes: number[]; tags: string[] }[];
   };
   days: {
     id: string;
@@ -345,6 +345,8 @@ describe("GET /api/trips/[id]/export", () => {
       data: { tripId: trip.id, name: "Taucherbrille", nameKey: "taucherbrille", category: "Sport", packed: true, aiChangedAt: new Date("2026-08-20T10:00:00.000Z") },
     });
     await prisma.packingItem.create({ data: { tripId: trip.id, name: "adapter", nameKey: "adapter" } });
+    // Story 16.7. A not-needed item carries the flag.
+    const badehose = await prisma.packingItem.create({ data: { tripId: trip.id, name: "Badehose", nameKey: "badehose", notNeeded: true } });
     await prisma.packingItemDay.createMany({
       data: [
         { packingItemId: brille.id, tripDayId: day3.id },
@@ -352,6 +354,14 @@ describe("GET /api/trips/[id]/export", () => {
       ],
     });
     void day2;
+    // Story 16.8. Tags in tag-key order, a not-needed item keeps its own.
+    await prisma.packingItemTag.createMany({
+      data: [
+        { packingItemId: brille.id, tag: "Reparieren", tagKey: "reparieren" },
+        { packingItemId: brille.id, tag: "Kaufen", tagKey: "kaufen" },
+        { packingItemId: badehose.id, tag: "Kaufen", tagKey: "kaufen" },
+      ],
+    });
 
     const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
     expect(response.status).toBe(200);
@@ -360,8 +370,16 @@ describe("GET /api/trips/[id]/export", () => {
 
     expect(payload.meta.formatVersion).toBe(2);
     expect(payload.trip.packingItems).toEqual([
-      { name: "adapter", category: null, packed: false, dayIndexes: [] },
-      { name: "Taucherbrille", category: "Sport", packed: true, dayIndexes: [1, 3] },
+      { name: "adapter", category: null, packed: false, notNeeded: false, dayIndexes: [], tags: [] },
+      { name: "Badehose", category: null, packed: false, notNeeded: true, dayIndexes: [], tags: ["Kaufen"] },
+      {
+        name: "Taucherbrille",
+        category: "Sport",
+        packed: true,
+        notNeeded: false,
+        dayIndexes: [1, 3],
+        tags: ["Kaufen", "Reparieren"],
+      },
     ]);
     const manifestText = readZipArchive(archive).entries.find((entry) => entry.name === "trip.json")!.data.toString("utf8");
     expect(manifestText).not.toContain(brille.id);

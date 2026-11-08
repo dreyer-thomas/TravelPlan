@@ -82,6 +82,7 @@ const packingItem = (id: string, name: string, dayIds: string[]) => ({
   name,
   category: null,
   packed: false,
+  tags: [] as string[],
   dayCount: dayIds.length,
   days: dayIds.map((dayId, index) => ({ id: dayId, dayIndex: index + 1, date: "2026-12-01T00:00:00.000Z" })),
   aiChangedAt: null,

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import TripPackingList, {
   PACKING_FILTER_STORAGE_KEY,
   packingCategoryStorageKey,
+  packingTagStorageKey,
   type PackingItemWire,
 } from "@/components/features/trips/TripPackingList";
 import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
@@ -17,6 +18,8 @@ import { useI18n } from "@/i18n/provider";
 const item = (overrides: Partial<PackingItemWire> & { id: string; name: string }): PackingItemWire => ({
   category: null,
   packed: false,
+  notNeeded: false,
+  tags: [],
   dayCount: 0,
   days: [],
   aiChangedAt: null,
@@ -51,7 +54,15 @@ const installApi = (
       if (custom) return custom;
       if (method === "POST") {
         return mockFetchResponse({
-          data: { item: item({ id: `new-${calls.length}`, name: String(body?.name), category: (body?.category as string | null) ?? null }), existed: false },
+          data: {
+            item: item({
+              id: `new-${calls.length}`,
+              name: String(body?.name),
+              category: (body?.category as string | null) ?? null,
+              tags: (body?.tags as string[] | undefined) ?? [],
+            }),
+            existed: false,
+          },
           error: null,
         });
       }
@@ -64,6 +75,10 @@ const installApi = (
               ...(body?.packed !== undefined ? { packed: body.packed } : {}),
               ...(body?.name !== undefined ? { name: body.name } : {}),
               ...(body?.category !== undefined ? { category: body.category } : {}),
+              ...(body?.tags !== undefined ? { tags: body.tags } : {}),
+              // Story 16.7. Not needed: unpacked and off every day; needed again: open.
+              ...(body?.notNeeded === true ? { notNeeded: true, packed: false, days: [], dayCount: 0 } : {}),
+              ...(body?.notNeeded === false ? { notNeeded: false } : {}),
             },
           },
           error: null,
@@ -137,7 +152,7 @@ describe("TripPackingList (Story 16.1)", () => {
 
     await waitFor(() => expect(rowNames()).toEqual(["Taucherbrille"]));
     expect(api.writes()).toEqual([
-      expect.objectContaining({ method: "POST", body: { name: "Taucherbrille", category: "Sport" } }),
+      expect.objectContaining({ method: "POST", body: { name: "Taucherbrille", category: "Sport", tags: [] } }),
     ]);
     expect(nameField).toHaveValue("");
     expect(screen.getByLabelText("Category (optional)")).toHaveValue("Sport");
@@ -1024,3 +1039,826 @@ describe("TripPackingList AI-changes notice (Story 16.4)", () => {
     expect(calls.some((call) => call.includes("/ai-changes"))).toBe(false);
   });
 });
+
+/** Story 16.7 (AC 1, 3-5, 7, 9, 10, 16). Not needed this time on the packing list page. */
+describe("TripPackingList not needed this time (Story 16.7)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const fixture = () => [
+    item({ id: "c1", name: "Shirt", category: "Clothing", packed: true }),
+    item({ id: "c2", name: "Socks", category: "Clothing" }),
+    item({ id: "c3", name: "Swimwear", category: "Clothing", notNeeded: true }),
+    item({ id: "e1", name: "Cable", category: "Electronics" }),
+    item({ id: "s1", name: "Snorkel", category: "Sport", notNeeded: true }),
+    item({ id: "o1", name: "Umbrella", notNeeded: true }),
+  ];
+
+  const section = () => screen.getByTestId("packing-not-needed-section");
+  const toggle = () => screen.getByTestId("packing-not-needed-toggle");
+  const notNeededRows = () => screen.queryAllByTestId("packing-not-needed-row").map((row) => row.querySelector("p")?.textContent);
+
+  it("leaves not-needed items out of the groups and every count", async () => {
+    installApi({ items: fixture() });
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    expect(await screen.findByTestId("packing-progress")).toHaveTextContent("1 of 3 packed");
+    expect(screen.getAllByTestId("packing-group-heading").map((heading) => heading.textContent)).toEqual([
+      "Clothing 1/2",
+      "Electronics 0/1",
+    ]);
+    expect(rowNames()).toEqual(["Shirt", "Socks", "Cable"]);
+  });
+
+  it("shows the section after the categories, collapsed with its count, and expands it grouped and greyed", async () => {
+    installApi({ items: fixture() });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    await screen.findByTestId("packing-progress");
+    expect(toggle()).toHaveTextContent("Not needed (3)");
+    expect(toggle()).toHaveAttribute("aria-expanded", "false");
+    // After the last group.
+    const lastGroup = screen.getAllByTestId("packing-group-heading").at(-1)!;
+    expect(lastGroup.compareDocumentPosition(section()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await user.click(toggle());
+    expect(toggle()).toHaveAttribute("aria-expanded", "true");
+    expect(within(section()).getAllByTestId("packing-not-needed-heading").map((heading) => heading.textContent)).toEqual([
+      "Clothing",
+      "Sport",
+      "Other",
+    ]);
+    expect(notNeededRows()).toEqual(["Swimwear", "Snorkel", "Umbrella"]);
+    expect(within(section()).queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(within(section()).getByText("Swimwear")).not.toHaveStyle({ textDecoration: "line-through" });
+  });
+
+  it("renders no section without not-needed items", async () => {
+    installApi({ items: [item({ id: "1", name: "Pass" })] });
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByTestId("packing-progress");
+    expect(screen.queryByTestId("packing-not-needed-section")).not.toBeInTheDocument();
+  });
+
+  it("hides the section under Not packed yet", async () => {
+    installApi({ items: fixture() });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByTestId("packing-not-needed-section");
+
+    await user.click(screen.getByRole("button", { name: "Not packed yet" }));
+    expect(screen.queryByTestId("packing-not-needed-section")).not.toBeInTheDocument();
+  });
+
+  it("applies the category selection to the section, and a section-only category still has a chip", async () => {
+    installApi({ items: fixture() });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByTestId("packing-progress");
+
+    const chips = within(screen.getByTestId("packing-category-chips"));
+    expect(chips.getAllByRole("button").map((chip) => chip.textContent)).toEqual([
+      "All categories",
+      "Clothing",
+      "Electronics",
+      "Sport",
+      "Other",
+    ]);
+
+    await user.click(chips.getByRole("button", { name: "Clothing" }));
+    expect(toggle()).toHaveTextContent("Not needed (1)");
+    await user.click(toggle());
+    expect(notNeededRows()).toEqual(["Swimwear"]);
+    expect(screen.getByTestId("packing-selection-progress")).toHaveTextContent("1 of 2 packed");
+
+    await user.click(chips.getByRole("button", { name: "Clothing" }));
+    await user.click(chips.getByRole("button", { name: "Electronics" }));
+    expect(screen.queryByTestId("packing-not-needed-section")).not.toBeInTheDocument();
+
+    await user.click(chips.getByRole("button", { name: "Electronics" }));
+    await user.click(chips.getByRole("button", { name: "Sport" }));
+    expect(toggle()).toHaveTextContent("Not needed (1)");
+    expect(screen.queryAllByTestId("packing-row")).toHaveLength(0);
+  });
+
+  it("says nothing in the selection is needed when the chosen category holds only not-needed items (Story 16.7 review)", async () => {
+    installApi({ items: fixture() });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />, { language: "de" });
+    await screen.findByTestId("packing-progress");
+
+    await user.click(within(screen.getByTestId("packing-category-chips")).getByRole("button", { name: "Sport" }));
+    expect(screen.getByTestId("packing-all-done")).toHaveTextContent("In dieser Auswahl ist diesmal nichts nötig.");
+    expect(screen.queryByTestId("packing-selection-progress")).not.toBeInTheDocument();
+    expect(screen.getByTestId("packing-progress")).toHaveTextContent("1 von 3 eingepackt");
+
+    // With a needed item in the selection, the selection line and its own messages are back.
+    await user.click(within(screen.getByTestId("packing-category-chips")).getByRole("button", { name: "Clothing" }));
+    expect(screen.queryByTestId("packing-all-done")).not.toBeInTheDocument();
+    expect(screen.getByTestId("packing-selection-progress")).toHaveTextContent("1 von 2");
+  });
+
+  it("speaks English for the not-needed-only selection (Story 16.7 review)", async () => {
+    installApi({ items: fixture() });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByTestId("packing-progress");
+
+    await user.click(within(screen.getByTestId("packing-category-chips")).getByRole("button", { name: "Sport" }));
+    expect(screen.getByTestId("packing-all-done")).toHaveTextContent("Nothing in this selection is needed this time.");
+  });
+
+  it("marks an item without days not needed from the edit dialog, directly", async () => {
+    const api = installApi({ items: [item({ id: "1", name: "Pass", packed: true }), item({ id: "2", name: "Hut" })] });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    await user.click(await screen.findByRole("button", { name: "Edit Pass" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Not needed this time" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(api.writes()).toEqual([
+      expect.objectContaining({ method: "PATCH", body: { itemId: "1", notNeeded: true, confirmedDayCount: 0 } }),
+    ]);
+    expect(rowNames()).toEqual(["Hut"]);
+    expect(screen.getByTestId("packing-progress")).toHaveTextContent("0 of 1 packed");
+    expect(toggle()).toHaveTextContent("Not needed (1)");
+  });
+
+  it("asks before marking an item linked to 3 days, sending the confirmed count", async () => {
+    const api = installApi({ items: [item({ id: "1", name: "Pass", dayCount: 3 })] });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    await user.click(await screen.findByRole("button", { name: "Edit Pass" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Not needed this time" }));
+
+    expect(await screen.findByText("Not needed this time?")).toBeInTheDocument();
+    expect(screen.getByTestId("packing-not-needed-days")).toHaveTextContent("Remove from 3 days?");
+    expect(api.writes()).toEqual([]);
+    const confirm = screen.getAllByRole("dialog").at(-1)!;
+    await user.click(within(confirm).getByRole("button", { name: "Not needed" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(api.writes()).toEqual([
+      expect.objectContaining({ method: "PATCH", body: { itemId: "1", notNeeded: true, confirmedDayCount: 3 } }),
+    ]);
+  });
+
+  it("uses the singular for one day, and Cancel keeps the item needed", async () => {
+    const api = installApi({ items: [item({ id: "1", name: "Pass", dayCount: 1 })] });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />, { language: "de" });
+
+    await user.click(await screen.findByRole("button", { name: "Pass bearbeiten" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Diesmal nicht nötig" }));
+    expect(await screen.findByText("Diesmal nicht nötig?")).toBeInTheDocument();
+    expect(screen.getByTestId("packing-not-needed-days")).toHaveTextContent("Von 1 Tag entfernen?");
+    await user.click(within(screen.getAllByRole("dialog").at(-1)!).getByRole("button", { name: "Abbrechen" }));
+
+    await waitFor(() => expect(screen.queryByText("Diesmal nicht nötig?")).not.toBeInTheDocument());
+    expect(api.writes()).toEqual([]);
+    expect(rowNames()).toEqual(["Pass"]);
+  });
+
+  it("asks again with the fresh count when the server answers days_changed", async () => {
+    let patches = 0;
+    const api = installApi({ items: [item({ id: "1", name: "Pass" })] }, (call) => {
+      if (call.method !== "PATCH") return undefined;
+      patches += 1;
+      if (patches === 1) {
+        return mockFetchResponse(
+          { data: null, error: { code: "days_changed", message: "changed", details: { dayCount: 2 } } },
+          { status: 409 },
+        );
+      }
+      return undefined;
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    await user.click(await screen.findByRole("button", { name: "Edit Pass" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Not needed this time" }));
+    expect(await screen.findByText("Remove from 2 days?")).toBeInTheDocument();
+    await user.click(within(screen.getAllByRole("dialog").at(-1)!).getByRole("button", { name: "Not needed" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(api.writes()).toEqual([
+      expect.objectContaining({ body: { itemId: "1", notNeeded: true, confirmedDayCount: 0 } }),
+      expect.objectContaining({ body: { itemId: "1", notNeeded: true, confirmedDayCount: 2 } }),
+    ]);
+    expect(toggle()).toHaveTextContent("Not needed (1)");
+  });
+
+  it("marks an item needed again from the section, back as an open row", async () => {
+    const api = installApi({ items: [item({ id: "1", name: "Swimwear", notNeeded: true }), item({ id: "2", name: "Hut" })] });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    await user.click(await screen.findByTestId("packing-not-needed-toggle"));
+    await user.click(screen.getByRole("button", { name: "Mark Swimwear needed" }));
+
+    await waitFor(() => expect(screen.queryByTestId("packing-not-needed-section")).not.toBeInTheDocument());
+    expect(api.writes()).toEqual([expect.objectContaining({ method: "PATCH", body: { itemId: "1", notNeeded: false } })]);
+    expect(rowNames()).toEqual(["Hut", "Swimwear"]);
+    expect(screen.getByRole("checkbox", { name: "Swimwear packed" })).not.toBeChecked();
+  });
+
+  it("marks an item needed again from the edit dialog", async () => {
+    const api = installApi({ items: [item({ id: "1", name: "Swimwear", notNeeded: true })] });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />, { language: "de" });
+
+    await user.click(await screen.findByTestId("packing-not-needed-toggle"));
+    await user.click(screen.getByRole("button", { name: "Swimwear bearbeiten" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Doch nötig" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(api.writes()).toEqual([expect.objectContaining({ body: { itemId: "1", notNeeded: false } })]);
+    expect(rowNames()).toEqual(["Swimwear"]);
+  });
+
+  it("sends a typed rename and category with Not needed this time, also after the day confirmation (Story 16.7 review)", async () => {
+    const api = installApi({ items: [item({ id: "1", name: "Pass", dayCount: 2 })] });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    await user.click(await screen.findByRole("button", { name: "Edit Pass" }));
+    const dialog = await screen.findByRole("dialog");
+    const nameField = within(dialog).getByLabelText("Item");
+    await user.clear(nameField);
+    await user.type(nameField, "Reisepass");
+    await user.type(within(dialog).getByLabelText("Category (optional)"), "Documents");
+    await user.click(within(dialog).getByRole("button", { name: "Not needed this time" }));
+    const confirm = (await screen.findAllByRole("dialog")).at(-1)!;
+    await user.click(within(confirm).getByRole("button", { name: "Not needed" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(api.writes()).toEqual([
+      expect.objectContaining({
+        method: "PATCH",
+        body: { itemId: "1", name: "Reisepass", category: "Documents", notNeeded: true, confirmedDayCount: 2 },
+      }),
+    ]);
+    await user.click(toggle());
+    expect(notNeededRows()).toEqual(["Reisepass"]);
+  });
+
+  it("sends a typed rename with Needed after all, and nothing extra when nothing was typed (Story 16.7 review)", async () => {
+    const api = installApi({ items: [item({ id: "1", name: "Swimwear", category: "Clothing", notNeeded: true })] });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    await user.click(await screen.findByTestId("packing-not-needed-toggle"));
+    await user.click(screen.getByRole("button", { name: "Edit Swimwear" }));
+    const dialog = await screen.findByRole("dialog");
+    const nameField = within(dialog).getByLabelText("Item");
+    await user.clear(nameField);
+    expect(within(dialog).getByRole("button", { name: "Needed after all" })).toBeDisabled();
+    await user.type(nameField, "Swim shorts");
+    await user.click(within(dialog).getByRole("button", { name: "Needed after all" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(api.writes()).toEqual([expect.objectContaining({ body: { itemId: "1", name: "Swim shorts", notNeeded: false } })]);
+    expect(rowNames()).toEqual(["Swim shorts"]);
+  });
+
+  it("keeps the edit dialog open with the error when the typed rename hits an existing name (Story 16.7 review)", async () => {
+    installApi({ items: [item({ id: "1", name: "Pass" }), item({ id: "2", name: "Hut" })] }, (call) =>
+      call.method === "PATCH"
+        ? mockFetchResponse({ data: null, error: { code: "duplicate_name", message: "x" } }, { status: 409 })
+        : undefined,
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    await user.click(await screen.findByRole("button", { name: "Edit Pass" }));
+    const dialog = await screen.findByRole("dialog");
+    const nameField = within(dialog).getByLabelText("Item");
+    await user.clear(nameField);
+    await user.type(nameField, "Hut");
+    await user.click(within(dialog).getByRole("button", { name: "Not needed this time" }));
+
+    expect(await within(dialog).findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBe(dialog);
+    expect(nameField).toHaveValue("Hut");
+    expect(rowNames()).toEqual(["Hut", "Pass"]);
+  });
+
+  it("opens the section and highlights the row when a not-needed name is added, without marking it needed", async () => {
+    window.localStorage.setItem(PACKING_FILTER_STORAGE_KEY, "open");
+    const existing = item({ id: "1", name: "Swimwear", notNeeded: true });
+    const api = installApi({ items: [existing, item({ id: "2", name: "Hut" })] }, (call) =>
+      call.method === "POST" ? mockFetchResponse({ data: { item: existing, existed: true }, error: null }) : undefined,
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    await screen.findByText("Hut");
+    expect(screen.queryByTestId("packing-not-needed-section")).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("Item"), "swimwear{Enter}");
+
+    expect(await screen.findByTestId("packing-notice")).toHaveTextContent("'Swimwear' is already on the list.");
+    expect(toggle()).toHaveAttribute("aria-expanded", "true");
+    const row = screen.getByTestId("packing-not-needed-row");
+    expect(row).toHaveAttribute("data-highlighted", "true");
+    expect(row.scrollIntoView).toHaveBeenCalled();
+    expect(api.writes()).toEqual([expect.objectContaining({ method: "POST" })]);
+    expect(window.localStorage.getItem(PACKING_FILTER_STORAGE_KEY)).toBe("open");
+  });
+
+  it("says nothing is needed when every item is not needed", async () => {
+    installApi({ items: [item({ id: "1", name: "Swimwear", notNeeded: true })] });
+    renderWithProviders(<TripPackingList tripId="trip-1" />, { language: "de" });
+
+    expect(await screen.findByTestId("packing-all-done")).toHaveTextContent("Diesmal ist nichts auf der Liste nötig.");
+    expect(screen.getByTestId("packing-progress")).toHaveTextContent("0 von 0 eingepackt");
+    expect(screen.getByTestId("packing-not-needed-toggle")).toHaveTextContent("Nicht nötig (1)");
+  });
+
+  it("rolls a tick back and reloads when the item was marked not needed elsewhere", async () => {
+    const api = installApi({ items: [item({ id: "1", name: "Pass" })] }, (call) =>
+      call.method === "PATCH"
+        ? mockFetchResponse({ data: null, error: { code: "not_needed", message: "not needed" } }, { status: 409 })
+        : undefined,
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    await user.click(await screen.findByRole("checkbox", { name: "Pass packed" }));
+    expect(await screen.findByText("This item is marked not needed this time.")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Pass packed" })).not.toBeChecked();
+    await waitFor(() => expect(api.calls.filter((call) => call.method === "GET" && call.url.endsWith("/packing-items"))).toHaveLength(2));
+  });
+
+  it("lets a viewer open the section read-only", async () => {
+    installApi({ accessRole: "viewer", items: fixture() });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    await user.click(await screen.findByTestId("packing-not-needed-toggle"));
+    expect(notNeededRows()).toEqual(["Swimwear", "Snorkel", "Umbrella"]);
+    // The toggle is the section's only button: no "Needed after all", no edit pencil.
+    expect(within(section()).getAllByRole("button")).toEqual([toggle()]);
+    expect(screen.queryByRole("button", { name: "Mark Swimwear needed" })).not.toBeInTheDocument();
+  });
+});
+
+describe("TripPackingList tags (Story 16.8)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const fixture = () => [
+    item({ id: "p1", name: "Powerbank", category: "Electronics", tags: ["Kaufen", "Aufladen"] }),
+    item({ id: "p2", name: "Cable", category: "Electronics", packed: true, tags: ["kaufen"] }),
+    item({ id: "p3", name: "Socks", category: "Clothing", tags: ["Kaufen"] }),
+    item({ id: "p4", name: "Shirt", category: "Clothing" }),
+    item({ id: "p5", name: "Drone", category: "Electronics", notNeeded: true, tags: ["Zoll anmelden"] }),
+  ];
+
+  /** The name of each list row (its first paragraph), without the tag chips. */
+  const names = () => screen.queryAllByTestId("packing-row").map((row) => row.querySelector("p")?.textContent);
+  const rowTags = (rowName: string) => {
+    const row = screen.getAllByTestId(/packing-(not-needed-)?row/).find((entry) => entry.querySelector("p")?.textContent === rowName)!;
+    return within(row).queryAllByTestId("packing-tag").map((tag) => tag.textContent);
+  };
+  const tagChip = (name: string) => within(screen.getByTestId("packing-tag-chips")).getByRole("button", { name });
+  const categoryChip = (name: string) => within(screen.getByTestId("packing-category-chips")).getByRole("button", { name });
+  const storedTags = () => window.localStorage.getItem(packingTagStorageKey("trip-1"));
+  const tagsField = (container: HTMLElement = document.body) =>
+    within(container).getByRole("combobox", { name: "Tags" });
+  const fieldChips = (container: HTMLElement = document.body) =>
+    within(container).queryAllByTestId("packing-tag-input-chip").map((chip) => chip.textContent);
+
+  it("shows an item's tags as chips after its name, alphabetically, in the list and the not-needed section", async () => {
+    installApi({ items: fixture() });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByText("Powerbank");
+
+    expect(rowTags("Powerbank")).toEqual(["Aufladen", "Kaufen"]);
+    expect(rowTags("Cable")).toEqual(["kaufen"]);
+    expect(rowTags("Shirt")).toEqual([]);
+    await user.click(screen.getByTestId("packing-not-needed-toggle"));
+    expect(rowTags("Drone")).toEqual(["Zoll anmelden"]);
+    // Display only: a chip is no button.
+    expect(screen.getAllByTestId("packing-tag")[0].tagName).toBe("SPAN");
+  });
+
+  it("builds the tag filter from every item: All tags first, one chip per key in the first spelling, alphabetically", async () => {
+    installApi({ items: fixture() });
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByText("Powerbank");
+
+    const row = screen.getByTestId("packing-tag-chips");
+    expect(row).toHaveAttribute("role", "group");
+    expect(row).toHaveAttribute("aria-label", "Tags");
+    expect(within(row).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "All tags",
+      "Aufladen",
+      "Kaufen",
+      "Zoll anmelden",
+    ]);
+    expect(tagChip("All tags")).toHaveAttribute("aria-pressed", "true");
+    // Below the category row.
+    const categories = screen.getByTestId("packing-category-chips");
+    expect(categories.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows the tag row alone with a single category, and none without tags", async () => {
+    installApi({ items: [item({ id: "1", name: "Pass", tags: ["Kopieren"] })] });
+    const { unmount } = renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByText("Pass");
+    expect(screen.queryByTestId("packing-category-chips")).not.toBeInTheDocument();
+    expect(screen.getByTestId("packing-tag-chips")).toBeInTheDocument();
+    unmount();
+
+    installApi({ items: [item({ id: "1", name: "Pass" })] });
+    renderWithProviders(<TripPackingList tripId="trip-2" />);
+    await screen.findByText("Pass");
+    expect(screen.queryByTestId("packing-tag-chips")).not.toBeInTheDocument();
+  });
+
+  it("filters by any selected tag, combines with categories and Not packed yet, and counts the selection", async () => {
+    installApi({ items: fixture() });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByText("Powerbank");
+
+    await user.click(tagChip("Kaufen"));
+    expect(names()).toEqual(["Socks", "Cable", "Powerbank"]);
+    expect(screen.getByTestId("packing-selection-progress")).toHaveTextContent("Selection: 1 of 3 packed");
+    // Heading counts keep counting the whole category (D6).
+    expect(screen.getAllByTestId("packing-group-heading").map((heading) => heading.textContent)).toEqual([
+      "Clothing 0/2",
+      "Electronics 1/2",
+    ]);
+
+    await user.click(tagChip("Aufladen"));
+    expect(names()).toEqual(["Socks", "Cable", "Powerbank"]);
+
+    await user.click(categoryChip("Electronics"));
+    expect(names()).toEqual(["Cable", "Powerbank"]);
+    expect(screen.getByTestId("packing-selection-progress")).toHaveTextContent("Selection: 1 of 2 packed");
+
+    await user.click(screen.getByRole("button", { name: "Not packed yet" }));
+    expect(names()).toEqual(["Powerbank"]);
+
+    await user.click(tagChip("Kaufen"));
+    await user.click(tagChip("Aufladen"));
+    await user.click(screen.getByRole("button", { name: "All" }));
+    expect(names()).toEqual(["Cable", "Powerbank"]);
+    await user.click(tagChip("All tags"));
+    expect(tagChip("All tags")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("applies the tag selection to the not-needed section, and says when the selection is packed or not needed", async () => {
+    installApi({ items: fixture() });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByText("Powerbank");
+
+    await user.click(tagChip("Zoll anmelden"));
+    expect(names()).toEqual([]);
+    expect(screen.getByTestId("packing-all-done")).toHaveTextContent("Nothing in this selection is needed this time.");
+    expect(screen.queryByTestId("packing-selection-progress")).not.toBeInTheDocument();
+    expect(screen.getByTestId("packing-not-needed-toggle")).toHaveTextContent("Not needed (1)");
+
+    await user.click(tagChip("Kaufen"));
+    expect(screen.getByTestId("packing-not-needed-toggle")).toHaveTextContent("Not needed (1)");
+    await user.click(tagChip("Zoll anmelden"));
+    expect(screen.queryByTestId("packing-not-needed-section")).not.toBeInTheDocument();
+
+    await user.click(categoryChip("Electronics"));
+    await user.click(screen.getByRole("button", { name: "Not packed yet" }));
+    expect(names()).toEqual(["Powerbank"]);
+    await user.click(screen.getByRole("checkbox", { name: "Powerbank packed" }));
+    expect(screen.getByTestId("packing-all-done")).toHaveTextContent("Everything in your selection is packed.");
+  });
+
+  it("remembers the tag selection per trip; a vanished tag is ignored, never erased", async () => {
+    window.localStorage.setItem(packingTagStorageKey("trip-1"), JSON.stringify(["gone", "AUFLADEN"]));
+    installApi({ items: fixture() });
+    const user = userEvent.setup();
+    const { unmount } = renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByText("Powerbank");
+    expect(names()).toEqual(["Powerbank"]);
+    expect(tagChip("Aufladen")).toHaveAttribute("aria-pressed", "true");
+    expect(JSON.parse(storedTags()!)).toEqual(["gone", "AUFLADEN"]);
+
+    await user.click(tagChip("Kaufen"));
+    expect(JSON.parse(storedTags()!)).toEqual(["aufladen", "kaufen"]);
+    unmount();
+
+    window.localStorage.setItem(packingTagStorageKey("trip-1"), JSON.stringify(["gone"]));
+    installApi({ items: fixture() });
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByText("Powerbank");
+    expect(names()).toHaveLength(4);
+    expect(storedTags()).toBe(JSON.stringify(["gone"]));
+  });
+
+  it("prefills the add form's tags for one selected tag, on the first load and on a chip change", async () => {
+    window.localStorage.setItem(packingTagStorageKey("trip-1"), JSON.stringify(["kaufen"]));
+    installApi({ items: fixture() });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByText("Powerbank");
+    expect(fieldChips()).toEqual(["Kaufen"]);
+
+    await user.click(tagChip("Aufladen"));
+    // Two selected: the field is left as it was.
+    expect(fieldChips()).toEqual(["Kaufen"]);
+    await user.click(tagChip("Kaufen"));
+    expect(fieldChips()).toEqual(["Aufladen"]);
+  });
+
+  it("does not overwrite the typed tags on a reload (language switch)", async () => {
+    window.localStorage.setItem(packingTagStorageKey("trip-1"), JSON.stringify(["kaufen"]));
+    installApi({ items: fixture() });
+    const SwitchToGerman = () => {
+      const { setLanguage } = useI18n();
+      return (
+        <button type="button" onClick={() => setLanguage("de")}>
+          switch
+        </button>
+      );
+    };
+    const user = userEvent.setup();
+    renderWithProviders(
+      <>
+        <SwitchToGerman />
+        <TripPackingList tripId="trip-1" />
+      </>,
+    );
+    await screen.findByText("Powerbank");
+    await user.type(tagsField(), "Batterie{Enter}");
+    expect(fieldChips()).toEqual(["Kaufen", "Batterie"]);
+
+    await user.click(screen.getByRole("button", { name: "switch" }));
+    await waitFor(() => expect(tagChip("Alle Tags")).toBeInTheDocument());
+    expect(fieldChips()).toEqual(["Kaufen", "Batterie"]);
+  });
+
+  it("adds tags with Enter and comma, ignores a duplicate, sends typed text on Add, and keeps the tags", async () => {
+    const api = installApi({ items: [item({ id: "1", name: "Pass", tags: ["Kopieren"] })] });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByText("Pass");
+
+    await user.type(tagsField(), "Kaufen{Enter}");
+    await user.type(tagsField(), "aufladen,kaufen,");
+    expect(fieldChips()).toEqual(["Kaufen", "aufladen"]);
+    await user.type(tagsField(), "Zoll");
+    await user.type(screen.getByLabelText("Item"), "Powerbank{Enter}");
+
+    await waitFor(() => expect(names()).toContain("Powerbank"));
+    expect(api.writes()).toEqual([
+      expect.objectContaining({ method: "POST", body: { name: "Powerbank", category: null, tags: ["Kaufen", "aufladen", "Zoll"] } }),
+    ]);
+    expect(fieldChips()).toEqual(["Kaufen", "aufladen", "Zoll"]);
+    expect(tagsField()).toHaveValue("");
+    expect(rowTags("Powerbank")).toEqual(["aufladen", "Kaufen", "Zoll"]);
+  });
+
+  it("offers the default tags and the trip's tags, minus the ones already chosen", async () => {
+    installApi({ items: fixture() });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByText("Powerbank");
+
+    await user.click(tagsField());
+    const listbox = await screen.findByRole("listbox");
+    expect(within(listbox).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "Buy",
+      "Repair",
+      "Charge",
+      "Declare at customs",
+      "Aufladen",
+      "Kaufen",
+      "Zoll anmelden",
+    ]);
+    await user.click(within(listbox).getByRole("option", { name: "Repair" }));
+    expect(fieldChips()).toEqual(["Repair"]);
+    await user.click(tagsField());
+    expect(within(await screen.findByRole("listbox")).queryByRole("option", { name: "Repair" })).not.toBeInTheDocument();
+  });
+
+  it("turns the 11th tag away with At most 10 tags, and does not send while typed text is over the limit", async () => {
+    const api = installApi({ items: [] });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByTestId("packing-empty");
+
+    await user.type(tagsField(), "a,b,c,d,e,f,g,h,i,j,");
+    expect(fieldChips()).toHaveLength(10);
+    expect(screen.queryByText("At most 10 tags.")).not.toBeInTheDocument();
+    await user.type(tagsField(), "k,");
+    expect(fieldChips()).toHaveLength(10);
+    expect(screen.getByText("At most 10 tags.")).toBeInTheDocument();
+
+    await user.type(tagsField(), "late");
+    await user.type(screen.getByLabelText("Item"), "Koffer{Enter}");
+    expect(api.writes()).toEqual([]);
+    expect(tagsField()).toHaveValue("late");
+  });
+
+  it("shows the 409 too_many_tags message for a merge past 10", async () => {
+    installApi({ items: [item({ id: "1", name: "Koffer" })] }, (call) =>
+      call.method === "POST"
+        ? mockFetchResponse({ data: null, error: { code: "too_many_tags", message: "x" } }, { status: 409 })
+        : undefined,
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByText("Koffer");
+    await user.type(tagsField(), "Neu{Enter}");
+    await user.type(screen.getByLabelText("Item"), "koffer{Enter}");
+    expect(await screen.findByText("This item would have too many tags.")).toBeInTheDocument();
+  });
+
+  it("merges tags onto an existing name and reveals it when it lands outside the tag selection", async () => {
+    const existing = item({ id: "p4", name: "Shirt", category: "Clothing" });
+    installApi({ items: fixture() }, (call) =>
+      call.method === "POST"
+        ? mockFetchResponse({ data: { item: { ...existing, tags: call.body?.tags as string[] }, existed: true }, error: null })
+        : undefined,
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByText("Powerbank");
+
+    await user.click(tagChip("Aufladen"));
+    expect(names()).toEqual(["Powerbank"]);
+    // The prefilled tag is Aufladen; adding "Shirt" merges it, so Shirt now matches and shows.
+    await user.type(screen.getByLabelText("Item"), "shirt{Enter}");
+    await waitFor(() => expect(names()).toEqual(["Shirt", "Powerbank"]));
+    expect(rowTags("Shirt")).toEqual(["Aufladen"]);
+    expect(screen.getByTestId("packing-notice")).toHaveTextContent("'Shirt' is already on the list.");
+  });
+
+  it("keeps an item added without the selected tag visible for now", async () => {
+    installApi({ items: fixture() });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByText("Powerbank");
+
+    await user.click(tagChip("Aufladen"));
+    // Remove the prefilled tag in one tap, then add an untagged item.
+    // The chip's delete control is a 44 px target (AC 5); jsdom cannot measure layout, so by style.
+    expect(screen.getByRole("button", { name: "Remove tag Aufladen" })).toHaveStyle({ width: "44px", height: "44px" });
+    await user.click(screen.getByRole("button", { name: "Remove tag Aufladen" }));
+    expect(fieldChips()).toEqual([]);
+    await user.type(screen.getByLabelText("Item"), "Charger{Enter}");
+    // Charger has no category: the Other group, last.
+    await waitFor(() => expect(names()).toEqual(["Powerbank", "Charger"]));
+    expect(screen.getByTestId("packing-selection-progress")).toHaveTextContent("Selection: 0 of 1 packed");
+    await user.click(tagChip("Kaufen"));
+    expect(names()).not.toContain("Charger");
+  });
+
+  it("edits tags in the dialog: prefilled, removed with one tap, the full list saved", async () => {
+    const api = installApi({ items: [item({ id: "1", name: "Powerbank", tags: ["Kaufen", "Aufladen"] })] });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    await user.click(await screen.findByRole("button", { name: "Edit Powerbank" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(fieldChips(dialog)).toEqual(["Kaufen", "Aufladen"]);
+    await user.click(within(dialog).getByRole("button", { name: "Remove tag Kaufen" }));
+    expect(fieldChips(dialog)).toEqual(["Aufladen"]);
+    await user.type(tagsField(dialog), "Reparieren");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(api.writes()).toEqual([
+      expect.objectContaining({
+        method: "PATCH",
+        body: { itemId: "1", name: "Powerbank", category: null, tags: ["Aufladen", "Reparieren"] },
+      }),
+    ]);
+    expect(rowTags("Powerbank")).toEqual(["Aufladen", "Reparieren"]);
+  });
+
+  it("saves a rename without tags when the tags are unchanged, so tags added elsewhere are not dropped (Story 16.8 review)", async () => {
+    const api = installApi({ items: [item({ id: "1", name: "Powerbank", tags: ["Kaufen"] })] });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    await user.click(await screen.findByRole("button", { name: "Edit Powerbank" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.clear(within(dialog).getByLabelText("Item"));
+    await user.type(within(dialog).getByLabelText("Item"), "Power bank");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(api.writes().map((call) => call.body)).toEqual([{ itemId: "1", name: "Power bank", category: null }]);
+  });
+
+  it("sends nothing with Not needed this time or Needed after all while typed tag text is over the limit (Story 16.8 review)", async () => {
+    const ten = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10"];
+    const api = installApi({
+      items: [
+        item({ id: "1", name: "Powerbank", tags: ten }),
+        item({ id: "2", name: "Hut", tags: ten, notNeeded: true }),
+      ],
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    await user.click(await screen.findByRole("button", { name: "Edit Powerbank" }));
+    let dialog = await screen.findByRole("dialog");
+    await user.type(tagsField(dialog), "Kaufen");
+    await user.click(within(dialog).getByRole("button", { name: "Not needed this time" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(within(dialog).getByText("At most 10 tags.")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    await user.click(screen.getByTestId("packing-not-needed-toggle"));
+    await user.click(await screen.findByRole("button", { name: "Edit Hut" }));
+    dialog = await screen.findByRole("dialog");
+    await user.type(tagsField(dialog), "Kaufen");
+    await user.click(within(dialog).getByRole("button", { name: "Needed after all" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    expect(api.writes()).toEqual([]);
+  });
+
+  it("sends changed tags with Not needed this time, and none when they are unchanged", async () => {
+    const api = installApi({
+      items: [item({ id: "1", name: "Powerbank", tags: ["Kaufen"] }), item({ id: "2", name: "Hut", tags: ["Kaufen"] })],
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    await user.click(await screen.findByRole("button", { name: "Edit Powerbank" }));
+    let dialog = await screen.findByRole("dialog");
+    await user.type(tagsField(dialog), "Aufladen{Enter}");
+    await user.click(within(dialog).getByRole("button", { name: "Not needed this time" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "Edit Hut" }));
+    dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Not needed this time" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    expect(api.writes().map((call) => call.body)).toEqual([
+      { itemId: "1", tags: ["Kaufen", "Aufladen"], notNeeded: true, confirmedDayCount: 0 },
+      { itemId: "2", notNeeded: true, confirmedDayCount: 0 },
+    ]);
+  });
+
+  it("lets a viewer see the chips and use the tag filter, without a tags field", async () => {
+    installApi({ accessRole: "viewer", items: fixture() });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByText("Powerbank");
+
+    expect(rowTags("Powerbank")).toEqual(["Aufladen", "Kaufen"]);
+    expect(screen.queryByRole("combobox", { name: "Tags" })).not.toBeInTheDocument();
+    await user.click(tagChip("Aufladen"));
+    expect(names()).toEqual(["Powerbank"]);
+    expect(JSON.parse(storedTags()!)).toEqual(["aufladen"]);
+  });
+
+  it("speaks German", async () => {
+    installApi({ items: fixture() });
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />, { language: "de" });
+    await screen.findByText("Powerbank");
+    expect(tagChip("Alle Tags")).toBeInTheDocument();
+    await user.click(tagsField());
+    expect(within(await screen.findByRole("listbox")).getAllByRole("option").map((option) => option.textContent).slice(0, 4)).toEqual([
+      "Kaufen",
+      "Reparieren",
+      "Aufladen",
+      "Zoll anmelden",
+    ]);
+  });
+
+  it("makes every tag chip at least 44 px tall and lets the row scroll", async () => {
+    installApi({ items: fixture() });
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByText("Powerbank");
+    const row = screen.getByTestId("packing-tag-chips");
+    expect(row).toHaveStyle({ flexWrap: "nowrap", overflowX: "auto" });
+    for (const chip of within(row).getAllByRole("button")) expect(chip).toHaveStyle({ height: "44px" });
+  });
+});
+

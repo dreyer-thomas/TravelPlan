@@ -17,6 +17,7 @@ type WireItem = {
   name: string;
   category: string | null;
   packed: boolean;
+  notNeeded: boolean;
   dayCount: number;
   days: { id: string; dayIndex: number; date: string }[];
 };
@@ -196,6 +197,48 @@ describe("/api/trips/[id]/packing-items/day-links (Story 16.2)", () => {
     const unlinkForeignDay = await write("DELETE", ctx.trip.id, ctx.ownerToken, { tripDayId: foreignDay.id, itemId: ctx.pass.id });
     expect(unlinkForeignDay.status).toBe(404);
     expect(((await unlinkForeignDay.json()) as ApiEnvelope<unknown>).error?.message).toBe("Trip day not found");
+    expect(await prisma.packingItemDay.count()).toBe(0);
+  });
+
+  it("refuses a not-needed item by id and by name (409 not_needed); markNeeded marks and links (Story 16.7)", async () => {
+    const ctx = await setup();
+    await prisma.packingItem.update({ where: { id: ctx.pass.id }, data: { notNeeded: true } });
+
+    const byId = await write("POST", ctx.trip.id, ctx.contributor, { tripDayId: ctx.day.id, itemId: ctx.pass.id });
+    expect(byId.status).toBe(409);
+    expect(((await byId.json()) as ApiEnvelope<unknown>).error).toMatchObject({ code: "not_needed" });
+    const byName = await write("POST", ctx.trip.id, ctx.contributor, { tripDayId: ctx.day.id, name: " PASS " });
+    expect(byName.status).toBe(409);
+    expect(((await byName.json()) as ApiEnvelope<unknown>).error).toMatchObject({ code: "not_needed" });
+    expect(await prisma.packingItemDay.count()).toBe(0);
+    expect(await prisma.packingItem.count()).toBe(1);
+
+    const marked = await write("POST", ctx.trip.id, ctx.contributor, { tripDayId: ctx.day.id, itemId: ctx.pass.id, markNeeded: true });
+    expect(marked.status).toBe(200);
+    expect(((await marked.json()) as ApiEnvelope<{ item: WireItem }>).data!.item).toMatchObject({
+      id: ctx.pass.id,
+      notNeeded: false,
+      dayCount: 1,
+    });
+
+    // By name with markNeeded resolves onto the existing item (no duplicate).
+    await prisma.packingItemDay.deleteMany();
+    await prisma.packingItem.update({ where: { id: ctx.pass.id }, data: { notNeeded: true } });
+    const markedByName = await write("POST", ctx.trip.id, ctx.contributor, { tripDayId: ctx.day.id, name: "pass", markNeeded: true });
+    expect(markedByName.status).toBe(200);
+    expect(((await markedByName.json()) as ApiEnvelope<{ item: WireItem; created: boolean }>).data).toMatchObject({
+      created: false,
+      item: { id: ctx.pass.id, notNeeded: false, dayCount: 1 },
+    });
+    expect(await prisma.packingItem.count()).toBe(1);
+  });
+
+  it("answers 400 for markNeeded with a value other than true (Story 16.7)", async () => {
+    const ctx = await setup();
+    for (const markNeeded of [false, "true", 1]) {
+      const response = await write("POST", ctx.trip.id, ctx.ownerToken, { tripDayId: ctx.day.id, itemId: ctx.pass.id, markNeeded });
+      expect(response.status).toBe(400);
+    }
     expect(await prisma.packingItemDay.count()).toBe(0);
   });
 });

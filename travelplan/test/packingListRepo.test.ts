@@ -46,9 +46,9 @@ const createDays = (tripId: string, count: number) =>
     ),
   );
 
-const add = async (userId: string, tripId: string, name: string, category?: string | null) => {
-  const result = await createPackingItem({ userId, tripId, name, category, origin: "user" });
-  if (result.status === "not_found") throw new Error("unexpected not_found");
+const add = async (userId: string, tripId: string, name: string, category?: string | null, tags?: string[]) => {
+  const result = await createPackingItem({ userId, tripId, name, category, tags, origin: "user" });
+  if (result.status === "not_found" || result.status === "too_many_tags") throw new Error(`unexpected ${result.status}`);
   return result;
 };
 
@@ -532,14 +532,14 @@ describe("packingListRepo listPackingItemsForDay (Story 16.3)", () => {
     await linkPackingItemToDay({ userId: owner.id, tripId: trip.id, tripDayId: day2.id, itemId: other.item.id, origin: "user" });
 
     const expected = [
-      { id: adapter.item.id, name: "adapter", category: "Technik", packed: false },
-      { id: zelt.item.id, name: "Zelt", category: "Camping", packed: false },
+      { id: adapter.item.id, name: "adapter", category: "Technik", packed: false, tags: [] },
+      { id: zelt.item.id, name: "Zelt", category: "Camping", packed: false, tags: [] },
     ];
     expect(await listPackingItemsForDay({ userId: owner.id, tripId: trip.id, tripDayId: day1.id })).toEqual(expected);
     expect(await listPackingItemsForDay({ userId: viewer.id, tripId: trip.id, tripDayId: day1.id })).toEqual(expected);
     expect(await listPackingItemsForDay({ userId: stranger.id, tripId: trip.id, tripDayId: day1.id })).toEqual([]);
     expect(await listPackingItemsForDay({ userId: owner.id, tripId: trip.id, tripDayId: day2.id })).toEqual([
-      { id: other.item.id, name: "Mütze", category: null, packed: false },
+      { id: other.item.id, name: "Mütze", category: null, packed: false, tags: [] },
     ]);
   });
 
@@ -852,5 +852,624 @@ describe("packingListRepo connector writes and undo (Story 16.4)", () => {
     expect(await undo(owner.id, trip.id, receipt)).toEqual({ status: "invalid" });
     expect(await undo(viewer.id, trip.id, receipt)).toEqual({ status: "not_found" });
     expect(await prisma.packingItem.count({ where: { id: foreign.item.id } })).toBe(1);
+  });
+});
+
+describe("packingListRepo not needed this time (Story 16.7)", () => {
+  beforeEach(async () => {
+    await prisma.packingItem.deleteMany();
+    await prisma.tripDay.deleteMany();
+    await prisma.tripMember.deleteMany();
+    await prisma.trip.deleteMany();
+    await prisma.user.deleteMany();
+  });
+
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+  const capture = () => {
+    const receipts: PackingChangeReceipt[] = [];
+    const hook: PackingInTransactionHook = async (_tx, outcome) => {
+      receipts.push(outcome.receipt);
+    };
+    return { receipts, hook };
+  };
+
+  const update = (
+    userId: string,
+    tripId: string,
+    itemId: string,
+    fields: { packed?: boolean; notNeeded?: boolean; confirmedDayCount?: number; name?: string },
+  ) => updatePackingItem({ userId, tripId, itemId, origin: "user", ...fields });
+
+  const link = (userId: string, tripId: string, tripDayId: string, itemId: string, markNeeded?: boolean) =>
+    linkPackingItemToDay({ userId, tripId, tripDayId, itemId, markNeeded, origin: "user" });
+
+  const row = (id: string) => prisma.packingItem.findUniqueOrThrow({ where: { id }, include: { days: true } });
+
+  it("marks and unmarks; a packed item becomes unpacked, needed again is open", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const pass = await add(owner.id, trip.id, "Pass");
+    await update(owner.id, trip.id, pass.item.id, { packed: true });
+
+    const marked = await update(owner.id, trip.id, pass.item.id, { notNeeded: true, confirmedDayCount: 0 });
+    if (marked.status !== "updated") throw new Error(marked.status);
+    expect(marked.item).toMatchObject({ notNeeded: true, packed: false, dayCount: 0, aiChangedAt: null });
+
+    const needed = await update(owner.id, trip.id, pass.item.id, { notNeeded: false });
+    if (needed.status !== "updated") throw new Error(needed.status);
+    expect(needed.item).toMatchObject({ notNeeded: false, packed: false });
+  });
+
+  it("removes the day links on a confirmed mark and refuses a stale confirmed count, writing nothing", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day1, day2] = await createDays(trip.id, 2);
+    const hose = await add(owner.id, trip.id, "Badehose");
+    await link(owner.id, trip.id, day1.id, hose.item.id);
+    await link(owner.id, trip.id, day2.id, hose.item.id);
+    const before = await row(hose.item.id);
+
+    expect(await update(owner.id, trip.id, hose.item.id, { notNeeded: true, confirmedDayCount: 1 })).toEqual({
+      status: "days_changed",
+      dayCount: 2,
+    });
+    const untouched = await row(hose.item.id);
+    expect(untouched.notNeeded).toBe(false);
+    expect(untouched.days).toHaveLength(2);
+    expect(untouched.updatedAt.getTime()).toBe(before.updatedAt.getTime());
+
+    const marked = await update(owner.id, trip.id, hose.item.id, { notNeeded: true, confirmedDayCount: 2 });
+    if (marked.status !== "updated") throw new Error(marked.status);
+    expect(marked.item).toMatchObject({ notNeeded: true, dayCount: 0, days: [] });
+    expect(await prisma.packingItemDay.count({ where: { packingItemId: hose.item.id } })).toBe(0);
+  });
+
+  it("refuses ticking a not-needed item, but allows it with notNeeded false in the same request", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const hose = await add(owner.id, trip.id, "Badehose");
+    await update(owner.id, trip.id, hose.item.id, { notNeeded: true });
+    const before = await row(hose.item.id);
+
+    expect(await update(owner.id, trip.id, hose.item.id, { packed: true })).toEqual({ status: "not_needed" });
+    expect(await update(owner.id, trip.id, hose.item.id, { packed: true, name: "Shorts" })).toEqual({
+      status: "not_needed",
+    });
+    const untouched = await row(hose.item.id);
+    expect(untouched).toMatchObject({ name: "Badehose", packed: false, notNeeded: true });
+    expect(untouched.updatedAt.getTime()).toBe(before.updatedAt.getTime());
+
+    const both = await update(owner.id, trip.id, hose.item.id, { packed: true, notNeeded: false });
+    if (both.status !== "updated") throw new Error(both.status);
+    expect(both.item).toMatchObject({ packed: true, notNeeded: false });
+  });
+
+  it("refuses linking or adding a not-needed item to a day; markNeeded marks and links in one write", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day1, day2] = await createDays(trip.id, 2);
+    const hose = await add(owner.id, trip.id, "Badehose");
+    await update(owner.id, trip.id, hose.item.id, { notNeeded: true });
+    const before = await row(hose.item.id);
+
+    expect(await link(owner.id, trip.id, day1.id, hose.item.id)).toEqual({ status: "not_needed" });
+    expect(
+      await addPackingItemToDay({ userId: owner.id, tripId: trip.id, tripDayId: day1.id, name: " badehose ", origin: "user" }),
+    ).toEqual({ status: "not_needed" });
+    const untouched = await row(hose.item.id);
+    expect(untouched.days).toHaveLength(0);
+    expect(untouched.updatedAt.getTime()).toBe(before.updatedAt.getTime());
+    expect(await prisma.packingItem.count({ where: { tripId: trip.id } })).toBe(1);
+
+    await tick();
+    const linked = await link(owner.id, trip.id, day1.id, hose.item.id, true);
+    if (linked.status !== "linked") throw new Error(linked.status);
+    expect(linked.item).toMatchObject({ notNeeded: false, dayCount: 1 });
+    const afterLink = await row(hose.item.id);
+    expect(afterLink.updatedAt.getTime()).toBeGreaterThan(before.updatedAt.getTime());
+
+    // Marked again, then added by name with markNeeded: the existing item, never a duplicate.
+    await update(owner.id, trip.id, hose.item.id, { notNeeded: true, confirmedDayCount: 1 });
+    const added = await addPackingItemToDay({
+      userId: owner.id,
+      tripId: trip.id,
+      tripDayId: day2.id,
+      name: "BADEHOSE",
+      markNeeded: true,
+      origin: "user",
+    });
+    if (added.status !== "existed") throw new Error(added.status);
+    expect(added.item).toMatchObject({ id: hose.item.id, notNeeded: false, dayCount: 1 });
+    expect(await prisma.packingItem.count({ where: { tripId: trip.id } })).toBe(1);
+  });
+
+  it("markNeeded is harmless on a needed item and on a new name", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day1] = await createDays(trip.id, 1);
+    const pass = await add(owner.id, trip.id, "Pass");
+
+    const linked = await link(owner.id, trip.id, day1.id, pass.item.id, true);
+    expect(linked).toMatchObject({ status: "linked", item: { notNeeded: false, dayCount: 1 } });
+    const created = await addPackingItemToDay({
+      userId: owner.id,
+      tripId: trip.id,
+      tripDayId: day1.id,
+      name: "Hut",
+      markNeeded: true,
+      origin: "user",
+    });
+    expect(created).toMatchObject({ status: "created", item: { notNeeded: false, dayCount: 1 } });
+  });
+
+  it("listPackingItemsForDay ignores a not-needed item even with a link forced in", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day1] = await createDays(trip.id, 1);
+    const hose = await prisma.packingItem.create({
+      data: { tripId: trip.id, name: "Badehose", nameKey: "badehose", notNeeded: true },
+    });
+    const pass = await add(owner.id, trip.id, "Pass");
+    await prisma.packingItemDay.createMany({
+      data: [
+        { packingItemId: hose.id, tripDayId: day1.id },
+        { packingItemId: pass.item.id, tripDayId: day1.id },
+      ],
+    });
+
+    const items = await listPackingItemsForDay({ userId: owner.id, tripId: trip.id, tripDayId: day1.id });
+    expect(items.map((item) => item.name)).toEqual(["Pass"]);
+  });
+
+  it("connector update: notNeeded true unpacks and unlinks all, undo restores packed and the links", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day1, day2] = await createDays(trip.id, 2);
+    const hose = await add(owner.id, trip.id, "Badehose");
+    await link(owner.id, trip.id, day1.id, hose.item.id);
+    await link(owner.id, trip.id, day2.id, hose.item.id);
+    await update(owner.id, trip.id, hose.item.id, { packed: true });
+    const before = await row(hose.item.id);
+    await tick();
+    const { receipts, hook } = capture();
+
+    const result = await updatePackingItemForConnector({
+      userId: owner.id,
+      tripId: trip.id,
+      itemId: hose.item.id,
+      expectedUpdatedAt: before.updatedAt,
+      notNeeded: true,
+      removeDayIds: [day1.id],
+      inTransaction: hook,
+    });
+    if (result.status !== "updated") throw new Error(result.status);
+    expect(result.item).toMatchObject({ notNeeded: true, packed: false, dayCount: 0 });
+    expect(result.item.aiChangedAt).toBeInstanceOf(Date);
+    const [entry] = receipts[0].entries;
+    expect(entry).toMatchObject({ change: "updated", before: { packed: true, notNeeded: false } });
+
+    expect(await undoPackingChangeForTrip({ userId: owner.id, tripId: trip.id, receipt: receipts[0] })).toEqual({
+      status: "undone",
+    });
+    const restored = await row(hose.item.id);
+    expect(restored).toMatchObject({ packed: true, notNeeded: false, aiChangedAt: null });
+    expect(restored.days.map((day) => day.tripDayId).sort()).toEqual([day1.id, day2.id].sort());
+    expect(restored.updatedAt.getTime()).toBe(before.updatedAt.getTime());
+  });
+
+  it("connector update: refuses addDayIds and packed on a not-needed item, allows them with notNeeded false", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day1] = await createDays(trip.id, 1);
+    const hose = await add(owner.id, trip.id, "Badehose");
+    await update(owner.id, trip.id, hose.item.id, { notNeeded: true });
+    const before = await row(hose.item.id);
+    const { receipts, hook } = capture();
+    const call = (fields: { packed?: boolean; notNeeded?: boolean; addDayIds?: string[] }, stamp = before.updatedAt) =>
+      updatePackingItemForConnector({
+        userId: owner.id,
+        tripId: trip.id,
+        itemId: hose.item.id,
+        expectedUpdatedAt: stamp,
+        inTransaction: hook,
+        ...fields,
+      });
+
+    expect(await call({ addDayIds: [day1.id] })).toEqual({ status: "not_needed" });
+    expect(await call({ packed: true })).toEqual({ status: "not_needed" });
+    expect(receipts).toHaveLength(0);
+    expect((await row(hose.item.id)).updatedAt.getTime()).toBe(before.updatedAt.getTime());
+
+    // Already not needed: a no-op.
+    expect(await call({ notNeeded: true })).toMatchObject({ status: "unchanged" });
+    expect(receipts).toHaveLength(0);
+
+    const both = await call({ notNeeded: false, addDayIds: [day1.id], packed: true });
+    if (both.status !== "updated") throw new Error(both.status);
+    expect(both.item).toMatchObject({ notNeeded: false, packed: true, dayCount: 1 });
+    expect(receipts).toHaveLength(1);
+  });
+
+  it("connector update: a needed item marked not needed in the same call as addDayIds is refused", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day1] = await createDays(trip.id, 1);
+    const pass = await add(owner.id, trip.id, "Pass");
+    const before = await row(pass.item.id);
+    const { receipts, hook } = capture();
+
+    expect(
+      await updatePackingItemForConnector({
+        userId: owner.id,
+        tripId: trip.id,
+        itemId: pass.item.id,
+        expectedUpdatedAt: before.updatedAt,
+        notNeeded: true,
+        addDayIds: [day1.id],
+        inTransaction: hook,
+      }),
+    ).toEqual({ status: "not_needed" });
+    expect(receipts).toHaveLength(0);
+    expect((await row(pass.item.id)).notNeeded).toBe(false);
+  });
+
+  it("connector add with a day refuses the whole batch on a not-needed name and writes nothing", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day1] = await createDays(trip.id, 1);
+    const hose = await add(owner.id, trip.id, "Badehose");
+    await update(owner.id, trip.id, hose.item.id, { notNeeded: true });
+    const { receipts, hook } = capture();
+
+    const refused = await addPackingItemsForConnector({
+      userId: owner.id,
+      tripId: trip.id,
+      tripDayId: day1.id,
+      items: [{ name: "Neu" }, { name: "Pass" }, { name: "BADEHOSE" }],
+      inTransaction: hook,
+    });
+    expect(refused).toEqual({ status: "not_needed", index: 2 });
+    expect(await prisma.packingItem.count({ where: { tripId: trip.id } })).toBe(1);
+    expect(await prisma.packingItemDay.count()).toBe(0);
+    expect(receipts).toHaveLength(0);
+
+    // Without a day the name resolves to the existing item, still not needed.
+    const resolved = await addPackingItemsForConnector({
+      userId: owner.id,
+      tripId: trip.id,
+      items: [{ name: "badehose" }],
+      inTransaction: hook,
+    });
+    if (resolved.status !== "added") throw new Error(resolved.status);
+    expect(resolved.results[0].status).toBe("existed");
+    expect(resolved.items[0]).toMatchObject({ id: hose.item.id, notNeeded: true });
+    expect(resolved.written).toBe(false);
+  });
+
+  it("undo of a recreated deleted item restores notNeeded", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const hose = await add(owner.id, trip.id, "Badehose");
+    await update(owner.id, trip.id, hose.item.id, { notNeeded: true });
+    const { receipts, hook } = capture();
+
+    await deletePackingItemForConnector({ userId: owner.id, tripId: trip.id, itemId: hose.item.id, inTransaction: hook });
+    expect(await undoPackingChangeForTrip({ userId: owner.id, tripId: trip.id, receipt: receipts[0] })).toEqual({
+      status: "undone",
+    });
+    expect((await row(hose.item.id)).notNeeded).toBe(true);
+  });
+
+  it("lists notNeeded with every item and refuses viewers", async () => {
+    const owner = await createUser("owner");
+    const viewer = await createUser("viewer");
+    const trip = await createTrip(owner.id);
+    await prisma.tripMember.create({ data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" } });
+    const hose = await add(owner.id, trip.id, "Badehose");
+
+    expect(await update(viewer.id, trip.id, hose.item.id, { notNeeded: true })).toEqual({ status: "not_found" });
+    await update(owner.id, trip.id, hose.item.id, { notNeeded: true });
+    const list = await listPackingItemsForTrip({ userId: viewer.id, tripId: trip.id });
+    expect(list?.items.map((item) => [item.name, item.notNeeded])).toEqual([["Badehose", true]]);
+  });
+});
+
+describe("packingListRepo tags (Story 16.8)", () => {
+  beforeEach(async () => {
+    await prisma.packingItem.deleteMany();
+    await prisma.tripDay.deleteMany();
+    await prisma.tripMember.deleteMany();
+    await prisma.trip.deleteMany();
+    await prisma.user.deleteMany();
+  });
+
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+  const capture = () => {
+    const receipts: PackingChangeReceipt[] = [];
+    const hook: PackingInTransactionHook = async (_tx, outcome) => {
+      receipts.push(outcome.receipt);
+    };
+    return { receipts, hook };
+  };
+
+  const tagRows = (packingItemId: string) =>
+    prisma.packingItemTag.findMany({ where: { packingItemId }, orderBy: { tagKey: "asc" } });
+
+  const ten = Array.from({ length: 10 }, (_, index) => `T${index}`);
+
+  it("creates with tags (deduped, normalized) and lists them in tag-key order", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const created = await add(owner.id, trip.id, "Powerbank", "Technik", [" Kaufen ", "Aufladen", "kaufen"]);
+    expect(created.status).toBe("created");
+    expect(created.item.tags).toEqual(["Aufladen", "Kaufen"]);
+    expect((await tagRows(created.item.id)).map((row) => [row.tag, row.tagKey])).toEqual([
+      ["Aufladen", "aufladen"],
+      ["Kaufen", "kaufen"],
+    ]);
+    const list = await listPackingItemsForTrip({ userId: owner.id, tripId: trip.id });
+    expect(list?.items[0].tags).toEqual(["Aufladen", "Kaufen"]);
+  });
+
+  it("stores the trip's first spelling of a tag key, on create and on update", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    await add(owner.id, trip.id, "Sonnencreme", null, ["Kaufen"]);
+    const hut = await add(owner.id, trip.id, "Hut", null, ["kaufen", "zoll"]);
+    expect(hut.item.tags).toEqual(["Kaufen", "zoll"]);
+    const kabel = await add(owner.id, trip.id, "Kabel");
+    const updated = await updatePackingItem({
+      userId: owner.id,
+      tripId: trip.id,
+      itemId: kabel.item.id,
+      tags: ["KAUFEN", "ZOLL"],
+      origin: "user",
+    });
+    if (updated.status !== "updated") throw new Error(updated.status);
+    expect(updated.item.tags).toEqual(["Kaufen", "zoll"]);
+  });
+
+  it("an update replaces the tags: adds, removes and allows a case fix of a tag used nowhere else", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const item = await add(owner.id, trip.id, "Powerbank", null, ["kaufen", "Aufladen"]);
+    const update = (tags: string[]) =>
+      updatePackingItem({ userId: owner.id, tripId: trip.id, itemId: item.item.id, tags, origin: "user" });
+    const fixed = await update(["Kaufen", "Reparieren"]);
+    if (fixed.status !== "updated") throw new Error(fixed.status);
+    expect(fixed.item.tags).toEqual(["Kaufen", "Reparieren"]);
+    const cleared = await update([]);
+    if (cleared.status !== "updated") throw new Error(cleared.status);
+    expect(cleared.item.tags).toEqual([]);
+    expect(await tagRows(item.item.id)).toEqual([]);
+  });
+
+  it("a tag write bumps updatedAt and follows the origin's AI marker", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const item = await add(owner.id, trip.id, "Powerbank");
+    const before = await prisma.packingItem.findUniqueOrThrow({ where: { id: item.item.id } });
+    await tick();
+    const updated = await updatePackingItem({
+      userId: owner.id,
+      tripId: trip.id,
+      itemId: item.item.id,
+      tags: ["Kaufen"],
+      origin: "ai",
+    });
+    if (updated.status !== "updated") throw new Error(updated.status);
+    expect(updated.item.updatedAt.getTime()).toBeGreaterThan(before.updatedAt.getTime());
+    expect(updated.item.aiChangedAt).toBeInstanceOf(Date);
+    const merged = await createPackingItem({
+      userId: owner.id,
+      tripId: trip.id,
+      name: "powerbank",
+      tags: ["Aufladen"],
+      origin: "user",
+    });
+    expect(merged).toMatchObject({ status: "existed", item: { tags: ["Aufladen", "Kaufen"], aiChangedAt: null } });
+  });
+
+  it("adding an existing name merges the missing tags; nothing given or nothing new writes nothing", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const item = await add(owner.id, trip.id, "Sonnencreme", "Hygiene", ["Kaufen"]);
+    const stamp = (await prisma.packingItem.findUniqueOrThrow({ where: { id: item.item.id } })).updatedAt;
+    await tick();
+    expect((await add(owner.id, trip.id, "sonnencreme")).status).toBe("existed");
+    expect((await add(owner.id, trip.id, "sonnencreme", null, ["KAUFEN"])).item.tags).toEqual(["Kaufen"]);
+    expect((await prisma.packingItem.findUniqueOrThrow({ where: { id: item.item.id } })).updatedAt.getTime()).toBe(
+      stamp.getTime(),
+    );
+    const merged = await add(owner.id, trip.id, "SONNENCREME", "Other", ["Aufladen"]);
+    expect(merged.status).toBe("existed");
+    expect(merged.item).toMatchObject({ category: "Hygiene", tags: ["Aufladen", "Kaufen"] });
+  });
+
+  it("refuses a merge past 10 tags and writes nothing", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const item = await add(owner.id, trip.id, "Koffer", null, ten);
+    const stamp = (await prisma.packingItem.findUniqueOrThrow({ where: { id: item.item.id } })).updatedAt;
+    expect(
+      await createPackingItem({ userId: owner.id, tripId: trip.id, name: "koffer", tags: ["Neu"], origin: "user" }),
+    ).toEqual({ status: "too_many_tags" });
+    expect(await tagRows(item.item.id)).toHaveLength(10);
+    expect((await prisma.packingItem.findUniqueOrThrow({ where: { id: item.item.id } })).updatedAt.getTime()).toBe(
+      stamp.getTime(),
+    );
+    // A tag it already has is no merge at all.
+    expect((await add(owner.id, trip.id, "koffer", null, ["t3"])).status).toBe("existed");
+  });
+
+  it("keeps tags on pack, unpack, not needed and needed again; an item delete removes its tags", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const item = await add(owner.id, trip.id, "Powerbank", null, ["Kaufen"]);
+    const update = (fields: { packed?: boolean; notNeeded?: boolean }) =>
+      updatePackingItem({ userId: owner.id, tripId: trip.id, itemId: item.item.id, origin: "user", ...fields });
+    for (const fields of [{ packed: true }, { packed: false }, { notNeeded: true }, { notNeeded: false }]) {
+      const result = await update(fields);
+      if (result.status !== "updated") throw new Error(result.status);
+      expect(result.item.tags).toEqual(["Kaufen"]);
+    }
+    await deletePackingItem({ userId: owner.id, tripId: trip.id, itemId: item.item.id });
+    expect(await prisma.packingItemTag.count()).toBe(0);
+  });
+
+  it("the day email read carries the tags", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day] = await createDays(trip.id, 1);
+    await addPackingItemToDay({ userId: owner.id, tripId: trip.id, tripDayId: day.id, name: "Powerbank", origin: "user" });
+    await add(owner.id, trip.id, "powerbank", null, ["Kaufen", "Aufladen"]);
+    expect(await listPackingItemsForDay({ userId: owner.id, tripId: trip.id, tripDayId: day.id })).toEqual([
+      expect.objectContaining({ name: "Powerbank", tags: ["Aufladen", "Kaufen"] }),
+    ]);
+  });
+
+  it("connector add: a new item gets tags, an existing one gets the missing ones with an updated entry, undo restores", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const existing = await add(owner.id, trip.id, "Pass", null, ["Zoll"]);
+    const before = await prisma.packingItem.findUniqueOrThrow({ where: { id: existing.item.id } });
+    await tick();
+    const { receipts, hook } = capture();
+    const result = await addPackingItemsForConnector({
+      userId: owner.id,
+      tripId: trip.id,
+      items: [
+        { name: "Powerbank", tags: ["Aufladen"] },
+        { name: "pass", tags: ["zoll", "Kopieren"] },
+        { name: "Hut", tags: [] },
+      ],
+      inTransaction: hook,
+    });
+    if (result.status !== "added") throw new Error(result.status);
+    expect(result.items.map((item) => [item.name, item.tags])).toEqual([
+      ["Powerbank", ["Aufladen"]],
+      ["Pass", ["Kopieren", "Zoll"]],
+      ["Hut", []],
+    ]);
+    expect(result.items[1].aiChangedAt).toBeInstanceOf(Date);
+    expect(receipts).toHaveLength(1);
+    const updatedEntry = receipts[0].entries.find((entry) => entry.change === "updated");
+    expect(updatedEntry).toMatchObject({ before: { id: existing.item.id, tags: ["Zoll"] } });
+
+    expect(await undoPackingChangeForTrip({ userId: owner.id, tripId: trip.id, receipt: receipts[0] })).toEqual({
+      status: "undone",
+    });
+    expect((await tagRows(existing.item.id)).map((row) => row.tag)).toEqual(["Zoll"]);
+    const restored = await prisma.packingItem.findUniqueOrThrow({ where: { id: existing.item.id } });
+    expect(restored.updatedAt.getTime()).toBe(before.updatedAt.getTime());
+    expect(await prisma.packingItem.count({ where: { tripId: trip.id } })).toBe(1);
+  });
+
+  it("connector add: a merge past 10 tags refuses the whole batch, earlier creates included", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    await add(owner.id, trip.id, "Koffer", null, ten);
+    const items = await prisma.packingItem.count();
+    const tags = await prisma.packingItemTag.count();
+    const { receipts, hook } = capture();
+    const result = await addPackingItemsForConnector({
+      userId: owner.id,
+      tripId: trip.id,
+      items: [{ name: "Neu", tags: ["Kaufen"] }, { name: "koffer", tags: ["Elf"] }],
+      inTransaction: hook,
+    });
+    expect(result).toEqual({ status: "too_many_tags", index: 1 });
+    expect(receipts).toHaveLength(0);
+    expect(await prisma.packingItem.count()).toBe(items);
+    expect(await prisma.packingItemTag.count()).toBe(tags);
+  });
+
+  it("connector update: addTags/removeTags, no-ops write nothing, the limit is checked first, undo restores", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    await add(owner.id, trip.id, "Andere", null, ["Kaufen"]);
+    const item = await add(owner.id, trip.id, "Powerbank", null, ["Aufladen"]);
+    const read = async () => (await prisma.packingItem.findUniqueOrThrow({ where: { id: item.item.id } })).updatedAt;
+    const { receipts, hook } = capture();
+    const base = { userId: owner.id, tripId: trip.id, itemId: item.item.id, inTransaction: hook };
+
+    expect(
+      await updatePackingItemForConnector({ ...base, expectedUpdatedAt: await read(), addTags: ["AUFLADEN"], removeTags: ["Nope"] }),
+    ).toMatchObject({ status: "unchanged" });
+    expect(receipts).toHaveLength(0);
+
+    await tick();
+    const stamp = await read();
+    const updated = await updatePackingItemForConnector({
+      ...base,
+      expectedUpdatedAt: stamp,
+      addTags: ["kaufen"],
+      removeTags: ["aufladen"],
+    });
+    if (updated.status !== "updated") throw new Error(updated.status);
+    expect(updated.item.tags).toEqual(["Kaufen"]);
+    expect(updated.item.aiChangedAt).toBeInstanceOf(Date);
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0].entries[0]).toMatchObject({ change: "updated", before: { tags: ["Aufladen"] } });
+
+    const full = await updatePackingItemForConnector({ ...base, expectedUpdatedAt: await read(), addTags: ten });
+    expect(full).toEqual({ status: "too_many_tags" });
+    expect((await tagRows(item.item.id)).map((row) => row.tag)).toEqual(["Kaufen"]);
+
+    expect(await undoPackingChangeForTrip({ userId: owner.id, tripId: trip.id, receipt: receipts[0] })).toEqual({
+      status: "undone",
+    });
+    expect((await tagRows(item.item.id)).map((row) => row.tag)).toEqual(["Aufladen"]);
+    expect((await read()).getTime()).toBe(stamp.getTime());
+  });
+
+  it("undo of a receipt stored before 16.8 (no tags) leaves the tags alone; a deleted item comes back with its tags", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const item = await add(owner.id, trip.id, "Powerbank", null, ["Kaufen"]);
+    const { receipts, hook } = capture();
+    const stamp = (await prisma.packingItem.findUniqueOrThrow({ where: { id: item.item.id } })).updatedAt;
+    const updated = await updatePackingItemForConnector({
+      userId: owner.id,
+      tripId: trip.id,
+      itemId: item.item.id,
+      expectedUpdatedAt: stamp,
+      packed: true,
+      inTransaction: hook,
+    });
+    if (updated.status !== "updated") throw new Error(updated.status);
+    const old = structuredClone(receipts[0]);
+    const entry = old.entries[0];
+    if (entry.change !== "updated") throw new Error(entry.change);
+    delete entry.before.tags;
+    // A tag written meanwhile without touching the stamp: an old receipt must leave it.
+    await prisma.packingItemTag.create({ data: { packingItemId: item.item.id, tag: "Neu", tagKey: "neu" } });
+    expect(await undoPackingChangeForTrip({ userId: owner.id, tripId: trip.id, receipt: old })).toEqual({ status: "undone" });
+    expect((await tagRows(item.item.id)).map((row) => row.tag)).toEqual(["Kaufen", "Neu"]);
+
+    const { receipts: deletes, hook: deleteHook } = capture();
+    await deletePackingItemForConnector({ userId: owner.id, tripId: trip.id, itemId: item.item.id, inTransaction: deleteHook });
+    expect(await tagRows(item.item.id)).toEqual([]);
+    expect(await undoPackingChangeForTrip({ userId: owner.id, tripId: trip.id, receipt: deletes[0] })).toEqual({
+      status: "undone",
+    });
+    expect((await tagRows(item.item.id)).map((row) => row.tag)).toEqual(["Kaufen", "Neu"]);
+  });
+
+  it("refuses viewers a tag write", async () => {
+    const owner = await createUser("owner");
+    const viewer = await createUser("viewer");
+    const trip = await createTrip(owner.id);
+    await prisma.tripMember.create({ data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" } });
+    const item = await add(owner.id, trip.id, "Powerbank");
+    expect(
+      await updatePackingItem({ userId: viewer.id, tripId: trip.id, itemId: item.item.id, tags: ["Kaufen"], origin: "user" }),
+    ).toEqual({ status: "not_found" });
+    expect(
+      await createPackingItem({ userId: viewer.id, tripId: trip.id, name: "Powerbank", tags: ["Kaufen"], origin: "user" }),
+    ).toEqual({ status: "not_found" });
+    expect(await prisma.packingItemTag.count()).toBe(0);
   });
 });

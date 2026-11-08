@@ -2,7 +2,7 @@ import { formatMessage, type Language } from "@/i18n";
 import type { PackingItemForDay } from "@/lib/repositories/packingListRepo";
 import type { TripDayPrintPayload, TripDayPrintTimelineEntry } from "@/lib/repositories/tripRepo";
 import { formatLongDate } from "@/lib/trips/formatLongDate";
-import { groupPackingItems } from "@/lib/trips/packingList";
+import { groupPackingItems, sortPackingTags } from "@/lib/trips/packingList";
 import { parsePlanText } from "@/lib/trips/planText";
 import { formatPrintDuration, getEntryDisplayName, getPrintEntryLabel } from "@/lib/trips/printDocuments";
 import { TRANSPORT_LABEL_KEYS, isTransportType, transportTypeAllowsDistance } from "@/lib/trips/transportTypes";
@@ -200,6 +200,14 @@ export const buildDayEmail = ({
   const rows = toRows(timeline, t);
   const empty = rows.length === 0 ? t("trips.dayPrint.empty") : null;
   const packingGroups = groupPackingItems(packingItems, t("trips.packingList.other"), language);
+  // Story 16.8. "Powerbank (Aufladen, Kaufen)": the item's tags alphabetically after the name, or the name
+  // alone. `escape` is applied to the name and to every tag separately (identity for the text part).
+  const withTags = (entry: PackingItemForDay, escape: (value: string) => string = (value) => value) => {
+    const tags = sortPackingTags(entry.tags ?? [], language);
+    return tags.length === 0
+      ? escape(entry.name)
+      : `${escape(entry.name)} (${tags.map((tag) => escape(tag)).join(", ")})`;
+  };
   const takeAlong = t("trips.packingList.dayTitle");
 
   const subject = formatMessage(t("trips.dayEmail.subject"), { trip: trip.name, date }).trim();
@@ -214,7 +222,7 @@ export const buildDayEmail = ({
     ...(packingGroups.length > 0
       ? [
           takeAlong.toUpperCase(),
-          ...packingGroups.map((group) => [group.label, ...group.items.map((entry) => `- ${entry.name}`)].join("\n")),
+          ...packingGroups.map((group) => [group.label, ...group.items.map((entry) => `- ${withTags(entry)}`)].join("\n")),
         ]
       : []),
   ].join("\n\n");
@@ -240,7 +248,7 @@ export const buildDayEmail = ({
             (group) =>
               `<div style="font-weight:bold;font-size:14px;${TEXT_STYLE}">${escapeHtml(group.label)}</div>` +
               `<ul style="margin:4px 0 12px 0;padding-left:20px">` +
-              group.items.map((entry) => `<li style="${TEXT_STYLE}">${escapeHtml(entry.name)}</li>`).join("") +
+              group.items.map((entry) => `<li style="${TEXT_STYLE}">${withTags(entry, escapeHtml)}</li>`).join("") +
               `</ul>`,
           )
           .join("")

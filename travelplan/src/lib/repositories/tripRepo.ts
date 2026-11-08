@@ -21,7 +21,13 @@ import {
 } from "@/lib/trips/legacySchedule";
 import { buildScheduleInput, derivePlanConflicts, type DayPlanConflict } from "@/lib/trips/planConflicts";
 import { buildParkedContentJson } from "@/lib/trips/parkedItemContent";
-import { normalizePackingCategory, normalizePackingName, packingNameKey } from "@/lib/trips/packingList";
+import {
+  PACKING_TAGS_PER_ITEM_MAX,
+  normalizePackingCategory,
+  normalizePackingName,
+  packingNameKey,
+  packingTagKey,
+} from "@/lib/trips/packingList";
 import { parkedDayPlanItemsWhere } from "@/lib/repositories/dayPlanItemRepo";
 import {
   getTripUploadDir,
@@ -259,7 +265,11 @@ export type TripWithDays = {
   /** Bumped by the hero write; see `TripSummary.updatedAt` for why readers need it. */
   updatedAt: Date;
   /** Story 16.1. The packing list's progress for the overview card, read in the same query. */
-  packing: { total: number; packed: number };
+  /**
+   * Story 16.7: `total` and `packed` count needed items only; `notNeeded` counts the items marked not
+   * needed this time.
+   */
+  packing: { total: number; packed: number; notNeeded: number };
   days: TripDaySummary[];
 };
 
@@ -432,7 +442,11 @@ export type TripExportPackingItem = {
   name: string;
   category: string | null;
   packed: boolean;
+  /** Story 16.7. Not needed this time (additive within v2; an archive without it imports as `false`). */
+  notNeeded: boolean;
   dayIndexes: number[];
+  /** Story 16.8. The item's tags in tag-key order (additive within v2; an archive without it imports none). */
+  tags: string[];
 };
 
 export type TripExportPayload = {
@@ -1222,7 +1236,7 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
         },
       },
       // Story 16.1. The packing list's progress, in this query (the connector's single-pass reads count calls).
-      packingItems: { select: { packed: true } },
+      packingItems: { select: { packed: true, notNeeded: true } },
       _count: { select: { days: true } },
     },
   });
@@ -1282,8 +1296,9 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
     heroImageUrl: trip.heroImageUrl,
     updatedAt: trip.updatedAt,
     packing: {
-      total: trip.packingItems.length,
-      packed: trip.packingItems.filter((item) => item.packed).length,
+      total: trip.packingItems.filter((item) => !item.notNeeded).length,
+      packed: trip.packingItems.filter((item) => item.packed && !item.notNeeded).length,
+      notNeeded: trip.packingItems.filter((item) => item.notNeeded).length,
     },
     days: trip.days.map((day, dayPosition) => {
       const accommodationName = day.accommodation?.name?.trim() ?? "";
@@ -1939,7 +1954,9 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
           name: true,
           category: true,
           packed: true,
+          notNeeded: true,
           days: { select: { tripDay: { select: { dayIndex: true } } } },
+          tags: { select: { tag: true, tagKey: true }, orderBy: { tagKey: "asc" } },
         },
       },
       // Story 14.1: the bucket list is the trip's parked activities (`tripDayId: null`); the planned
@@ -2580,7 +2597,9 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
         name: item.name,
         category: item.category,
         packed: item.packed,
+        notNeeded: item.notNeeded,
         dayIndexes: item.days.map((link) => link.tripDay.dayIndex).sort((left, right) => left - right),
+        tags: item.tags.map((row) => row.tag),
       })),
     },
     days,
@@ -3176,6 +3195,14 @@ const droppedForeignImageWarnings = (count: number): string[] => {
  * is, the union of their days - because the table allows one item per name key. Categories fold
  * "Sonstiges"/"Other" to none and case variants to the first spelling, as the app does. No item comes back
  * marked as an AI change. The schema has already refused a `dayIndex` the archive has no day for.
+ *
+ * Story 16.7: a merged item is not needed only if every entry of its name key is. A not-needed item comes
+ * back unpacked and without day links, whatever the archive says - the invariant wins. For the same
+ * reason only the needed entries of a name key bring a packed state and days to the merged item.
+ *
+ * Story 16.8: tags come back on every item, not-needed ones included. Merged entries take the union of their
+ * tags by key, capped at 10 in archive order (a merge is never refused here); each tag key keeps the first
+ * spelling the archive uses anywhere on the trip, as the app stores one spelling per trip.
  */
 const createImportedPackingItems = async ({
   tx,
@@ -3193,14 +3220,40 @@ const createImportedPackingItems = async ({
   );
 
   const categorySpelling = new Map<string, string>();
-  const merged = new Map<string, { name: string; category: string | null; packed: boolean; dayIndexes: Set<number> }>();
+  const tagSpelling = new Map<string, string>();
+  const merged = new Map<
+    string,
+    {
+      name: string;
+      category: string | null;
+      packed: boolean;
+      notNeeded: boolean;
+      dayIndexes: Set<number>;
+      tags: Map<string, string>;
+    }
+  >();
+  const addTags = (target: Map<string, string>, tags: readonly string[]) => {
+    for (const tag of tags) {
+      const key = packingTagKey(tag);
+      // The archive's first spelling counts trip-wide, even when this item's cap turns the tag away.
+      if (!tagSpelling.has(key)) tagSpelling.set(key, tag);
+      if (target.has(key) || target.size >= PACKING_TAGS_PER_ITEM_MAX) continue;
+      target.set(key, tagSpelling.get(key)!);
+    }
+  };
   for (const item of items) {
     const name = normalizePackingName(item.name);
     const nameKey = packingNameKey(name);
     const existing = merged.get(nameKey);
     if (existing) {
-      existing.packed = existing.packed || item.packed;
-      item.dayIndexes.forEach((dayIndex) => existing.dayIndexes.add(dayIndex));
+      addTags(existing.tags, item.tags);
+      // Only a needed entry brings its packed state and days: a not-needed entry has neither (Story 16.7
+      // invariant), whatever the archive says, so it adds nothing to a merged item that ends up needed.
+      existing.notNeeded = existing.notNeeded && item.notNeeded;
+      if (!item.notNeeded) {
+        existing.packed = existing.packed || item.packed;
+        item.dayIndexes.forEach((dayIndex) => existing.dayIndexes.add(dayIndex));
+      }
       continue;
     }
     let category = normalizePackingCategory(item.category);
@@ -3210,14 +3263,35 @@ const createImportedPackingItems = async ({
       if (spelling) category = spelling;
       else categorySpelling.set(key, category);
     }
-    merged.set(nameKey, { name, category, packed: item.packed, dayIndexes: new Set(item.dayIndexes) });
+    const tags = new Map<string, string>();
+    addTags(tags, item.tags);
+    merged.set(nameKey, {
+      name,
+      category,
+      packed: item.notNeeded ? false : item.packed,
+      notNeeded: item.notNeeded,
+      dayIndexes: new Set(item.notNeeded ? [] : item.dayIndexes),
+      tags,
+    });
   }
 
   for (const [nameKey, item] of merged) {
     const created = await tx.packingItem.create({
-      data: { tripId, name: item.name, nameKey, category: item.category, packed: item.packed, aiChangedAt: null },
+      data: {
+        tripId,
+        name: item.name,
+        nameKey,
+        category: item.category,
+        packed: item.notNeeded ? false : item.packed,
+        notNeeded: item.notNeeded,
+        aiChangedAt: null,
+      },
       select: { id: true },
     });
+    for (const [tagKey, tag] of item.tags) {
+      await tx.packingItemTag.create({ data: { packingItemId: created.id, tag, tagKey } });
+    }
+    if (item.notNeeded) continue;
     const links = [...item.dayIndexes]
       .map((dayIndex) => dayIdByIndex.get(dayIndex))
       .filter((tripDayId): tripDayId is string => tripDayId !== undefined)

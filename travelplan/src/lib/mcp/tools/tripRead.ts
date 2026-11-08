@@ -75,7 +75,8 @@ export const registerTripReadTools = (server: McpServer) => {
         "activityCount and plan warnings (late: a fixed activity reached after its start, with startTime and " +
         "reachableAt as HH:MM and lateMinutes; overflow: a flexible activity that does not fit before 23:59). " +
         "No costs here: read get_day for each activity's and stay's cost and payment split. packing: the " +
-        "trip's packing list progress (total items, packed items); get_packing_list reads the items.",
+        "trip's packing list progress (total = items needed on this trip, packed = of those ticked off, " +
+        "notNeeded = items kept on the list but marked not needed this time); get_packing_list reads the items.",
       inputSchema: tripInput,
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
@@ -104,7 +105,8 @@ export const registerTripReadTools = (server: McpServer) => {
         "(with the original currency amount in minor units and its rate per 1 EUR), payments (instalments with " +
         "amountEurCents and dueDate YYYY-MM-DD), document and image ids with file names, the travel legs between " +
         "them (durationMinutes, distanceKm), tonight's stay with the same cost details, missingStay and plan " +
-        "warnings, and packingItems (the packing list items linked to the day: id, name, category, packed; " +
+        "warnings, and packingItems (the packing list items linked to the day: id, name, category, packed, tags; " +
+        "an item marked not needed this time is never linked, so it is never here; " +
         "get_packing_list with dayId has their stamps). Give either dayId or date (YYYY-MM-DD). " +
         UPDATED_AT_NOTE +
         " " +

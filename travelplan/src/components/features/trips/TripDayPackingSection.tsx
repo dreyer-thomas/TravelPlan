@@ -21,6 +21,7 @@ import { useI18n } from "@/i18n/provider";
 import AiBadge from "@/components/ui/AiBadge";
 import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
 import { CheckIcon, CloseXIcon, PlusIcon } from "@/components/features/trips/TripIcons";
+import { PackingNameWithTags } from "@/components/features/trips/PackingTags";
 import {
   packingApiErrorMessage,
   usePackingCategoryOptions,
@@ -37,6 +38,10 @@ import { groupPackingItems, PACKING_CATEGORY_MAX, PACKING_ITEM_NAME_MAX, packing
  * The section owns its fetch of the whole trip list (`GET /packing-items`, viewers included): the picker
  * needs every item anyway, and the day view's own load stays as it is. The API's 403 is the protection;
  * `canEdit` only hides what would be refused.
+ *
+ * Story 16.7: a not-needed item is never linked, so it never shows here, and the picker does not offer it.
+ * Typing its exact name offers "mark needed and add" in place of "create", which marks it needed and links
+ * it in one write (`markNeeded: true`); it never makes a duplicate.
  */
 
 type ApiEnvelope<T> = {
@@ -45,10 +50,15 @@ type ApiEnvelope<T> = {
 };
 
 type CreateOption = { kind: "create"; name: string };
-type PickerOption = PackingItemWire | CreateOption;
+/** Story 16.7. The typed name is a not-needed item: mark it needed and add it. */
+type MarkNeededOption = { kind: "markNeeded"; item: PackingItemWire };
+type PickerOption = PackingItemWire | CreateOption | MarkNeededOption;
 
 const isCreateOption = (option: PickerOption | string): option is CreateOption =>
   typeof option !== "string" && "kind" in option && option.kind === "create";
+
+const isMarkNeededOption = (option: PickerOption | string): option is MarkNeededOption =>
+  typeof option !== "string" && "kind" in option && option.kind === "markNeeded";
 
 const TOUCH_TARGET_PX = 44;
 
@@ -89,6 +99,8 @@ export default function TripDayPackingSection({ tripId, dayId, canEdit, refreshK
   const [createCategory, setCreateCategory] = useState("");
   const [pickerBusy, setPickerBusy] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
+  // Story 16.7. Bumped to read the list again when a create was refused as a stale not-needed name.
+  const [reloadKey, setReloadKey] = useState(0);
 
   // The day a request was sent for; an answer arriving after navigating to another day is dropped.
   const activeDay = useRef(dayId);
@@ -132,7 +144,7 @@ export default function TripDayPackingSection({ tripId, dayId, canEdit, refreshK
     return () => {
       active = false;
     };
-  }, [t, tripId, dayId, refreshKey]);
+  }, [t, tripId, dayId, refreshKey, reloadKey]);
 
   const ensureCsrfToken = useCallback(async () => {
     if (csrfToken) return csrfToken;
@@ -173,7 +185,7 @@ export default function TripDayPackingSection({ tripId, dayId, canEdit, refreshK
   const isOnDay = useCallback((item: PackingItemWire) => item.days.some((day) => day.id === dayId), [dayId]);
   const dayItems = useMemo(() => items.filter(isOnDay), [items, isOnDay]);
   const groups = useMemo(() => groupPackingItems(dayItems, t("trips.packingList.other"), locale), [dayItems, locale, t]);
-  const pickable = useMemo(() => items.filter((item) => !isOnDay(item)), [items, isOnDay]);
+  const pickable = useMemo(() => items.filter((item) => !item.notNeeded && !isOnDay(item)), [items, isOnDay]);
   const categoryOptions = usePackingCategoryOptions(items);
 
   const inputKey = packingNameKey(input);
@@ -199,7 +211,9 @@ export default function TripDayPackingSection({ tripId, dayId, canEdit, refreshK
    * One add: links the item or adds the name; closes the picker on success. The answered item is the
    * trip's (all its days), so it is kept even when the person has moved to another day meanwhile.
    */
-  const addToDay = async (payload: { itemId: string } | { name: string; category: string | null }) => {
+  const addToDay = async (
+    payload: { itemId: string; markNeeded?: true } | { name: string; category: string | null },
+  ) => {
     const requestedDay = dayId;
     setPickerBusy(true);
     setPickerError(null);
@@ -209,7 +223,19 @@ export default function TripDayPackingSection({ tripId, dayId, canEdit, refreshK
         ...payload,
       });
       if (!response.ok || body.error || !body.data) {
-        if (activeDay.current === requestedDay) setPickerError(resolveApiError(body.error?.code));
+        if (activeDay.current === requestedDay) {
+          setPickerError(resolveApiError(body.error?.code));
+          // Story 16.7. The item was marked not needed since the list was read: read the list again, so it
+          // leaves the picker and its exact name offers "mark needed and add". A create by name also goes
+          // back to the search with the typed name.
+          if (body.error?.code === "not_needed") {
+            if ("name" in payload) {
+              setInput(payload.name);
+              setCreateName(null);
+            }
+            setReloadKey((key) => key + 1);
+          }
+        }
         return;
       }
       upsertItem(body.data.item);
@@ -228,6 +254,10 @@ export default function TripDayPackingSection({ tripId, dayId, canEdit, refreshK
       setCreateName(value.name);
       return;
     }
+    if (isMarkNeededOption(value)) {
+      void addToDay({ itemId: value.item.id, markNeeded: true });
+      return;
+    }
     if (typeof value !== "string") {
       void addToDay({ itemId: value.id });
       return;
@@ -239,8 +269,10 @@ export default function TripDayPackingSection({ tripId, dayId, canEdit, refreshK
       setCreateName(value.trim());
       return;
     }
-    // Typing a name the trip already has links that item; one already on the day is left alone.
-    if (!isOnDay(match)) void addToDay({ itemId: match.id });
+    // Typing a name the trip already has links that item; one already on the day is left alone. A
+    // not-needed item is marked needed with the link (Story 16.7; it is never on the day).
+    if (match.notNeeded) void addToDay({ itemId: match.id, markNeeded: true });
+    else if (!isOnDay(match)) void addToDay({ itemId: match.id });
   };
 
   const handleCreate = () => {
@@ -384,11 +416,16 @@ export default function TripDayPackingSection({ tripId, dayId, canEdit, refreshK
                       </Box>
                     )}
                   </Box>
-                  <Typography
-                    sx={{ flex: "1 1 auto", minWidth: 0, fontSize: "12.5px", fontWeight: 600, color: tokens.ink, overflowWrap: "anywhere" }}
-                  >
-                    {item.name}
-                  </Typography>
+                  {/* Story 16.8. The item's tags after the name; they wrap below it at phone width. */}
+                  <Box sx={{ flex: "1 1 auto", minWidth: 0 }}>
+                    <PackingNameWithTags tags={item.tags}>
+                      <Typography
+                        sx={{ minWidth: 0, fontSize: "12.5px", fontWeight: 600, color: tokens.ink, overflowWrap: "anywhere" }}
+                      >
+                        {item.name}
+                      </Typography>
+                    </PackingNameWithTags>
+                  </Box>
                   {item.aiChangedAt && <AiBadge />}
                   {canEdit && (
                     <IconButton
@@ -434,7 +471,9 @@ export default function TripDayPackingSection({ tripId, dayId, canEdit, refreshK
                   filterOptions={(options, state) => {
                     const filtered: PickerOption[] = substringFilter(options as PackingItemWire[], state);
                     const trimmed = state.inputValue.trim();
-                    if (trimmed && !exactMatch) {
+                    if (trimmed && exactMatch?.notNeeded) {
+                      filtered.push({ kind: "markNeeded", item: exactMatch });
+                    } else if (trimmed && !exactMatch) {
                       filtered.push({ kind: "create", name: trimmed });
                     }
                     return filtered;
@@ -444,7 +483,9 @@ export default function TripDayPackingSection({ tripId, dayId, canEdit, refreshK
                       ? option
                       : isCreateOption(option)
                         ? formatMessage(t("trips.packingList.dayCreateOption"), { name: option.name })
-                        : option.name
+                        : isMarkNeededOption(option)
+                          ? formatMessage(t("trips.packingList.dayMarkNeededOption"), { name: option.item.name })
+                          : option.name
                   }
                   renderOption={(props, option) => {
                     const { key, ...rest } = props as typeof props & { key: string };
@@ -452,6 +493,13 @@ export default function TripDayPackingSection({ tripId, dayId, canEdit, refreshK
                       return (
                         <li key={key} {...rest}>
                           {formatMessage(t("trips.packingList.dayCreateOption"), { name: option.name })}
+                        </li>
+                      );
+                    }
+                    if (isMarkNeededOption(option)) {
+                      return (
+                        <li key={key} {...rest}>
+                          {formatMessage(t("trips.packingList.dayMarkNeededOption"), { name: option.item.name })}
                         </li>
                       );
                     }

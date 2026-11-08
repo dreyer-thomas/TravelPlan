@@ -504,12 +504,15 @@ model PackingItem {
   nameKey     String    @map("name_key")
   category    String?   @map("category")
   packed      Boolean   @default(false) @map("packed")
+  // Story 16.7. Kept on the list but not needed this time; such an item is never packed and never linked to a day.
+  notNeeded   Boolean   @default(false) @map("not_needed")
   aiChangedAt DateTime? @map("ai_changed_at")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
   trip Trip             @relation(fields: [tripId], references: [id], onDelete: Cascade)
   days PackingItemDay[]
+  tags PackingItemTag[]
 
   @@unique([tripId, nameKey], map: "packing_items_trip_id_name_key_key")
   @@map("packing_items")
@@ -528,4 +531,18 @@ model PackingItemDay {
   @@id([packingItemId, tripDayId])
   @@index([tripDayId], map: "idx_packing_item_days_trip_day_id")
   @@map("packing_item_days")
+}
+
+// Story 16.8. A free tag on a packing item ("Kaufen", "Aufladen"). One row per tag; the key (NFC, trimmed,
+// lower-cased) makes a tag unique per item. Across the trip the repository stores the first spelling met.
+model PackingItemTag {
+  packingItemId String   @map("packing_item_id")
+  tag           String   @map("tag")
+  tagKey        String   @map("tag_key")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  packingItem PackingItem @relation(fields: [packingItemId], references: [id], onDelete: Cascade)
+
+  @@id([packingItemId, tagKey])
+  @@map("packing_item_tags")
 }
