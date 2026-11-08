@@ -225,7 +225,7 @@ Users who plan a trip connect their AI assistant to TravelPlan once, sign in, an
 **FRs covered:** FR52, FR53, FR54, FR55, FR56, FR57
 
 ### Epic 16: The Packing List
-The travellers keep one shared packing list on the trip, tick it off while packing, and see on each day what to take along; the connected assistant works on the same list.
+The travellers keep one shared packing list on the trip, tick it off while packing, narrow it to their own categories, and see on each day what to take along; the connected assistant works on the same list.
 **FRs covered:** FR58, FR59, FR60 (+ FR51, FR53, FR54, FR57 amendments)
 
 ## Epic 1: Secure Access & Personal Workspace
@@ -5248,3 +5248,47 @@ So that I don't type the swimwear and chargers again for every trip.
 **Then** it covers copying all, a partial selection, duplicates skipped, categories kept, packed state and day links not copied, a viewer-only source trip allowed, and a source trip the user cannot see refused
 
 **Out of scope:** file import and export (handled by the assistant through the connector); saved templates.
+
+### Story 16.6: My Part of the List
+
+As a traveller who splits the packing with the others by area (one takes Technik, the other Kleidung),
+I want to narrow the trip's packing list to my categories,
+So that a long list shows only what I am responsible for, and "Noch offen" tells me what is left for me.
+
+**FRs covered:** FR58 (category filter, amended 2026-11-08)
+
+**Depends on:** Story 16.1. **Sequenced** directly after 16.2, before 16.3. Added 2026-11-08 at Tommy's request.
+
+**Acceptance Criteria:**
+
+**Given** the packing list page with items in two or more categories
+**Then** a row of category chips sits next to the existing "Alle" / "Noch offen" filter: one chip per category group on the list (same groups, labels and order as the list itself, including "Sonstiges" / "Other" for items without a category)
+**And** with no chip selected, every category is shown (today's behaviour)
+**And** tapping a chip toggles it, so several categories can be selected at once; only the groups of the selected categories are shown
+**And** a "Alle Kategorien" / "All categories" action clears the selection
+**And** the chips scroll horizontally at phone width instead of wrapping into several rows, and tap targets are at least 44 px
+**And** with only one category group on the list, no chips are shown
+
+**Given** a category selection and the "Noch offen" filter
+**Then** both apply together (selected categories AND not packed)
+**And** when nothing is left to show, the existing "all packed" message reads for the selection ("In deiner Auswahl ist alles eingepackt" / "Everything in your selection is packed")
+
+**Given** a category selection
+**Then** the trip-wide progress in the header stays as it is, and a second line shows the progress of the selection ("Auswahl: 3 von 7 eingepackt" / "Selection: 3 of 7 packed") **[default]**
+
+**Given** the selection
+**Then** it is remembered per viewer in the browser, per trip (each trip has its own categories), with guarded storage access like the existing filter
+**And** a remembered category that no longer exists on the list is ignored; if none of the remembered ones exists, all categories are shown
+**And** matching ignores case, like the grouping (`groupPackingItems` group keys)
+
+**Given** exactly one category is selected, as owner or contributor
+**Then** the add form's category is prefilled with it (it can be changed) **[default]**
+**And** an item added or recategorized into a category outside the selection stays visible for now, without changing the remembered selection, as the existing filter already does for a packed item **[default]**
+
+**Given** a viewer
+**Then** they can use the category filter too (it changes nothing on the list)
+
+**Given** the test suite
+**Then** it covers no selection, one and several categories, the "Other" group, combination with "Noch offen", the selection's progress line, the remembered selection per trip including a vanished category, a single category hiding the chips, the add-form prefill, the added-outside-the-selection case, and a viewer using the filter
+
+**Out of scope:** a per-person assignment of categories or items ("who packs what" stays out, as ruled for Epic 16); a category filter on the day's "Take along" section (it is short); filtering in the day email or the connector.

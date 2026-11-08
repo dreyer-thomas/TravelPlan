@@ -1,13 +1,10 @@
 import type { NextRequest } from "next/server";
 import { apiError } from "@/lib/errors/apiError";
 import { fail, ok } from "@/lib/http/response";
-import { refuseUnlessTripWriter } from "@/lib/auth/tripAccess";
-import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import {
   createPackingItem,
   deletePackingItem,
   listPackingItemsForTrip,
-  type PackingItemDetail,
   updatePackingItem,
 } from "@/lib/repositories/packingListRepo";
 import {
@@ -16,6 +13,7 @@ import {
   packingItemUpdateSchema,
 } from "@/lib/validation/packingListSchemas";
 import { requireSession } from "@/lib/auth/sessionGuard";
+import { authorizeWrite, type RouteContext, toWire } from "./shared";
 
 /**
  * Story 16.1 (FR58). The trip's packing list, modelled on `bucket-list-items` with one deliberate
@@ -26,65 +24,10 @@ import { requireSession } from "@/lib/auth/sessionGuard";
  *
  * `POST` answers 200 whether it created the item or found it already on the list (`existed`); a rename
  * onto another item's name is a 409 `duplicate_name`.
+ *
+ * Story 16.2: `DELETE` takes the day count the person confirmed; when the item's links changed since,
+ * it answers 409 `days_changed` with the current count and deletes nothing (DW-432).
  */
-
-type RouteContext = {
-  params: Promise<{
-    id?: string;
-  }>;
-};
-
-const requireCsrf = (request: NextRequest) => {
-  const csrfCookie = request.cookies.get(CSRF_COOKIE_NAME)?.value;
-  const csrfHeader = request.headers.get("x-csrf-token") ?? undefined;
-  return validateCsrf(csrfCookie, csrfHeader);
-};
-
-const parseJson = async (request: NextRequest) => {
-  try {
-    return await request.json();
-  } catch {
-    return null;
-  }
-};
-
-const toWire = (item: PackingItemDetail) => ({
-  ...item,
-  createdAt: item.createdAt.toISOString(),
-  updatedAt: item.updatedAt.toISOString(),
-  aiChangedAt: item.aiChangedAt?.toISOString() ?? null,
-});
-
-/** Session, trip id and the writer gate, shared by the three writes. */
-type WriteGate = { response: Response } | { response?: undefined; userId: string; tripId: string; rawPayload: unknown };
-
-const authorizeWrite = async (request: NextRequest, context: RouteContext): Promise<WriteGate> => {
-  if (!requireCsrf(request)) {
-    return { response: fail(apiError("csrf_invalid", "Invalid CSRF token"), 403) };
-  }
-
-  const auth = await requireSession(request);
-  if (auth.response) {
-    return { response: auth.response };
-  }
-  const userId = auth.session.sub;
-
-  const { id: tripId } = await context.params;
-  if (!tripId) {
-    return { response: fail(apiError("not_found", "Trip not found"), 404) };
-  }
-  const refusal = await refuseUnlessTripWriter(userId, tripId, "Trip not found");
-  if (refusal) {
-    return { response: refusal };
-  }
-
-  const rawPayload = await parseJson(request);
-  if (!rawPayload) {
-    return { response: fail(apiError("invalid_json", "Request body must be valid JSON"), 400) };
-  }
-
-  return { userId, tripId, rawPayload: rawPayload as unknown };
-};
 
 export const GET = async (request: NextRequest, context: RouteContext) => {
   const auth = await requireSession(request);
@@ -194,13 +137,21 @@ export const DELETE = async (request: NextRequest, context: RouteContext) => {
   }
 
   try {
-    const result = await deletePackingItem({ userId, tripId, itemId: parsed.data.itemId });
+    const result = await deletePackingItem({
+      userId,
+      tripId,
+      itemId: parsed.data.itemId,
+      confirmedDayCount: parsed.data.confirmedDayCount,
+    });
 
     if (result.status === "not_found") {
       return fail(apiError("not_found", "Trip not found"), 404);
     }
     if (result.status === "missing") {
       return fail(apiError("not_found", "Packing item not found"), 404);
+    }
+    if (result.status === "days_changed") {
+      return fail(apiError("days_changed", "Packing item day links changed", { dayCount: result.dayCount }), 409);
     }
 
     return ok({ deleted: true });

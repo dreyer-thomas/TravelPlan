@@ -9,6 +9,8 @@ import de from "@/i18n/de";
 import en from "@/i18n/en";
 import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
 import { Providers, renderWithProviders } from "./helpers/renderWithProviders";
+// Story 16.2: the day's take-along section fetches its own list; tested in tripDayPackingSection/tripDayViewPacking.
+vi.mock("@/components/features/trips/TripDayPackingSection", () => ({ default: () => null }));
 
 /**
  * Story 15.4. The day view's half of the connector's provenance: the KI/AI badge on marked activity and

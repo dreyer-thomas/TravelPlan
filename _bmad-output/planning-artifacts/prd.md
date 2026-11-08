@@ -323,7 +323,7 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 
 ### Packing List
 
-- FR58: Users can keep one shared packing list per trip. Each item has a name and an optional free category; items are grouped by category. Users who can plan the trip can add, rename, recategorize, tick off as packed and delete items; deleting an item linked to days asks for confirmation and removes it from those days. Viewers see the list read-only. **(Added 2026-11-08 — see Sprint Change Proposal 2026-11-08, Packing List)**
+- FR58: Users can keep one shared packing list per trip. Each item has a name and an optional free category; items are grouped by category. Users who can plan the trip can add, rename, recategorize, tick off as packed and delete items; deleting an item linked to days asks for confirmation and removes it from those days. Viewers see the list read-only. Everyone viewing the list can narrow it to one or more categories, so travellers who split the packing by area see only their own part; the choice is remembered per viewer in the browser. **(Added 2026-11-08 — see Sprint Change Proposal 2026-11-08, Packing List; category filter added 2026-11-08, Story 16.6)**
 - FR59: Users who can plan a trip can link packing items to a day, or create a new item from a day (it is added to the trip's list, unpacked). The day view shows its linked items as information only, without a checkbox; removing an item from a day only unlinks it. **(Added 2026-11-08)**
 - FR60: Users who can plan a trip can copy packing items from any other trip they can see. Copied items arrive unpacked, without day links, and names already on the list are skipped. **(Added 2026-11-08)**
 

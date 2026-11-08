@@ -4216,7 +4216,8 @@ location: `travelplan/src/components/features/trips/TripPackingList.tsx` (`handl
 severity: low
 summary: The "Also removed from N days?" confirmation is decided from the `dayCount` loaded with the page. If links were added after that (16.2 UI, 16.4 connector, another user), the item and its links are deleted without asking.
 evidence: In 16.1 no app path creates links, so it is unreachable today. Address in 16.2: re-read the item before deciding, or have DELETE take an expected day count and answer 409 on mismatch.
-status: open
+status: resolved (16.2) 2026-11-08
+resolution: DELETE takes `confirmedDayCount`; a mismatch with existing links answers 409 `days_changed` with the fresh count and deletes nothing, and the page then asks with that count (`test/tripPackingList.test.tsx`, `test/packingListRoute.test.ts`, `test/packingListRepo.test.ts`).
 
 ### DW-433: Packing list keeps a row whose item was deleted elsewhere
 
@@ -4266,4 +4267,48 @@ location: `travelplan/src/components/features/trips/TripTimeline.tsx` (cost over
 severity: low
 summary: The card link carries `aria-label="Open cost overview"`, which replaces the accessible name, so the total shown inside is never announced.
 evidence: Pre-existing; 16.1 copied the pattern for the packing card (fixed there as a review patch).
+status: open
+
+## Deferred from: code review of 16-2-what-the-day-needs (2026-11-08)
+
+### DW-438: Packing link/add-to-day race retry has no test
+
+source_spec: `_bmad-output/implementation-artifacts/16-2-what-the-day-needs.md`
+origin: bmad-code-review of 16-2, 2026-11-08
+location: `travelplan/src/lib/repositories/packingListRepo.ts` (`retryOnceOnUniqueViolation`)
+severity: low
+summary: The P2002 retry on a concurrent link or same-name add-to-day is never exercised; the race handling is unverified.
+evidence: No repo, route or component test produces a concurrent unique violation; needs a forced P2002 (e.g. a spied transaction) to pin.
+status: open
+
+### DW-439: Re-adding an item while its day remove is in flight can leave the day section out of sync
+
+source_spec: `_bmad-output/implementation-artifacts/16-2-what-the-day-needs.md`
+origin: bmad-code-review of 16-2, 2026-11-08
+location: `travelplan/src/components/features/trips/TripDayPackingSection.tsx` (`handleRemove`, `addToDay`)
+severity: low
+summary: The optimistic remove makes the item pickable again; if the DELETE answers after the re-link POST, its returned item (without the day) overwrites the newer state until the next load.
+evidence: Needs per-item request sequencing like the packing page's tick sequencing; rare (remove then re-add within one request round-trip).
+status: open
+
+## Deferred from: code review of 16-6-my-part-of-the-list (2026-11-08)
+
+### DW-440: Restored packing category chip can sit off-screen in the scrolling chip row
+
+source_spec: `_bmad-output/implementation-artifacts/16-6-my-part-of-the-list.md`
+origin: bmad-code-review of 16-6, 2026-11-08
+location: `travelplan/src/components/features/trips/TripPackingList.tsx` (category chip row, `packing-category-chips`)
+severity: low
+summary: The chip row scrolls horizontally (`overflowX: auto`, nowrap); a restored selection whose chip is near the end of the row is not scrolled into view, so on a phone the list looks filtered with no visible selected chip.
+evidence: No `scrollIntoView` for the selected chip and no edge fade; enhancement beyond AC 1–5.
+status: open
+
+### DW-441: Per-trip packing category selections are never removed from localStorage
+
+source_spec: `_bmad-output/implementation-artifacts/16-6-my-part-of-the-list.md`
+origin: bmad-code-review of 16-6, 2026-11-08
+location: `travelplan/src/components/features/trips/TripPackingList.tsx` (`packingCategoryStorageKey`, `storeCategories`)
+severity: low
+summary: One `travelplan.packingList.categories.<tripId>` key per visited trip stays in the browser after the trip is deleted or access is lost; "All categories" writes `[]` rather than removing the key.
+evidence: Tiny per-viewer leftovers, no functional effect; a cleanup would need a list of the viewer's trips.
 status: open

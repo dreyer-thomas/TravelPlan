@@ -10,6 +10,8 @@ import type { SignedDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { emotionDeclarations, emotionDoubledSelectorDeclarations } from "./helpers/emotionStyles";
 import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
 import { renderWithProviders } from "./helpers/renderWithProviders";
+// Story 16.2: the day's take-along section fetches its own list; tested in tripDayPackingSection/tripDayViewPacking.
+vi.mock("@/components/features/trips/TripDayPackingSection", () => ({ default: () => null }));
 
 /**
  * Story 11.3 AC4, AC9, AC13 - the day view's half of *Nach oben* / *Nach unten*: which cards offer the

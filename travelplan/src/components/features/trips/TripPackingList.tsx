@@ -7,6 +7,7 @@ import {
   Box,
   Button,
   Checkbox,
+  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -25,11 +26,14 @@ import { useI18n } from "@/i18n/provider";
 import AiBadge from "@/components/ui/AiBadge";
 import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
 import { CheckIcon, PencilIcon } from "@/components/features/trips/TripIcons";
+import { formatShortDate } from "@/lib/trips/formatShortDate";
 import { canTripAccessRoleWrite, type TripAccessRole } from "@/lib/auth/tripAccessRole";
 import {
   groupPackingItems,
+  normalizePackingCategory,
   PACKING_CATEGORY_MAX,
   PACKING_ITEM_NAME_MAX,
+  resolvePackingCategorySelection,
   suggestedPackingCategories,
 } from "@/lib/trips/packingList";
 
@@ -53,6 +57,8 @@ export type PackingItemWire = {
   category: string | null;
   packed: boolean;
   dayCount: number;
+  /** Story 16.2. The linked days, ascending by `dayIndex`; `date` is the stored UTC-midnight ISO string. */
+  days: { id: string; dayIndex: number; date: string }[];
   aiChangedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -79,6 +85,35 @@ const storeFilter = (filter: Filter) => {
   }
 };
 
+/**
+ * Story 16.6. The viewer's category selection, remembered per browser and per trip (each trip has its own
+ * categories): a JSON array of group keys, `null` standing for the "Other" group. Guarded like the filter.
+ */
+export const packingCategoryStorageKey = (tripId: string) => `travelplan.packingList.categories.${tripId}`;
+
+const readStoredCategories = (tripId: string): (string | null)[] => {
+  try {
+    const raw = window.localStorage.getItem(packingCategoryStorageKey(tripId));
+    if (raw === null) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is string | null => entry === null || typeof entry === "string");
+  } catch {
+    return [];
+  }
+};
+
+const storeCategories = (tripId: string, keys: readonly (string | null)[]) => {
+  try {
+    window.localStorage.setItem(packingCategoryStorageKey(tripId), JSON.stringify(keys));
+  } catch {
+    // Private mode or blocked storage: the choice simply is not remembered.
+  }
+};
+
+/** The group key an item falls under: the same folding as `groupPackingItems`. */
+const packingGroupKey = (category: string | null) => normalizePackingCategory(category)?.toLowerCase() ?? null;
+
 const prefersReducedMotion = () => {
   try {
     return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -89,6 +124,51 @@ const prefersReducedMotion = () => {
 
 const HIGHLIGHT_MS = 2000;
 const TOUCH_TARGET_PX = 44;
+
+/** The packing API's error codes as messages; shared by this page and the day section (Story 16.2). */
+export const packingApiErrorMessage = (t: (key: string) => string, code?: string) => {
+  switch (code) {
+    case "unauthorized":
+      return t("errors.unauthorized");
+    case "csrf_invalid":
+      return t("errors.csrfInvalid");
+    case "server_error":
+      return t("errors.server");
+    case "invalid_json":
+      return t("errors.invalidJson");
+    case "forbidden":
+      return t("trips.packingList.forbidden");
+    case "duplicate_name":
+      return t("trips.packingList.duplicateName");
+    default:
+      return t("trips.packingList.saveError");
+  }
+};
+
+/**
+ * The category suggestions of the add and edit fields: the defaults in the UI language plus the trip's
+ * own categories. Shared with the day section (Story 16.2), so both offer the same list.
+ */
+export const usePackingCategoryOptions = (items: readonly Pick<PackingItemWire, "category">[]) => {
+  const { t, language } = useI18n();
+  const locale = INTL_LOCALES[language];
+  return useMemo(
+    () =>
+      suggestedPackingCategories(
+        [
+          t("trips.packingList.suggest.clothing"),
+          t("trips.packingList.suggest.electronics"),
+          t("trips.packingList.suggest.toiletries"),
+          t("trips.packingList.suggest.documents"),
+          t("trips.packingList.suggest.medication"),
+          t("trips.packingList.other"),
+        ],
+        items.map((item) => item.category),
+        locale,
+      ),
+    [items, locale, t],
+  );
+};
 
 type TripPackingListProps = {
   tripId: string;
@@ -106,6 +186,12 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
   const [accessRole, setAccessRole] = useState<TripAccessRole | null>(null);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
+  // Story 16.6. What the viewer chose (may hold vanished categories, kept so they apply again if they come
+  // back) and the items shown outside the selection for now (added or recategorized there; session only).
+  const [storedSelection, setStoredSelection] = useState<(string | null)[]>([]);
+  const [revealedIds, setRevealedIds] = useState<ReadonlySet<string>>(() => new Set());
+  // The trip whose remembered selection was last restored (reveals reset, add form prefilled).
+  const restoredForTrip = useRef<string | null>(null);
 
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
@@ -133,27 +219,7 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
 
   const canEdit = canTripAccessRoleWrite(accessRole);
 
-  const resolveApiError = useCallback(
-    (code?: string) => {
-      switch (code) {
-        case "unauthorized":
-          return t("errors.unauthorized");
-        case "csrf_invalid":
-          return t("errors.csrfInvalid");
-        case "server_error":
-          return t("errors.server");
-        case "invalid_json":
-          return t("errors.invalidJson");
-        case "forbidden":
-          return t("trips.packingList.forbidden");
-        case "duplicate_name":
-          return t("trips.packingList.duplicateName");
-        default:
-          return t("trips.packingList.saveError");
-      }
-    },
-    [t],
-  );
+  const resolveApiError = useCallback((code?: string) => packingApiErrorMessage(t, code), [t]);
 
   useEffect(() => {
     let active = true;
@@ -176,6 +242,27 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
           // The remembered filter is read here, after mount and never during render, so the server HTML
           // and the first client render agree (the list is only shown once this has run).
           setFilter(readStoredFilter());
+          const stored = readStoredCategories(tripId);
+          setStoredSelection(stored);
+          // The effect also re-runs on a language switch (`t`); the reveals and the prefill belong to the
+          // trip's first load only, so a reload never drops a reveal or overwrites what the person typed.
+          if (restoredForTrip.current !== tripId) {
+            restoredForTrip.current = tripId;
+            setRevealedIds(new Set());
+            // Prefill here and in the chip handlers, never in an effect over the selection: an effect
+            // would overwrite what the person typed whenever the list changes. The group is looked up by
+            // key, and a real category's label is its first spelling met, so neither the locale (it only
+            // affects the order) nor the "Other" label (Other prefills empty) matters here.
+            const loadedGroups = groupPackingItems(body.data.items, "", "en");
+            const restored = resolvePackingCategorySelection(
+              stored,
+              loadedGroups.map((group) => group.key),
+            );
+            if (restored.length === 1) {
+              const only = loadedGroups.find((group) => group.key === restored[0]);
+              setCategory(only && only.key !== null ? only.label : "");
+            }
+          }
         }
       } catch {
         if (active) setLoadError(t("trips.packingList.loadError"));
@@ -234,32 +321,59 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
       return next;
     });
 
-  const categoryOptions = useMemo(
-    () =>
-      suggestedPackingCategories(
-        [
-          t("trips.packingList.suggest.clothing"),
-          t("trips.packingList.suggest.electronics"),
-          t("trips.packingList.suggest.toiletries"),
-          t("trips.packingList.suggest.documents"),
-          t("trips.packingList.suggest.medication"),
-          t("trips.packingList.other"),
-        ],
-        items.map((item) => item.category),
-        locale,
-      ),
-    [items, locale, t],
-  );
+  const categoryOptions = usePackingCategoryOptions(items);
 
   const groups = useMemo(() => groupPackingItems(items, t("trips.packingList.other"), locale), [items, locale, t]);
   const packedCount = items.filter((item) => item.packed).length;
+  const selection = useMemo(
+    () => resolvePackingCategorySelection(storedSelection, groups.map((group) => group.key)),
+    [groups, storedSelection],
+  );
+  const selectedGroups = groups.filter((group) => selection.includes(group.key));
   const visibleGroups = groups
-    .map((group) => ({ ...group, visible: filter === "open" ? group.items.filter((item) => !item.packed) : group.items }))
+    .map((group) => {
+      const inSelection =
+        selection.length === 0 || selection.includes(group.key)
+          ? group.items
+          : group.items.filter((item) => revealedIds.has(item.id));
+      return { ...group, visible: filter === "open" ? inSelection.filter((item) => !item.packed) : inSelection };
+    })
     .filter((group) => group.visible.length > 0);
 
   const changeFilter = (next: Filter) => {
     setFilter(next);
     storeFilter(next);
+  };
+
+  /** Story 16.6. Stores a chip change, ends any reveal, and prefills the add form for a single category. */
+  const changeSelection = (next: (string | null)[]) => {
+    setStoredSelection(next);
+    storeCategories(tripId, next);
+    setRevealedIds(new Set());
+    if (next.length === 1) {
+      const only = groups.find((group) => group.key === next[0]);
+      setCategory(only && only.key !== null ? only.label : "");
+    }
+  };
+
+  const toggleCategory = (key: string | null) =>
+    changeSelection(
+      selection.includes(key)
+        ? selection.filter((entry) => entry !== key)
+        : groups.map((group) => group.key).filter((entry) => entry === key || selection.includes(entry)),
+    );
+
+  /**
+   * Keeps an item that landed outside the selection visible for now, without touching the stored choice.
+   * Decided against the stored choice, not the effective one: the save itself can change the groups (a
+   * second group makes a dormant stored choice apply again), so the effective selection from before the
+   * request is stale. A reveal while nothing is filtered is harmless.
+   */
+  const revealIfOutsideSelection = (item: PackingItemWire) => {
+    if (storedSelection.length === 0) return;
+    const wanted = storedSelection.map((key) => (key === null ? null : key.toLowerCase()));
+    if (wanted.includes(packingGroupKey(item.category))) return;
+    setRevealedIds((current) => new Set(current).add(item.id));
   };
 
   const handleAdd = async (event: FormEvent) => {
@@ -282,6 +396,7 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
       setName("");
       // Upsert in both cases: an "existed" item may have been added by someone else after this page loaded.
       upsertItem(item);
+      revealIfOutsideSelection(item);
       if (existed) {
         // Show the hidden packed item for now, without overwriting the viewer's remembered filter.
         if (item.packed && filter === "open") setFilter("all");
@@ -316,6 +431,8 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
         return;
       }
       upsertItem(body.data.item);
+      // Someone else may have moved the item out of the selection meanwhile; keep the tapped row visible.
+      revealIfOutsideSelection(body.data.item);
     } catch {
       if (!isLatest()) return;
       setPacked(item.id, item.packed);
@@ -352,6 +469,7 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
         return;
       }
       upsertItem(body.data.item);
+      revealIfOutsideSelection(body.data.item);
       setEditTarget(null);
     } catch {
       setEditError(t("trips.packingList.saveError"));
@@ -360,15 +478,32 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
     }
   };
 
-  /** Deletes; answers whether it worked, so the caller decides which dialog shows the error. */
-  const deleteItem = async (item: PackingItemWire): Promise<string | null> => {
+  /**
+   * Deletes with the day count the person confirmed (0 when no confirmation was shown). Answers `null`
+   * when it worked, the fresh item when the server says the day links changed meanwhile (Story 16.2,
+   * DW-432 - the caller then asks with the fresh count), or the error text.
+   */
+  const deleteItem = async (
+    item: PackingItemWire,
+  ): Promise<{ error: string } | { daysChanged: PackingItemWire } | null> => {
     try {
-      const { response, body } = await send<{ deleted: boolean }>("DELETE", { itemId: item.id });
-      if (!response.ok || body.error) return resolveApiError(body.error?.code);
+      const { response, body } = await send<{ deleted: boolean }>("DELETE", {
+        itemId: item.id,
+        confirmedDayCount: item.dayCount,
+      });
+      if (response.status === 409 && body.error?.code === "days_changed") {
+        const details = body.error.details as { dayCount?: unknown } | undefined;
+        const dayCount = typeof details?.dayCount === "number" ? details.dayCount : item.dayCount;
+        // Only the count is fresh; the linked days line catches up on the next load.
+        const fresh = { ...item, dayCount };
+        setItems((current) => current.map((entry) => (entry.id === item.id ? { ...entry, dayCount } : entry)));
+        return { daysChanged: fresh };
+      }
+      if (!response.ok || body.error) return { error: resolveApiError(body.error?.code) };
       setItems((current) => current.filter((entry) => entry.id !== item.id));
       return null;
     } catch {
-      return t("trips.packingList.saveError");
+      return { error: t("trips.packingList.saveError") };
     }
   };
 
@@ -380,24 +515,32 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
       return;
     }
     setEditBusy(true);
-    const error = await deleteItem(editTarget);
+    const result = await deleteItem(editTarget);
     setEditBusy(false);
-    if (error) setEditError(error);
-    else setEditTarget(null);
+    if (result === null) setEditTarget(null);
+    else if ("error" in result) setEditError(result.error);
+    else {
+      // Linked to a day since the page loaded: ask with the fresh count.
+      setDeleteError(null);
+      setDeleteTarget(result.daysChanged);
+    }
   };
 
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
     setDeleteBusy(true);
     setDeleteError(null);
-    const error = await deleteItem(deleteTarget);
+    const result = await deleteItem(deleteTarget);
     setDeleteBusy(false);
-    if (error) {
-      setDeleteError(error);
-      return;
+    if (result === null) {
+      setDeleteTarget(null);
+      setEditTarget(null);
+    } else if ("error" in result) {
+      setDeleteError(result.error);
+    } else {
+      // The confirmation text now shows the fresh count; the next confirm sends it.
+      setDeleteTarget(result.daysChanged);
     }
-    setDeleteTarget(null);
-    setEditTarget(null);
   };
 
   const cardSx = {
@@ -458,6 +601,14 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
           {!loadError && (
             <Typography variant="body2" sx={{ color: tokens.inkSoft }} data-testid="packing-progress">
               {formatMessage(t("trips.packingList.progress"), { packed: packedCount, total: items.length })}
+            </Typography>
+          )}
+          {!loadError && selection.length > 0 && (
+            <Typography variant="body2" sx={{ color: tokens.inkSoft }} data-testid="packing-selection-progress">
+              {formatMessage(t("trips.packingList.selectionProgress"), {
+                packed: selectedGroups.reduce((sum, group) => sum + group.packed, 0),
+                total: selectedGroups.reduce((sum, group) => sum + group.total, 0),
+              })}
             </Typography>
           )}
         </Box>
@@ -536,6 +687,50 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
           </ToggleButtonGroup>
         )}
 
+        {/* Story 16.6: one chip per group, same order and labels as the list; scrolls instead of wrapping. */}
+        {!loadError && groups.length >= 2 && (
+          <Box
+            role="group"
+            aria-label={t("trips.packingList.categoryFilterLabel")}
+            data-testid="packing-category-chips"
+            sx={{
+              display: "flex",
+              flexWrap: "nowrap",
+              gap: 1,
+              overflowX: "auto",
+              minWidth: 0,
+              maxWidth: "100%",
+              pb: 0.5,
+            }}
+          >
+            {[
+              { reactKey: "all", label: t("trips.packingList.allCategories"), selected: selection.length === 0, onClick: () => changeSelection([]) },
+              ...groups.map((group) => ({
+                reactKey: group.key === null ? "none" : `category:${group.key}`,
+                label: group.label,
+                selected: selection.includes(group.key),
+                onClick: () => toggleCategory(group.key),
+              })),
+            ].map((chip) => (
+              <Chip
+                key={chip.reactKey}
+                label={chip.label}
+                clickable
+                onClick={chip.onClick}
+                aria-pressed={chip.selected}
+                variant={chip.selected ? "filled" : "outlined"}
+                color={chip.selected ? "primary" : "default"}
+                sx={{
+                  height: TOUCH_TARGET_PX,
+                  flex: "0 0 auto",
+                  borderRadius: "22px",
+                  "& .MuiChip-label": { whiteSpace: "nowrap" },
+                }}
+              />
+            ))}
+          </Box>
+        )}
+
         {!loadError && items.length === 0 && (
           <Typography variant="body2" sx={{ color: tokens.inkSoft }} data-testid="packing-empty">
             {t("trips.packingList.empty")}
@@ -544,7 +739,7 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
 
         {!loadError && items.length > 0 && visibleGroups.length === 0 && (
           <Typography variant="body2" sx={{ color: tokens.inkSoft }}>
-            {t("trips.packingList.allPacked")}
+            {selection.length > 0 ? t("trips.packingList.allPackedSelection") : t("trips.packingList.allPacked")}
           </Typography>
         )}
 
@@ -618,18 +813,31 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
                         )}
                       </Box>
                     )}
-                    <Typography
-                      variant="body1"
-                      sx={{
-                        flex: "1 1 auto",
-                        minWidth: 0,
-                        overflowWrap: "anywhere",
-                        color: item.packed ? tokens.inkSoft : tokens.ink,
-                        textDecoration: item.packed ? "line-through" : "none",
-                      }}
-                    >
-                      {item.name}
-                    </Typography>
+                    <Box sx={{ flex: "1 1 auto", minWidth: 0 }}>
+                      <Typography
+                        variant="body1"
+                        sx={{
+                          overflowWrap: "anywhere",
+                          color: item.packed ? tokens.inkSoft : tokens.ink,
+                          textDecoration: item.packed ? "line-through" : "none",
+                        }}
+                      >
+                        {item.name}
+                      </Typography>
+                      {/* Story 16.2: the days the item is linked to, as short dates (UTC, ascending). */}
+                      {item.days.length > 0 && (
+                        <Typography
+                          variant="body2"
+                          sx={{ color: tokens.inkSoft, overflowWrap: "anywhere" }}
+                          data-testid="packing-row-days"
+                        >
+                          {item.days
+                            .map((day) => formatShortDate(day.date, language))
+                            .filter((label): label is string => label !== null)
+                            .join(" · ")}
+                        </Typography>
+                      )}
+                    </Box>
                     {item.aiChangedAt && <AiBadge />}
                     {canEdit && (
                       <IconButton

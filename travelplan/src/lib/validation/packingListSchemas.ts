@@ -50,6 +50,27 @@ export const packingItemUpdateSchema = z
 
 export type PackingItemUpdateInput = z.infer<typeof packingItemUpdateSchema>;
 
-export const packingItemDeleteSchema = z.object({ itemId: itemIdField }).strict();
+// Story 16.2 (DW-432): the day count the person confirmed; a stale one is refused with the fresh count.
+export const packingItemDeleteSchema = z
+  .object({ itemId: itemIdField, confirmedDayCount: z.number().int().min(0).optional() })
+  .strict();
 
 export type PackingItemDeleteInput = z.infer<typeof packingItemDeleteSchema>;
+
+const tripDayIdField = z.string().trim().min(1, "Trip day is required");
+
+/**
+ * Story 16.2 (FR59). Adds to a day either an item of the trip (`itemId`) or a name (`name`, with an
+ * optional category for a new item); the server resolves an existing name to its item. Exactly one of
+ * the two shapes - both or neither is a 400.
+ */
+export const packingDayLinkCreateSchema = z.union([
+  z.object({ tripDayId: tripDayIdField, itemId: itemIdField }).strict(),
+  z.object({ tripDayId: tripDayIdField, name: nameField, category: categoryField.optional() }).strict(),
+]);
+
+export type PackingDayLinkCreateInput = z.infer<typeof packingDayLinkCreateSchema>;
+
+export const packingDayLinkDeleteSchema = z.object({ tripDayId: tripDayIdField, itemId: itemIdField }).strict();
+
+export type PackingDayLinkDeleteInput = z.infer<typeof packingDayLinkDeleteSchema>;

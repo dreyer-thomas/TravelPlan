@@ -61,6 +61,7 @@ import TripDayMapPanel, {
   type TripDayMapPoint,
 } from "@/components/features/trips/TripDayMapPanel";
 import TripDayBucketListPanel from "@/components/features/trips/TripDayBucketListPanel";
+import TripDayPackingSection from "@/components/features/trips/TripDayPackingSection";
 import { toBucketDialogItem, type BucketListItem } from "@/lib/trips/bucketListItem";
 import TripDayPlanDialog from "@/components/features/trips/TripDayPlanDialog";
 import TripDayTravelSegmentDialog from "@/components/features/trips/TripDayTravelSegmentDialog";
@@ -4962,6 +4963,18 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                 minWidth: 0,
               }}
             >
+              <TripDayMapPanel
+                loading={loading}
+                /* DW-56: the load-scoped flag, not `error` - see its declaration. */
+                loadError={loadFailed}
+                points={mapData.points}
+                missingLocations={mapData.missingLocations}
+                polylinePositions={routePolyline.length >= 2 ? routePolyline : mapData.points.map((point) => point.position)}
+                routingUnavailable={routingUnavailable}
+                expandHref={day ? `/trips/${tripId}/days/${day.id}/map` : undefined}
+                onExpandClick={handleMapExpand}
+                onMarkerClick={handleMapMarkerClick}
+              />
               <Box sx={cardSx}>
                 <Typography variant="labelCaps" component="h6" sx={{ color: tokens.inkSoft, display: "block", mb: 1.25 }}>
                   {t("trips.dayView.costCardTitle")}
@@ -5038,18 +5051,11 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                 )}
               </Box>
 
-              <TripDayMapPanel
-                loading={loading}
-                /* DW-56: the load-scoped flag, not `error` - see its declaration. */
-                loadError={loadFailed}
-                points={mapData.points}
-                missingLocations={mapData.missingLocations}
-                polylinePositions={routePolyline.length >= 2 ? routePolyline : mapData.points.map((point) => point.position)}
-                routingUnavailable={routingUnavailable}
-                expandHref={day ? `/trips/${tripId}/days/${day.id}/map` : undefined}
-                onExpandClick={handleMapExpand}
-                onMarkerClick={handleMapMarkerClick}
-              />
+              {/* Story 16.2: what the day needs. Order of the side column per Tommy (2026-11-08): map,
+                  costs, take-along, bucket list. Outside the `canEditPlanning` guard: viewers see a
+                  day's list (the section renders nothing for them on an empty day). It loads the trip's
+                  packing list itself. */}
+              <TripDayPackingSection tripId={tripId} dayId={day.id} canEdit={canEditPlanning} />
               {/* Story 5.13: `canEditPlanning`, not `isOwner` - the bucket-list route and the schedule
                   route behind this panel (Story 14.1) are both owner-or-contributor. A viewer still
                   sees nothing, which matches the routes that would refuse them. */}

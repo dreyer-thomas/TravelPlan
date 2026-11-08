@@ -8,6 +8,8 @@ import en from "@/i18n/en";
 import { formatMessage } from "@/i18n";
 import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
 import { renderWithProviders } from "./helpers/renderWithProviders";
+// Story 16.2: the day's take-along section fetches its own list; tested in tripDayPackingSection/tripDayViewPacking.
+vi.mock("@/components/features/trips/TripDayPackingSection", () => ({ default: () => null }));
 
 /**
  * Story 8.5, AC4/AC5/AC6 — the consequence half of the four ledger entries this story closes.

@@ -8,6 +8,8 @@ import en from "@/i18n/en";
 import type { SignedDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
 import { Providers, renderWithProviders } from "./helpers/renderWithProviders";
+// Story 16.2: the day's take-along section fetches its own list; tested in tripDayPackingSection/tripDayViewPacking.
+vi.mock("@/components/features/trips/TripDayPackingSection", () => ({ default: () => null }));
 
 /**
  * Story 11.1 AC3–AC8 — the day view's half of the change receipt: the `action-notice` appears after a

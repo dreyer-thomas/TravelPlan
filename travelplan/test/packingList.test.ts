@@ -4,6 +4,7 @@ import {
   normalizePackingCategory,
   normalizePackingName,
   packingNameKey,
+  resolvePackingCategorySelection,
   suggestedPackingCategories,
 } from "@/lib/trips/packingList";
 
@@ -91,5 +92,32 @@ describe("packing list write schemas (Story 16.1 review)", () => {
     expect(packingItemCreateSchema.safeParse({ name: "x", category: "क़".repeat(40) }).success).toBe(false);
     const parsed = packingItemCreateSchema.parse({ name: "  Café  ", category: "  Technik " });
     expect(parsed).toEqual({ name: "Café", category: "Technik" });
+  });
+});
+
+describe("packing category selection (Story 16.6)", () => {
+  const keys = ["electronics", "kleidung", "toiletries", null];
+
+  it("keeps the stored keys that exist, in group order", () => {
+    expect(resolvePackingCategorySelection(["toiletries", "electronics"], keys)).toEqual(["electronics", "toiletries"]);
+  });
+
+  it("drops a vanished key, and answers [] when all vanished", () => {
+    expect(resolvePackingCategorySelection(["kleidung", "gone"], keys)).toEqual(["kleidung"]);
+    expect(resolvePackingCategorySelection(["gone"], keys)).toEqual([]);
+  });
+
+  it("keeps the Other group (null) when it exists", () => {
+    expect(resolvePackingCategorySelection([null], keys)).toEqual([null]);
+    expect(resolvePackingCategorySelection([null], ["electronics", "kleidung"])).toEqual([]);
+  });
+
+  it("collapses duplicates and matches ignoring case", () => {
+    expect(resolvePackingCategorySelection(["Kleidung", "kleidung", "KLEIDUNG"], keys)).toEqual(["kleidung"]);
+  });
+
+  it("answers [] with fewer than two groups", () => {
+    expect(resolvePackingCategorySelection(["kleidung"], ["kleidung"])).toEqual([]);
+    expect(resolvePackingCategorySelection([null], [])).toEqual([]);
   });
 });

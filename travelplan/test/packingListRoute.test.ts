@@ -18,6 +18,7 @@ type WireItem = {
   category: string | null;
   packed: boolean;
   dayCount: number;
+  days: { id: string; dayIndex: number; date: string }[];
   aiChangedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -210,5 +211,45 @@ describe("/api/trips/[id]/packing-items (Story 16.1)", () => {
 
     // 80 characters after trimming is still fine.
     expect((await write("POST", ctx.trip.id, ctx.owner, { name: `  ${"x".repeat(80)}  ` })).status).toBe(200);
+  });
+
+  it("carries the linked days with ISO dates in the wire (Story 16.2)", async () => {
+    const ctx = await setup();
+    const day2 = await prisma.tripDay.create({ data: { tripId: ctx.trip.id, dayIndex: 2, date: new Date("2026-12-02T00:00:00.000Z") } });
+    const day1 = await prisma.tripDay.create({ data: { tripId: ctx.trip.id, dayIndex: 1, date: new Date("2026-12-01T00:00:00.000Z") } });
+    const item = await prisma.packingItem.create({ data: { tripId: ctx.trip.id, name: "Pass", nameKey: "pass" } });
+    await prisma.packingItemDay.createMany({
+      data: [
+        { packingItemId: item.id, tripDayId: day2.id },
+        { packingItemId: item.id, tripDayId: day1.id },
+      ],
+    });
+
+    const response = await GET(buildRequest(url(ctx.trip.id), { session: ctx.viewer }), routeContext(ctx.trip.id));
+    const payload = (await response.json()) as ApiEnvelope<{ items: WireItem[] }>;
+    expect(payload.data!.items[0].days).toEqual([
+      { id: day1.id, dayIndex: 1, date: "2026-12-01T00:00:00.000Z" },
+      { id: day2.id, dayIndex: 2, date: "2026-12-02T00:00:00.000Z" },
+    ]);
+  });
+
+  it("answers 409 days_changed with the fresh count when the confirmed day count is stale (Story 16.2, DW-432)", async () => {
+    const ctx = await setup();
+    const day = await prisma.tripDay.create({ data: { tripId: ctx.trip.id, dayIndex: 1, date: new Date("2026-12-01T00:00:00.000Z") } });
+    const item = await prisma.packingItem.create({ data: { tripId: ctx.trip.id, name: "Pass", nameKey: "pass" } });
+    await prisma.packingItemDay.create({ data: { packingItemId: item.id, tripDayId: day.id } });
+
+    const stale = await write("DELETE", ctx.trip.id, ctx.owner, { itemId: item.id, confirmedDayCount: 0 });
+    const stalePayload = (await stale.json()) as ApiEnvelope<unknown>;
+    expect(stale.status).toBe(409);
+    expect(stalePayload.error).toMatchObject({ code: "days_changed", details: { dayCount: 1 } });
+    expect(await prisma.packingItem.count()).toBe(1);
+
+    const confirmed = await write("DELETE", ctx.trip.id, ctx.owner, { itemId: item.id, confirmedDayCount: 1 });
+    expect(confirmed.status).toBe(200);
+    expect(await prisma.packingItem.count()).toBe(0);
+    expect(await prisma.packingItemDay.count()).toBe(0);
+
+    expect((await write("DELETE", ctx.trip.id, ctx.owner, { itemId: item.id, confirmedDayCount: -1 })).status).toBe(400);
   });
 });

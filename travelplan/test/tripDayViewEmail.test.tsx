@@ -7,6 +7,8 @@ import TripDayView from "@/components/features/trips/TripDayView";
 import en from "@/i18n/en";
 import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
 import { renderWithProviders } from "./helpers/renderWithProviders";
+// Story 16.2: the day's take-along section fetches its own list; tested in tripDayPackingSection/tripDayViewPacking.
+vi.mock("@/components/features/trips/TripDayPackingSection", () => ({ default: () => null }));
 
 /**
  * Story 9.3 AC1, AC2, AC12, AC14, AC15 - the day ⋯ menu's *Send by email*. The harness follows

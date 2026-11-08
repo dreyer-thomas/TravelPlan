@@ -118,3 +118,19 @@ export const suggestedPackingCategories = (
   extra.sort((left, right) => collator.compare(left, right));
   return [...result, ...extra];
 };
+
+/**
+ * Story 16.6. The effective category selection of the packing list's filter: the stored group keys that
+ * exist among `groupKeys` (the keys of `groupPackingItems`), in group order, without duplicates. A stored
+ * key is lower-cased again before matching, so a hand-edited or older value is harmless. With fewer than
+ * two groups there are no chips and therefore no filter: always `[]`. A vanished key is only ignored
+ * here, never erased — the caller keeps the stored choice so it applies again if the category comes back.
+ */
+export const resolvePackingCategorySelection = (
+  stored: readonly (string | null)[],
+  groupKeys: readonly (string | null)[],
+): (string | null)[] => {
+  if (groupKeys.length < 2) return [];
+  const wanted = new Set(stored.map((key) => (key === null ? null : key.toLowerCase())));
+  return groupKeys.filter((key) => wanted.has(key));
+};

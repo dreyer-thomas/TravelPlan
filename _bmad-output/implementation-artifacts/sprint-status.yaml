@@ -1,5 +1,13 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-11-08 (16-1-the-trips-packing-list -> done via bmad-code-review; 8 patches applied, 6 deferred DW-432..437, full suite 265 files / 4220 tests green)
+# last_updated: 2026-11-08 (16-6-my-part-of-the-list -> done via bmad-code-review; 5 patches applied, 2 deferred (DW-440, DW-441), full suite 268 files / 4293 tests green, typecheck/lint(0 errors)/build pass)
+# previously: 2026-11-08 (16-6-my-part-of-the-list -> review via bmad-dev-story; all 7 tasks done, full suite 268 files / 4289 tests green, typecheck/lint(0 errors)/build pass)
+# previously: 2026-11-08 (16-6-my-part-of-the-list -> in-progress via bmad-dev-story)
+# previously: 2026-11-08 (16-6-my-part-of-the-list -> ready-for-dev via bmad-create-story)
+# previously: 2026-11-08 (16-6-my-part-of-the-list added to backlog by PM: category filter on the trip packing list, sequenced after 16-2 and before 16-3; FR58 amended, epics.md Story 16.6)
+# previously: 2026-11-08 (16-2-what-the-day-needs -> done via bmad-code-review; 6 patches applied, 2 deferred (DW-438, DW-439), full suite 268 files / 4265 tests green, typecheck/lint(0 errors)/build pass)
+# previously: 2026-11-08 (16-2-what-the-day-needs -> in-progress via bmad-dev-story)
+# previously: 2026-11-08 (16-2-what-the-day-needs -> ready-for-dev via bmad-create-story)
+# previously: 2026-11-08 (16-1-the-trips-packing-list -> done via bmad-code-review; 8 patches applied, 6 deferred DW-432..437, full suite 265 files / 4220 tests green)
 # previously: 2026-11-08 (16-1-the-trips-packing-list -> review via bmad-dev-story; all 12 tasks done, full suite 265 files / 4217 tests green, typecheck/lint(0 errors)/build pass)
 # previously: 2026-11-08 (16-1-the-trips-packing-list -> in-progress via bmad-dev-story)
 # previously: 2026-11-08 (16-1-the-trips-packing-list -> ready-for-dev via bmad-create-story; epic-16 -> in-progress)
@@ -393,7 +401,8 @@ development_status:
 
   epic-16: in-progress
   16-1-the-trips-packing-list: done
-  16-2-what-the-day-needs: backlog
+  16-2-what-the-day-needs: done
+  16-6-my-part-of-the-list: done
   16-3-take-along-in-the-day-email: backlog
   16-4-the-packing-list-through-the-connector: backlog
   16-5-copy-from-another-trip: backlog

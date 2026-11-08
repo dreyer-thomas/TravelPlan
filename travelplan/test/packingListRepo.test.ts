@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db/prisma";
 import {
+  addPackingItemToDay,
   createPackingItem,
   deletePackingItem,
+  linkPackingItemToDay,
   listPackingItemsForTrip,
+  unlinkPackingItemFromDay,
   updatePackingItem,
 } from "@/lib/repositories/packingListRepo";
+import { updateTripWithDays } from "@/lib/repositories/tripRepo";
 
 /** Story 16.1 (FR58). The packing list repository: writes, duplicates, categories, access. */
 
@@ -250,5 +254,246 @@ describe("packingListRepo (Story 16.1)", () => {
     await add(owner.id, trip.id, "Mütze");
     const listed = await listPackingItemsForTrip({ userId: owner.id, tripId: trip.id });
     expect(listed?.items.map((entry) => entry.name)).toEqual(["adapter", "Mütze", "Zelt"]);
+  });
+});
+
+describe("packingListRepo day links (Story 16.2)", () => {
+  beforeEach(async () => {
+    await prisma.packingItem.deleteMany();
+    await prisma.tripDay.deleteMany();
+    await prisma.tripMember.deleteMany();
+    await prisma.trip.deleteMany();
+    await prisma.user.deleteMany();
+  });
+
+  const linkRows = (itemId: string) =>
+    prisma.packingItemDay.findMany({ where: { packingItemId: itemId }, select: { tripDayId: true } });
+
+  it("links an existing item, bumping updatedAt and clearing the AI marker", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day1] = await createDays(trip.id, 1);
+    const seeded = await prisma.packingItem.create({
+      data: {
+        tripId: trip.id,
+        name: "Pass",
+        nameKey: "pass",
+        aiChangedAt: new Date("2026-11-01T10:00:00.000Z"),
+        updatedAt: new Date("2026-11-01T10:00:00.000Z"),
+      },
+    });
+
+    const result = await linkPackingItemToDay({ userId: owner.id, tripId: trip.id, tripDayId: day1.id, itemId: seeded.id, origin: "user" });
+
+    expect(result.status).toBe("linked");
+    if (result.status !== "linked") throw new Error("unreachable");
+    expect(result.item).toMatchObject({ id: seeded.id, dayCount: 1, aiChangedAt: null });
+    expect(result.item.days).toEqual([{ id: day1.id, dayIndex: 1, date: day1.date }]);
+    expect(result.item.updatedAt.getTime()).toBeGreaterThan(new Date("2026-11-01T10:00:00.000Z").getTime());
+    expect(await linkRows(seeded.id)).toEqual([{ tripDayId: day1.id }]);
+  });
+
+  it("treats a re-link as a no-op: no second row, updatedAt unchanged", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day1] = await createDays(trip.id, 1);
+    const item = await add(owner.id, trip.id, "Pass");
+    const first = await linkPackingItemToDay({ userId: owner.id, tripId: trip.id, tripDayId: day1.id, itemId: item.item.id, origin: "user" });
+    if (first.status !== "linked") throw new Error("unexpected");
+
+    const again = await linkPackingItemToDay({ userId: owner.id, tripId: trip.id, tripDayId: day1.id, itemId: item.item.id, origin: "user" });
+
+    expect(again.status).toBe("linked");
+    if (again.status !== "linked") throw new Error("unreachable");
+    expect(again.item.updatedAt).toEqual(first.item.updatedAt);
+    expect(again.item.dayCount).toBe(1);
+    expect(await prisma.packingItemDay.count()).toBe(1);
+  });
+
+  it("adds a new item from the day: unpacked, linked", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day1] = await createDays(trip.id, 1);
+    await add(owner.id, trip.id, "Ladekabel", "Technik");
+
+    const result = await addPackingItemToDay({
+      userId: owner.id,
+      tripId: trip.id,
+      tripDayId: day1.id,
+      name: " Adapter ",
+      category: "technik",
+      origin: "user",
+    });
+
+    expect(result).toMatchObject({ status: "created", item: { name: "Adapter", category: "Technik", packed: false, dayCount: 1 } });
+    if (result.status !== "created") throw new Error("unreachable");
+    expect(result.item.days.map((day) => day.id)).toEqual([day1.id]);
+  });
+
+  it("adds an existing name (other case, spaces) by linking the existing item, unchanged", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day1] = await createDays(trip.id, 1);
+    const existing = await add(owner.id, trip.id, "Taucherbrille", "Sport");
+    await updatePackingItem({ userId: owner.id, tripId: trip.id, itemId: existing.item.id, packed: true, origin: "user" });
+
+    const result = await addPackingItemToDay({
+      userId: owner.id,
+      tripId: trip.id,
+      tripDayId: day1.id,
+      name: "  TAUCHERBRILLE ",
+      category: "Wasser",
+      origin: "user",
+    });
+
+    expect(result).toMatchObject({
+      status: "existed",
+      item: { id: existing.item.id, name: "Taucherbrille", category: "Sport", packed: true, dayCount: 1 },
+    });
+    expect(await prisma.packingItem.count({ where: { tripId: trip.id } })).toBe(1);
+  });
+
+  it("links an item to several days, sorted by day index", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day1, day2, day3] = await createDays(trip.id, 3);
+    const item = await add(owner.id, trip.id, "Pass");
+    for (const day of [day3, day1]) {
+      await linkPackingItemToDay({ userId: owner.id, tripId: trip.id, tripDayId: day.id, itemId: item.item.id, origin: "user" });
+    }
+
+    const listed = await listPackingItemsForTrip({ userId: owner.id, tripId: trip.id });
+    expect(listed?.items[0].dayCount).toBe(2);
+    expect(listed?.items[0].days.map((day) => day.id)).toEqual([day1.id, day3.id]);
+    expect(listed?.items[0].days.some((day) => day.id === day2.id)).toBe(false);
+  });
+
+  it("unlinks only this day's link, keeping the item and its other day", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day1, day2] = await createDays(trip.id, 2);
+    const item = await add(owner.id, trip.id, "Pass");
+    for (const day of [day1, day2]) {
+      await linkPackingItemToDay({ userId: owner.id, tripId: trip.id, tripDayId: day.id, itemId: item.item.id, origin: "user" });
+    }
+
+    const result = await unlinkPackingItemFromDay({ userId: owner.id, tripId: trip.id, tripDayId: day1.id, itemId: item.item.id, origin: "user" });
+
+    expect(result).toMatchObject({ status: "unlinked", item: { id: item.item.id, dayCount: 1 } });
+    expect(await linkRows(item.item.id)).toEqual([{ tripDayId: day2.id }]);
+    expect(await prisma.packingItem.count({ where: { id: item.item.id } })).toBe(1);
+  });
+
+  it("answers unlinked for a link already gone, without bumping the item", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day1] = await createDays(trip.id, 1);
+    const item = await add(owner.id, trip.id, "Pass");
+
+    const result = await unlinkPackingItemFromDay({ userId: owner.id, tripId: trip.id, tripDayId: day1.id, itemId: item.item.id, origin: "user" });
+
+    expect(result.status).toBe("unlinked");
+    if (result.status !== "unlinked") throw new Error("unreachable");
+    expect(result.item.updatedAt).toEqual(item.item.updatedAt);
+  });
+
+  it("refuses a day of another trip and an item of another trip, writing nothing", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const otherTrip = await createTrip(owner.id);
+    const [day1] = await createDays(trip.id, 1);
+    const [foreignDay] = await createDays(otherTrip.id, 1);
+    const item = await add(owner.id, trip.id, "Pass");
+    const foreignItem = await add(owner.id, otherTrip.id, "Pass");
+
+    expect(
+      await linkPackingItemToDay({ userId: owner.id, tripId: trip.id, tripDayId: foreignDay.id, itemId: item.item.id, origin: "user" }),
+    ).toEqual({ status: "day_missing" });
+    expect(
+      await linkPackingItemToDay({ userId: owner.id, tripId: trip.id, tripDayId: day1.id, itemId: foreignItem.item.id, origin: "user" }),
+    ).toEqual({ status: "missing" });
+    expect(
+      await addPackingItemToDay({ userId: owner.id, tripId: trip.id, tripDayId: foreignDay.id, name: "Mütze", origin: "user" }),
+    ).toEqual({ status: "day_missing" });
+    expect(
+      await unlinkPackingItemFromDay({ userId: owner.id, tripId: trip.id, tripDayId: day1.id, itemId: foreignItem.item.id, origin: "user" }),
+    ).toEqual({ status: "missing" });
+    expect(
+      await unlinkPackingItemFromDay({ userId: owner.id, tripId: trip.id, tripDayId: foreignDay.id, itemId: item.item.id, origin: "user" }),
+    ).toEqual({ status: "day_missing" });
+    expect(await prisma.packingItemDay.count()).toBe(0);
+    expect(await prisma.packingItem.count({ where: { tripId: trip.id } })).toBe(1);
+  });
+
+  it("refuses viewers and strangers on all three writes", async () => {
+    const owner = await createUser("owner");
+    const viewer = await createUser("viewer");
+    const stranger = await createUser("stranger");
+    const trip = await createTrip(owner.id);
+    await prisma.tripMember.create({ data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" } });
+    const [day1] = await createDays(trip.id, 1);
+    const item = await add(owner.id, trip.id, "Pass");
+
+    for (const userId of [viewer.id, stranger.id]) {
+      expect(await linkPackingItemToDay({ userId, tripId: trip.id, tripDayId: day1.id, itemId: item.item.id, origin: "user" })).toEqual({
+        status: "not_found",
+      });
+      expect(await addPackingItemToDay({ userId, tripId: trip.id, tripDayId: day1.id, name: "Mütze", origin: "user" })).toEqual({
+        status: "not_found",
+      });
+      expect(await unlinkPackingItemFromDay({ userId, tripId: trip.id, tripDayId: day1.id, itemId: item.item.id, origin: "user" })).toEqual({
+        status: "not_found",
+      });
+    }
+    expect(await prisma.packingItemDay.count()).toBe(0);
+    expect(await prisma.packingItem.count()).toBe(1);
+  });
+
+  it("refuses a delete whose confirmed day count is stale, deletes when it matches", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day1, day2] = await createDays(trip.id, 2);
+    const item = await add(owner.id, trip.id, "Pass");
+    const lonely = await add(owner.id, trip.id, "Mütze");
+    for (const day of [day1, day2]) {
+      await linkPackingItemToDay({ userId: owner.id, tripId: trip.id, tripDayId: day.id, itemId: item.item.id, origin: "user" });
+    }
+
+    expect(await deletePackingItem({ userId: owner.id, tripId: trip.id, itemId: item.item.id, confirmedDayCount: 0 })).toEqual({
+      status: "days_changed",
+      dayCount: 2,
+    });
+    expect(await prisma.packingItem.count({ where: { id: item.item.id } })).toBe(1);
+    expect(await prisma.packingItemDay.count()).toBe(2);
+
+    expect(await deletePackingItem({ userId: owner.id, tripId: trip.id, itemId: item.item.id, confirmedDayCount: 2 })).toEqual({
+      status: "deleted",
+    });
+    expect(await prisma.packingItemDay.count()).toBe(0);
+    // A confirmed count above the real one (links removed meanwhile, nothing left) still deletes.
+    expect(await deletePackingItem({ userId: owner.id, tripId: trip.id, itemId: lonely.item.id, confirmedDayCount: 3 })).toEqual({
+      status: "deleted",
+    });
+  });
+
+  it("drops the links of days removed by re-dating the trip and keeps the items", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const [day1, , day3] = await createDays(trip.id, 3);
+    const item = await add(owner.id, trip.id, "Pass");
+    for (const day of [day1, day3]) {
+      await linkPackingItemToDay({ userId: owner.id, tripId: trip.id, tripDayId: day.id, itemId: item.item.id, origin: "user" });
+    }
+
+    await updateTripWithDays({
+      userId: owner.id,
+      tripId: trip.id,
+      name: "Packing Repo Trip",
+      startDate: "2026-12-01T00:00:00.000Z",
+      endDate: "2026-12-02T00:00:00.000Z",
+    });
+
+    expect(await linkRows(item.item.id)).toEqual([{ tripDayId: day1.id }]);
+    expect(await prisma.packingItem.count({ where: { tripId: trip.id } })).toBe(1);
   });
 });

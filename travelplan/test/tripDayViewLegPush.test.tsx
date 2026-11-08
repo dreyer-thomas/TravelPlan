@@ -8,6 +8,8 @@ import en from "@/i18n/en";
 import type { SignedDayChangeReceiptWire } from "@/lib/trips/dayChangeReceipt";
 import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
 import { renderWithProviders } from "./helpers/renderWithProviders";
+// Story 16.2: the day's take-along section fetches its own list; tested in tripDayPackingSection/tripDayViewPacking.
+vi.mock("@/components/features/trips/TripDayPackingSection", () => ({ default: () => null }));
 
 /**
  * Story 11.4 AC8/AC11 — the day view's half of a leg or check-out push. The leg dialog and both stay

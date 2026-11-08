@@ -11,6 +11,8 @@ import { mockFetchResponse, requestUrl, stubFetch } from "./helpers/mockFetch";
 import { Providers, renderWithProviders } from "./helpers/renderWithProviders";
 import { emotionDeclarations } from "./helpers/emotionStyles";
 import { expectRowActionReveal } from "./helpers/bucketRowActionReveal";
+// Story 16.2: the day's take-along section fetches its own list; tested in tripDayPackingSection/tripDayViewPacking.
+vi.mock("@/components/features/trips/TripDayPackingSection", () => ({ default: () => null }));
 
 // jsdom reports computed colours as `rgb(r, g, b)`; the palette stores hex. Converting here lets colour
 // assertions name the token they mean instead of a literal triple nobody can trace back to the theme.
