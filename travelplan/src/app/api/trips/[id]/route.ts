@@ -60,6 +60,8 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
         // The hero always lands on `hero.<ext>`, so its URL is byte-identical across replacements.
         // Clients stamp this onto the URL to version it, exactly as they already do for day images.
         updatedAt: trip.updatedAt.toISOString(),
+        // Story 16.1. The packing list's progress for the overview card ("18 of 30 packed").
+        packing: trip.packing,
       },
       days: trip.days.map((day) => {
         const dayUpdatedAt = (day as { updatedAt?: Date }).updatedAt ?? day.date;

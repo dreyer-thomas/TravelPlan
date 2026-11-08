@@ -50,6 +50,7 @@ type ExportManifest = {
       images: { sortOrder: number; photoId: string }[];
       documents: ExportDocumentRef[];
     }[];
+    packingItems: { name: string; category: string | null; packed: boolean; dayIndexes: number[] }[];
   };
   days: {
     id: string;
@@ -178,6 +179,8 @@ describe("GET /api/trips/[id]/export", () => {
     expect(payload.trip.id).toBe(trip.id);
     expect(payload.trip.heroPhotoId).toBeNull();
     expect(payload.trip.parkedDayPlanItems).toEqual([]);
+    // Story 16.1: always present, `[]` when the trip has no packing list.
+    expect(payload.trip.packingItems).toEqual([]);
     // Story 14.1: the old list is no longer written.
     expect(payload.trip).not.toHaveProperty("bucketListItems");
     expect(payload.days).toHaveLength(2);
@@ -327,6 +330,42 @@ describe("GET /api/trips/[id]/export", () => {
     // Endpoint ids must equal the exported records' ids, or 2.32 cannot rewire them.
     expect(segment.fromItemId).toBe(payload.days[0].accommodation?.id);
     expect(segment.toItemId).toBe(payload.days[0].dayPlanItems[0].id);
+  });
+
+  it("carries the packing list with sorted dayIndexes, no ids and no AI marker (Story 16.1)", async () => {
+    const { user, token } = await createOwner("trip-export-packing@example.com");
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Packing Trip",
+      startDate: "2026-09-01T00:00:00.000Z",
+      endDate: "2026-09-03T00:00:00.000Z",
+    });
+    const [day1, day2, day3] = await prisma.tripDay.findMany({ where: { tripId: trip.id }, orderBy: { dayIndex: "asc" } });
+    const brille = await prisma.packingItem.create({
+      data: { tripId: trip.id, name: "Taucherbrille", nameKey: "taucherbrille", category: "Sport", packed: true, aiChangedAt: new Date("2026-08-20T10:00:00.000Z") },
+    });
+    await prisma.packingItem.create({ data: { tripId: trip.id, name: "adapter", nameKey: "adapter" } });
+    await prisma.packingItemDay.createMany({
+      data: [
+        { packingItemId: brille.id, tripDayId: day3.id },
+        { packingItemId: brille.id, tripDayId: day1.id },
+      ],
+    });
+    void day2;
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    expect(response.status).toBe(200);
+    const archive = await readArchive(response);
+    const payload = readManifest(archive);
+
+    expect(payload.meta.formatVersion).toBe(2);
+    expect(payload.trip.packingItems).toEqual([
+      { name: "adapter", category: null, packed: false, dayIndexes: [] },
+      { name: "Taucherbrille", category: "Sport", packed: true, dayIndexes: [1, 3] },
+    ]);
+    const manifestText = readZipArchive(archive).entries.find((entry) => entry.name === "trip.json")!.data.toString("utf8");
+    expect(manifestText).not.toContain(brille.id);
+    expect(manifestText).not.toContain("2026-08-20T10:00:00");
   });
 
   it("never exports the AI marker, even on rows the connector changed (Story 15.4)", async () => {

@@ -67,7 +67,9 @@ export const ModelName = {
   AiUsageRecord: 'AiUsageRecord',
   OAuthAuthorizationCode: 'OAuthAuthorizationCode',
   OAuthToken: 'OAuthToken',
-  AiChange: 'AiChange'
+  AiChange: 'AiChange',
+  PackingItem: 'PackingItem',
+  PackingItemDay: 'PackingItemDay'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -371,6 +373,30 @@ export const AiChangeScalarFieldEnum = {
 } as const
 
 export type AiChangeScalarFieldEnum = (typeof AiChangeScalarFieldEnum)[keyof typeof AiChangeScalarFieldEnum]
+
+
+export const PackingItemScalarFieldEnum = {
+  id: 'id',
+  tripId: 'tripId',
+  name: 'name',
+  nameKey: 'nameKey',
+  category: 'category',
+  packed: 'packed',
+  aiChangedAt: 'aiChangedAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type PackingItemScalarFieldEnum = (typeof PackingItemScalarFieldEnum)[keyof typeof PackingItemScalarFieldEnum]
+
+
+export const PackingItemDayScalarFieldEnum = {
+  packingItemId: 'packingItemId',
+  tripDayId: 'tripDayId',
+  createdAt: 'createdAt'
+} as const
+
+export type PackingItemDayScalarFieldEnum = (typeof PackingItemDayScalarFieldEnum)[keyof typeof PackingItemDayScalarFieldEnum]
 
 
 export const SortOrder = {

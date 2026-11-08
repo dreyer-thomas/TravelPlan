@@ -4205,3 +4205,65 @@ severity: low
 summary: `trip_days` has no unique `(trip_id, day_index)`. If two rows share a dayIndex, the array-neighbour convention takes the sibling as the previous day, while `getTripWithDaysForUser`'s previousStay loop picks the nearest lower dayIndex. Route path, drawn-leg selection and the overview totals then disagree with `get_day`.
 evidence: The route deliberately follows `summarizeTripTravel` (AC 5), so the route and the overview stay consistent with each other; the divergence is pre-existing in the overview. Normal trip creation never produces duplicate indices. Fixing it means changing the shared convention in `tripTravelSummary.ts` (or adding the unique constraint), not this story.
 status: open
+
+## Deferred from: code review of 16-1-the-trips-packing-list (2026-11-08)
+
+### DW-432: Packing item delete skips the day confirmation when the loaded `dayCount` is stale
+
+source_spec: `_bmad-output/implementation-artifacts/16-1-the-trips-packing-list.md`
+origin: bmad-code-review of 16-1, 2026-11-08
+location: `travelplan/src/components/features/trips/TripPackingList.tsx` (`handleDeleteFromEdit`)
+severity: low
+summary: The "Also removed from N days?" confirmation is decided from the `dayCount` loaded with the page. If links were added after that (16.2 UI, 16.4 connector, another user), the item and its links are deleted without asking.
+evidence: In 16.1 no app path creates links, so it is unreachable today. Address in 16.2: re-read the item before deciding, or have DELETE take an expected day count and answer 409 on mismatch.
+status: open
+
+### DW-433: Packing list keeps a row whose item was deleted elsewhere
+
+source_spec: `_bmad-output/implementation-artifacts/16-1-the-trips-packing-list.md`
+origin: bmad-code-review of 16-1, 2026-11-08
+location: `travelplan/src/components/features/trips/TripPackingList.tsx` (`deleteItem`, `handleToggle`, `handleSave`)
+severity: low
+summary: A PATCH/DELETE for an item another participant already deleted answers 404 "Packing item not found"; the page shows a generic error and keeps the row, and every retry fails until reload.
+evidence: Needs a dedicated error code from the route (e.g. `item_missing`) so the client can drop the row instead of matching the message.
+status: open
+
+### DW-434: Client components cache the CSRF token for the page lifetime
+
+source_spec: `_bmad-output/implementation-artifacts/16-1-the-trips-packing-list.md`
+origin: bmad-code-review of 16-1, 2026-11-08
+location: `travelplan/src/components/features/trips/TripPackingList.tsx`, `TripDayView.tsx`, `TripDayPlanDialog.tsx`, `TripAccommodationDialog.tsx`, `TripDayTravelSegmentDialog.tsx` (`ensureCsrfToken`)
+severity: low
+summary: `ensureCsrfToken` returns the cached token forever; if it rotates or expires during a long session, every write answers `csrf_invalid` until a full reload, with no refetch-and-retry.
+evidence: Pre-existing pattern copied by 16.1. A shared helper that refetches once on `csrf_invalid` would fix all callers.
+status: open
+
+### DW-435: Concurrent packing item creates can store two spellings of one category
+
+source_spec: `_bmad-output/implementation-artifacts/16-1-the-trips-packing-list.md`
+origin: bmad-code-review of 16-1, 2026-11-08
+location: `travelplan/src/lib/repositories/packingListRepo.ts` (`resolveCategory`)
+severity: low
+summary: Two simultaneous creates with "technik" and "Technik" on a trip that does not use the category yet both see no existing spelling and store both. Grouping hides it (case-insensitive key), but export and later lookups are order-dependent.
+evidence: Needs a `categoryKey` column or a post-create normalize inside the transaction; rare with a handful of participants.
+status: open
+
+### DW-436: Packing item name or category of only invisible characters is accepted
+
+source_spec: `_bmad-output/implementation-artifacts/16-1-the-trips-packing-list.md`
+origin: bmad-code-review of 16-1, 2026-11-08
+location: `travelplan/src/lib/validation/packingListSchemas.ts`, `travelplan/src/lib/validation/tripImportSchemas.ts`
+severity: low
+summary: `.trim()` does not remove U+200B/U+2060/U+FEFF, so a name made only of them is stored: a blank-looking row with an untypeable name key.
+evidence: Same gap as every other trimmed text field in the app; a shared "visible text" refine would cover them all.
+status: open
+
+### DW-437: Cost overview card `aria-label` hides its figure from screen readers
+
+source_spec: `_bmad-output/implementation-artifacts/16-1-the-trips-packing-list.md`
+origin: bmad-code-review of 16-1, 2026-11-08
+location: `travelplan/src/components/features/trips/TripTimeline.tsx` (cost overview card, `trips.costOverview.openAria`)
+severity: low
+summary: The card link carries `aria-label="Open cost overview"`, which replaces the accessible name, so the total shown inside is never announced.
+evidence: Pre-existing; 16.1 copied the pattern for the packing card (fixed there as a review patch).
+status: open

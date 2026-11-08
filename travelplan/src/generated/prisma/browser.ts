@@ -102,3 +102,13 @@ export type OAuthToken = Prisma.OAuthTokenModel
  * 
  */
 export type AiChange = Prisma.AiChangeModel
+/**
+ * Model PackingItem
+ * 
+ */
+export type PackingItem = Prisma.PackingItemModel
+/**
+ * Model PackingItemDay
+ * 
+ */
+export type PackingItemDay = Prisma.PackingItemDayModel

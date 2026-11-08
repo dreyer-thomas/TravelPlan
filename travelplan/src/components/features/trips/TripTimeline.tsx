@@ -69,6 +69,8 @@ type TripSummary = {
   heroImageUrl: string | null;
   /** Versions the hero URL; see `withImageCacheBuster`. Optional so an older cached payload still renders. */
   updatedAt?: string;
+  /** Story 16.1. The packing list's progress; optional so an older payload or a fixture still renders. */
+  packing?: { total: number; packed: number };
 };
 
 type TripDay = {
@@ -1222,6 +1224,51 @@ export default function TripTimeline({ tripId }: TripTimelineProps) {
                    the component, and it is only true of the component if a caller exercises it. */
                 loadError={Boolean(error)}
               />
+
+              {/* Story 16.1. The packing list entry: same shell as the cost and distance cards, the whole
+                  card a link to the list. Every role sees it (viewers read the list), so it sits outside
+                  the planner guard below. `mt: 2` rather than `mb: 2` because the map panel above
+                  carries no bottom margin - the same 16px rhythm the bucket list's wrapper keeps. It
+                  reads `detail.trip.packing` and fetches nothing of its own. The aria-label carries the progress
+                  too, since an aria-label replaces the link's text as its accessible name. */}
+              <Box
+                component={Link}
+                href={`/trips/${tripId}/packing`}
+                aria-label={`${t("trips.packingList.openAria")}, ${
+                  detail.trip.packing && detail.trip.packing.total > 0
+                    ? formatMessage(t("trips.packingList.progress"), {
+                        packed: detail.trip.packing.packed,
+                        total: detail.trip.packing.total,
+                      })
+                    : t("trips.packingList.emptyShort")
+                }`}
+                data-testid="trip-packing-card"
+                sx={{
+                  display: "block",
+                  textDecoration: "none",
+                  color: "inherit",
+                  backgroundColor: tokens.card,
+                  border: "1px solid",
+                  borderColor: tokens.borderStrong,
+                  borderRadius: "8px",
+                  padding: "18px",
+                  mt: 2,
+                  "&:hover": { borderColor: tokens.ink },
+                  "&:focus-visible": { outline: "2px solid", outlineColor: tokens.ink, outlineOffset: "2px" },
+                }}
+              >
+                <Typography variant="labelCaps" component="h5" sx={{ color: tokens.inkSoft, display: "block", mb: 1.25 }}>
+                  {t("trips.packingList.title")}
+                </Typography>
+                <Typography variant="body1" sx={{ color: tokens.ink }} data-testid="trip-packing-card-progress">
+                  {detail.trip.packing && detail.trip.packing.total > 0
+                    ? formatMessage(t("trips.packingList.progress"), {
+                        packed: detail.trip.packing.packed,
+                        total: detail.trip.packing.total,
+                      })
+                    : t("trips.packingList.emptyShort")}
+                </Typography>
+              </Box>
 
               {/* Third sidebar card, after the map panel. The panel brings its own card shell
                   (Story 7.8), so the wrapper carries spacing only - a bordered wrapper here would

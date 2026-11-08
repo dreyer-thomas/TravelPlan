@@ -4,6 +4,7 @@ import {
   MAX_IMPORT_BUCKET_LIST_ITEMS,
   MAX_IMPORT_DAYS,
   MAX_IMPORT_MEDIA_WRITES,
+  MAX_IMPORT_PACKING_ITEMS,
   MAX_IMPORT_SEGMENTS_PER_DAY,
   MAX_IMPORT_WARNING_LENGTH,
   MAX_IMPORT_WARNINGS,
@@ -13,6 +14,7 @@ import { TRANSPORT_TYPES } from "@/lib/trips/transportTypes";
 import { costCurrencyFields, paymentOriginalField, refineCostCurrency } from "@/lib/validation/costCurrencySchemas";
 import { isValidDateOnly } from "@/lib/validation/dateOnly";
 import { MAX_ACTIVITY_DURATION_MINUTES, MIN_ACTIVITY_DURATION_MINUTES } from "@/lib/validation/dayPlanItemSchemas";
+import { PACKING_CATEGORY_MAX, PACKING_ITEM_NAME_MAX } from "@/lib/trips/packingList";
 import { isSafeExternalUrl } from "@/lib/validation/safeExternalUrl";
 import { isSafeStoredImageUrl } from "@/lib/validation/safeStoredImageUrl";
 
@@ -603,6 +605,28 @@ const tripDayImportSchema = z.object({
   }
 });
 
+/**
+ * Story 16.1. One packing item of `trip.packingItems`. The name and category rules are the app's
+ * (trimmed, 1-80 / at most 40); "Sonstiges"/"Other" folding and merging entries that share a name key
+ * happen in the importer. `dayIndexes` must name days of the archive (checked in the payload refine).
+ */
+const packingItemImportSchema = z.object({
+  // NFC before the length check, as the importer stores the NFC form (see packingListSchemas.ts).
+  name: z
+    .string()
+    .transform((value) => value.normalize("NFC").trim())
+    .pipe(z.string().min(1, "Packing item name is required").max(PACKING_ITEM_NAME_MAX)),
+  category: z
+    .string()
+    .transform((value) => value.normalize("NFC").trim())
+    .pipe(z.string().max(PACKING_CATEGORY_MAX))
+    .nullable()
+    .optional()
+    .transform((value) => (value && value.length > 0 ? value : null)),
+  packed: z.boolean().optional().default(false),
+  dayIndexes: z.array(z.number().int().min(1)).max(MAX_IMPORT_DAYS).optional().default([]),
+});
+
 const tripImportSchema = z
   .object({
     id: z.string().trim().min(1),
@@ -627,6 +651,12 @@ const tripImportSchema = z
     bucketListItems: z
       .array(bucketListItemImportSchema)
       .max(MAX_IMPORT_BUCKET_LIST_ITEMS, `A trip may carry at most ${MAX_IMPORT_BUCKET_LIST_ITEMS} bucket list items`)
+      .optional()
+      .default([]),
+    // Story 16.1. The packing list; absent in every archive written before it, which then imports with none.
+    packingItems: z
+      .array(packingItemImportSchema)
+      .max(MAX_IMPORT_PACKING_ITEMS, `A trip may carry at most ${MAX_IMPORT_PACKING_ITEMS} packing items`)
       .optional()
       .default([]),
   })
@@ -719,6 +749,19 @@ export const tripImportPayloadSchema = z.object({
       break;
     }
     seenDayIndexes.add(day.dayIndex);
+  }
+
+  // Story 16.1. A packing item may only be linked to a day the archive has; otherwise the importer would
+  // have nothing to link it to.
+  const archiveDayIndexes = new Set(input.days.map((day) => day.dayIndex));
+  for (const [itemIndex, item] of input.trip.packingItems.entries()) {
+    if (item.dayIndexes.some((dayIndex) => !archiveDayIndexes.has(dayIndex))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Unknown dayIndex in packing item",
+        path: ["trip", "packingItems", itemIndex, "dayIndexes"],
+      });
+    }
   }
 
   // --- v2 cross-reference checks -------------------------------------------------------------

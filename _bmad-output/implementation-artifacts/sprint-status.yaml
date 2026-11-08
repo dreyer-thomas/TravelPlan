@@ -1,5 +1,10 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-10-31 (15-10-the-trip-route-at-a-glance -> done via bmad-code-review: 2 patches (get_trip_route description completes top-level/byMode fields, flight/ship distance always null, one-point section; AC 9 log line tested for get_trip_route), DW-431 deferred (duplicate dayIndex previous-day convention), 19 dismissed; affected suites 4 files / 44 passed, tsc clean, lint clean on changed files)
+# last_updated: 2026-11-08 (16-1-the-trips-packing-list -> done via bmad-code-review; 8 patches applied, 6 deferred DW-432..437, full suite 265 files / 4220 tests green)
+# previously: 2026-11-08 (16-1-the-trips-packing-list -> review via bmad-dev-story; all 12 tasks done, full suite 265 files / 4217 tests green, typecheck/lint(0 errors)/build pass)
+# previously: 2026-11-08 (16-1-the-trips-packing-list -> in-progress via bmad-dev-story)
+# previously: 2026-11-08 (16-1-the-trips-packing-list -> ready-for-dev via bmad-create-story; epic-16 -> in-progress)
+# previously: 2026-11-08 (correct course: epic-16 The Packing List added with stories 16-1..16-5 in backlog; see sprint-change-proposal-2026-11-08-packing-list.md)
+# previously: 2026-10-31 (15-10-the-trip-route-at-a-glance -> done via bmad-code-review: 2 patches (get_trip_route description completes top-level/byMode fields, flight/ship distance always null, one-point section; AC 9 log line tested for get_trip_route), DW-431 deferred (duplicate dayIndex previous-day convention), 19 dismissed; affected suites 4 files / 44 passed, tsc clean, lint clean on changed files)
 # previously: 2026-10-31 (15-10-the-trip-route-at-a-glance -> review via bmad-dev-story: get_trip_route + pure routeShapes.toTripRoute (selectDrawnTravelSegments per day, totals from summarizeTripTravel, path algorithm as specified, no OSRM), one getTripWithDaysForUser call; OrderablePlanItem.createdAt widened to Date | string; open defaults kept; 260 files / 4161 passed, tsc clean, lint 0/80, build ok)
 # previously: 2026-10-31 (15-10-the-trip-route-at-a-glance -> in-progress via bmad-dev-story)
 # previously: 2026-10-31 (15-10-the-trip-route-at-a-glance -> ready-for-dev via bmad-create-story: get_trip_route from getTripWithDaysForUser (one pass), pure routeShapes.toTripRoute reusing selectDrawnTravelSegments + summarizeTripTravel, path algorithm fixed in the story, totals from summarizeTripTravel [default], no OSRM, 60 KB bound; open defaults listed for Tommy)
@@ -385,3 +390,11 @@ development_status:
   15-9-the-days-own-note-and-picture: done
   15-10-the-trip-route-at-a-glance: done
   epic-15-retrospective: optional
+
+  epic-16: in-progress
+  16-1-the-trips-packing-list: done
+  16-2-what-the-day-needs: backlog
+  16-3-take-along-in-the-day-email: backlog
+  16-4-the-packing-list-through-the-connector: backlog
+  16-5-copy-from-another-trip: backlog
+  epic-16-retrospective: optional

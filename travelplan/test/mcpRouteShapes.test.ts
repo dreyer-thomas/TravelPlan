@@ -107,6 +107,7 @@ const trip = (days: Day[]): TripWithDays => ({
   accommodationCostTotalCents: SENTINEL_COST,
   heroImageUrl: `/uploads/${SENTINEL}-hero.jpg`,
   updatedAt: new Date("2027-01-01T00:00:00.000Z"),
+  packing: { total: 0, packed: 0 },
   days,
 });
 

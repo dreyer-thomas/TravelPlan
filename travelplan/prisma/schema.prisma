@@ -128,6 +128,7 @@ model Trip {
   days  TripDay[]
   dayPlanItems DayPlanItem[]
   aiChanges AiChange[]
+  packingItems PackingItem[]
 
   @@index([userId])
   @@map("trips")
@@ -168,6 +169,7 @@ model TripDay {
   dayPlanItems  DayPlanItem[]
   travelSegments TravelSegment[]
   aiChanges AiChange[]
+  packingItemDays PackingItemDay[]
 
   @@index([tripId], map: "idx_trip_days_trip_id")
   @@map("trip_days")
@@ -490,4 +492,40 @@ model AiChange {
   @@index([tripId, tripDayId, createdAt], map: "idx_ai_changes_trip_day_created_at")
   @@index([createdAt], map: "idx_ai_changes_created_at")
   @@map("ai_changes")
+}
+
+// Story 16.1 (FR58). One shared packing list per trip. `nameKey` is the trimmed, lower-cased name
+// (`packingNameKey`), unique per trip, so every path that adds by name (app, day, connector, copy)
+// resolves to the existing item. `aiChangedAt` has the Story 15.4 meaning; not exported in backups.
+model PackingItem {
+  id          String    @id @default(cuid()) @map("id")
+  tripId      String    @map("trip_id")
+  name        String    @map("name")
+  nameKey     String    @map("name_key")
+  category    String?   @map("category")
+  packed      Boolean   @default(false) @map("packed")
+  aiChangedAt DateTime? @map("ai_changed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  trip Trip             @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  days PackingItemDay[]
+
+  @@unique([tripId, nameKey], map: "packing_items_trip_id_name_key_key")
+  @@map("packing_items")
+}
+
+// Story 16.1. A packing item linked to a day (written from Story 16.2 on). Both sides cascade: a day
+// removed by re-dating loses its links, never the item.
+model PackingItemDay {
+  packingItemId String   @map("packing_item_id")
+  tripDayId     String   @map("trip_day_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  packingItem PackingItem @relation(fields: [packingItemId], references: [id], onDelete: Cascade)
+  tripDay     TripDay     @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
+
+  @@id([packingItemId, tripDayId])
+  @@index([tripDayId], map: "idx_packing_item_days_trip_day_id")
+  @@map("packing_item_days")
 }

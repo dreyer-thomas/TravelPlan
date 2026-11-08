@@ -60,6 +60,7 @@ const PAYLOAD: TripImportPayloadInput = {
     createdAt: STAMP,
     updatedAt: STAMP,
     parkedDayPlanItems: [],
+    packingItems: [],
     bucketListItems: [{ id: "b1", title: "Survive the rollback", description: null, positionText: null, location: null }],
   },
   days: [

@@ -40,6 +40,8 @@ const APP_VERSION = process.env.npm_package_version ?? "0.1.0";
  * and applies the legacy rule: timed activities come back FIXED at their times, untimed ones FLEXIBLE with
  * 15 minutes, in the order that rule gives. Nothing is refused; that is the documented price of growing
  * version 2.
+ *
+ * Story 16.1 adds `trip.packingItems` (name, category, packed, linked `dayIndexes`), additive within v2.
  */
 const FORMAT_VERSION = 2;
 const MANIFEST_ENTRY_NAME = "trip.json";

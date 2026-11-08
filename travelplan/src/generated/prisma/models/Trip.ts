@@ -305,6 +305,7 @@ export type TripWhereInput = {
   days?: Prisma.TripDayListRelationFilter
   dayPlanItems?: Prisma.DayPlanItemListRelationFilter
   aiChanges?: Prisma.AiChangeListRelationFilter
+  packingItems?: Prisma.PackingItemListRelationFilter
 }
 
 export type TripOrderByWithRelationInput = {
@@ -327,6 +328,7 @@ export type TripOrderByWithRelationInput = {
   days?: Prisma.TripDayOrderByRelationAggregateInput
   dayPlanItems?: Prisma.DayPlanItemOrderByRelationAggregateInput
   aiChanges?: Prisma.AiChangeOrderByRelationAggregateInput
+  packingItems?: Prisma.PackingItemOrderByRelationAggregateInput
 }
 
 export type TripWhereUniqueInput = Prisma.AtLeast<{
@@ -352,6 +354,7 @@ export type TripWhereUniqueInput = Prisma.AtLeast<{
   days?: Prisma.TripDayListRelationFilter
   dayPlanItems?: Prisma.DayPlanItemListRelationFilter
   aiChanges?: Prisma.AiChangeListRelationFilter
+  packingItems?: Prisma.PackingItemListRelationFilter
 }, "id">
 
 export type TripOrderByWithAggregationInput = {
@@ -415,6 +418,7 @@ export type TripCreateInput = {
   days?: Prisma.TripDayCreateNestedManyWithoutTripInput
   dayPlanItems?: Prisma.DayPlanItemCreateNestedManyWithoutTripInput
   aiChanges?: Prisma.AiChangeCreateNestedManyWithoutTripInput
+  packingItems?: Prisma.PackingItemCreateNestedManyWithoutTripInput
 }
 
 export type TripUncheckedCreateInput = {
@@ -436,6 +440,7 @@ export type TripUncheckedCreateInput = {
   days?: Prisma.TripDayUncheckedCreateNestedManyWithoutTripInput
   dayPlanItems?: Prisma.DayPlanItemUncheckedCreateNestedManyWithoutTripInput
   aiChanges?: Prisma.AiChangeUncheckedCreateNestedManyWithoutTripInput
+  packingItems?: Prisma.PackingItemUncheckedCreateNestedManyWithoutTripInput
 }
 
 export type TripUpdateInput = {
@@ -457,6 +462,7 @@ export type TripUpdateInput = {
   days?: Prisma.TripDayUpdateManyWithoutTripNestedInput
   dayPlanItems?: Prisma.DayPlanItemUpdateManyWithoutTripNestedInput
   aiChanges?: Prisma.AiChangeUpdateManyWithoutTripNestedInput
+  packingItems?: Prisma.PackingItemUpdateManyWithoutTripNestedInput
 }
 
 export type TripUncheckedUpdateInput = {
@@ -478,6 +484,7 @@ export type TripUncheckedUpdateInput = {
   days?: Prisma.TripDayUncheckedUpdateManyWithoutTripNestedInput
   dayPlanItems?: Prisma.DayPlanItemUncheckedUpdateManyWithoutTripNestedInput
   aiChanges?: Prisma.AiChangeUncheckedUpdateManyWithoutTripNestedInput
+  packingItems?: Prisma.PackingItemUncheckedUpdateManyWithoutTripNestedInput
 }
 
 export type TripCreateManyInput = {
@@ -720,6 +727,20 @@ export type TripUpdateOneRequiredWithoutAiChangesNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.TripUpdateToOneWithWhereWithoutAiChangesInput, Prisma.TripUpdateWithoutAiChangesInput>, Prisma.TripUncheckedUpdateWithoutAiChangesInput>
 }
 
+export type TripCreateNestedOneWithoutPackingItemsInput = {
+  create?: Prisma.XOR<Prisma.TripCreateWithoutPackingItemsInput, Prisma.TripUncheckedCreateWithoutPackingItemsInput>
+  connectOrCreate?: Prisma.TripCreateOrConnectWithoutPackingItemsInput
+  connect?: Prisma.TripWhereUniqueInput
+}
+
+export type TripUpdateOneRequiredWithoutPackingItemsNestedInput = {
+  create?: Prisma.XOR<Prisma.TripCreateWithoutPackingItemsInput, Prisma.TripUncheckedCreateWithoutPackingItemsInput>
+  connectOrCreate?: Prisma.TripCreateOrConnectWithoutPackingItemsInput
+  upsert?: Prisma.TripUpsertWithoutPackingItemsInput
+  connect?: Prisma.TripWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.TripUpdateToOneWithWhereWithoutPackingItemsInput, Prisma.TripUpdateWithoutPackingItemsInput>, Prisma.TripUncheckedUpdateWithoutPackingItemsInput>
+}
+
 export type TripCreateWithoutUserInput = {
   id?: string
   name: string
@@ -738,6 +759,7 @@ export type TripCreateWithoutUserInput = {
   days?: Prisma.TripDayCreateNestedManyWithoutTripInput
   dayPlanItems?: Prisma.DayPlanItemCreateNestedManyWithoutTripInput
   aiChanges?: Prisma.AiChangeCreateNestedManyWithoutTripInput
+  packingItems?: Prisma.PackingItemCreateNestedManyWithoutTripInput
 }
 
 export type TripUncheckedCreateWithoutUserInput = {
@@ -758,6 +780,7 @@ export type TripUncheckedCreateWithoutUserInput = {
   days?: Prisma.TripDayUncheckedCreateNestedManyWithoutTripInput
   dayPlanItems?: Prisma.DayPlanItemUncheckedCreateNestedManyWithoutTripInput
   aiChanges?: Prisma.AiChangeUncheckedCreateNestedManyWithoutTripInput
+  packingItems?: Prisma.PackingItemUncheckedCreateNestedManyWithoutTripInput
 }
 
 export type TripCreateOrConnectWithoutUserInput = {
@@ -823,6 +846,7 @@ export type TripCreateWithoutMembersInput = {
   days?: Prisma.TripDayCreateNestedManyWithoutTripInput
   dayPlanItems?: Prisma.DayPlanItemCreateNestedManyWithoutTripInput
   aiChanges?: Prisma.AiChangeCreateNestedManyWithoutTripInput
+  packingItems?: Prisma.PackingItemCreateNestedManyWithoutTripInput
 }
 
 export type TripUncheckedCreateWithoutMembersInput = {
@@ -843,6 +867,7 @@ export type TripUncheckedCreateWithoutMembersInput = {
   days?: Prisma.TripDayUncheckedCreateNestedManyWithoutTripInput
   dayPlanItems?: Prisma.DayPlanItemUncheckedCreateNestedManyWithoutTripInput
   aiChanges?: Prisma.AiChangeUncheckedCreateNestedManyWithoutTripInput
+  packingItems?: Prisma.PackingItemUncheckedCreateNestedManyWithoutTripInput
 }
 
 export type TripCreateOrConnectWithoutMembersInput = {
@@ -879,6 +904,7 @@ export type TripUpdateWithoutMembersInput = {
   days?: Prisma.TripDayUpdateManyWithoutTripNestedInput
   dayPlanItems?: Prisma.DayPlanItemUpdateManyWithoutTripNestedInput
   aiChanges?: Prisma.AiChangeUpdateManyWithoutTripNestedInput
+  packingItems?: Prisma.PackingItemUpdateManyWithoutTripNestedInput
 }
 
 export type TripUncheckedUpdateWithoutMembersInput = {
@@ -899,6 +925,7 @@ export type TripUncheckedUpdateWithoutMembersInput = {
   days?: Prisma.TripDayUncheckedUpdateManyWithoutTripNestedInput
   dayPlanItems?: Prisma.DayPlanItemUncheckedUpdateManyWithoutTripNestedInput
   aiChanges?: Prisma.AiChangeUncheckedUpdateManyWithoutTripNestedInput
+  packingItems?: Prisma.PackingItemUncheckedUpdateManyWithoutTripNestedInput
 }
 
 export type TripCreateWithoutDaysInput = {
@@ -919,6 +946,7 @@ export type TripCreateWithoutDaysInput = {
   members?: Prisma.TripMemberCreateNestedManyWithoutTripInput
   dayPlanItems?: Prisma.DayPlanItemCreateNestedManyWithoutTripInput
   aiChanges?: Prisma.AiChangeCreateNestedManyWithoutTripInput
+  packingItems?: Prisma.PackingItemCreateNestedManyWithoutTripInput
 }
 
 export type TripUncheckedCreateWithoutDaysInput = {
@@ -939,6 +967,7 @@ export type TripUncheckedCreateWithoutDaysInput = {
   members?: Prisma.TripMemberUncheckedCreateNestedManyWithoutTripInput
   dayPlanItems?: Prisma.DayPlanItemUncheckedCreateNestedManyWithoutTripInput
   aiChanges?: Prisma.AiChangeUncheckedCreateNestedManyWithoutTripInput
+  packingItems?: Prisma.PackingItemUncheckedCreateNestedManyWithoutTripInput
 }
 
 export type TripCreateOrConnectWithoutDaysInput = {
@@ -975,6 +1004,7 @@ export type TripUpdateWithoutDaysInput = {
   members?: Prisma.TripMemberUpdateManyWithoutTripNestedInput
   dayPlanItems?: Prisma.DayPlanItemUpdateManyWithoutTripNestedInput
   aiChanges?: Prisma.AiChangeUpdateManyWithoutTripNestedInput
+  packingItems?: Prisma.PackingItemUpdateManyWithoutTripNestedInput
 }
 
 export type TripUncheckedUpdateWithoutDaysInput = {
@@ -995,6 +1025,7 @@ export type TripUncheckedUpdateWithoutDaysInput = {
   members?: Prisma.TripMemberUncheckedUpdateManyWithoutTripNestedInput
   dayPlanItems?: Prisma.DayPlanItemUncheckedUpdateManyWithoutTripNestedInput
   aiChanges?: Prisma.AiChangeUncheckedUpdateManyWithoutTripNestedInput
+  packingItems?: Prisma.PackingItemUncheckedUpdateManyWithoutTripNestedInput
 }
 
 export type TripCreateWithoutDayPlanItemsInput = {
@@ -1015,6 +1046,7 @@ export type TripCreateWithoutDayPlanItemsInput = {
   members?: Prisma.TripMemberCreateNestedManyWithoutTripInput
   days?: Prisma.TripDayCreateNestedManyWithoutTripInput
   aiChanges?: Prisma.AiChangeCreateNestedManyWithoutTripInput
+  packingItems?: Prisma.PackingItemCreateNestedManyWithoutTripInput
 }
 
 export type TripUncheckedCreateWithoutDayPlanItemsInput = {
@@ -1035,6 +1067,7 @@ export type TripUncheckedCreateWithoutDayPlanItemsInput = {
   members?: Prisma.TripMemberUncheckedCreateNestedManyWithoutTripInput
   days?: Prisma.TripDayUncheckedCreateNestedManyWithoutTripInput
   aiChanges?: Prisma.AiChangeUncheckedCreateNestedManyWithoutTripInput
+  packingItems?: Prisma.PackingItemUncheckedCreateNestedManyWithoutTripInput
 }
 
 export type TripCreateOrConnectWithoutDayPlanItemsInput = {
@@ -1071,6 +1104,7 @@ export type TripUpdateWithoutDayPlanItemsInput = {
   members?: Prisma.TripMemberUpdateManyWithoutTripNestedInput
   days?: Prisma.TripDayUpdateManyWithoutTripNestedInput
   aiChanges?: Prisma.AiChangeUpdateManyWithoutTripNestedInput
+  packingItems?: Prisma.PackingItemUpdateManyWithoutTripNestedInput
 }
 
 export type TripUncheckedUpdateWithoutDayPlanItemsInput = {
@@ -1091,6 +1125,7 @@ export type TripUncheckedUpdateWithoutDayPlanItemsInput = {
   members?: Prisma.TripMemberUncheckedUpdateManyWithoutTripNestedInput
   days?: Prisma.TripDayUncheckedUpdateManyWithoutTripNestedInput
   aiChanges?: Prisma.AiChangeUncheckedUpdateManyWithoutTripNestedInput
+  packingItems?: Prisma.PackingItemUncheckedUpdateManyWithoutTripNestedInput
 }
 
 export type TripCreateWithoutAiChangesInput = {
@@ -1111,6 +1146,7 @@ export type TripCreateWithoutAiChangesInput = {
   members?: Prisma.TripMemberCreateNestedManyWithoutTripInput
   days?: Prisma.TripDayCreateNestedManyWithoutTripInput
   dayPlanItems?: Prisma.DayPlanItemCreateNestedManyWithoutTripInput
+  packingItems?: Prisma.PackingItemCreateNestedManyWithoutTripInput
 }
 
 export type TripUncheckedCreateWithoutAiChangesInput = {
@@ -1131,6 +1167,7 @@ export type TripUncheckedCreateWithoutAiChangesInput = {
   members?: Prisma.TripMemberUncheckedCreateNestedManyWithoutTripInput
   days?: Prisma.TripDayUncheckedCreateNestedManyWithoutTripInput
   dayPlanItems?: Prisma.DayPlanItemUncheckedCreateNestedManyWithoutTripInput
+  packingItems?: Prisma.PackingItemUncheckedCreateNestedManyWithoutTripInput
 }
 
 export type TripCreateOrConnectWithoutAiChangesInput = {
@@ -1167,6 +1204,7 @@ export type TripUpdateWithoutAiChangesInput = {
   members?: Prisma.TripMemberUpdateManyWithoutTripNestedInput
   days?: Prisma.TripDayUpdateManyWithoutTripNestedInput
   dayPlanItems?: Prisma.DayPlanItemUpdateManyWithoutTripNestedInput
+  packingItems?: Prisma.PackingItemUpdateManyWithoutTripNestedInput
 }
 
 export type TripUncheckedUpdateWithoutAiChangesInput = {
@@ -1187,6 +1225,107 @@ export type TripUncheckedUpdateWithoutAiChangesInput = {
   members?: Prisma.TripMemberUncheckedUpdateManyWithoutTripNestedInput
   days?: Prisma.TripDayUncheckedUpdateManyWithoutTripNestedInput
   dayPlanItems?: Prisma.DayPlanItemUncheckedUpdateManyWithoutTripNestedInput
+  packingItems?: Prisma.PackingItemUncheckedUpdateManyWithoutTripNestedInput
+}
+
+export type TripCreateWithoutPackingItemsInput = {
+  id?: string
+  name: string
+  startDate: Date | string
+  endDate: Date | string
+  heroImageUrl?: string | null
+  startLocationLat?: number | null
+  startLocationLng?: number | null
+  startLocationLabel?: string | null
+  destinationLocationLat?: number | null
+  destinationLocationLng?: number | null
+  destinationLocationLabel?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  user: Prisma.UserCreateNestedOneWithoutTripsInput
+  members?: Prisma.TripMemberCreateNestedManyWithoutTripInput
+  days?: Prisma.TripDayCreateNestedManyWithoutTripInput
+  dayPlanItems?: Prisma.DayPlanItemCreateNestedManyWithoutTripInput
+  aiChanges?: Prisma.AiChangeCreateNestedManyWithoutTripInput
+}
+
+export type TripUncheckedCreateWithoutPackingItemsInput = {
+  id?: string
+  userId: string
+  name: string
+  startDate: Date | string
+  endDate: Date | string
+  heroImageUrl?: string | null
+  startLocationLat?: number | null
+  startLocationLng?: number | null
+  startLocationLabel?: string | null
+  destinationLocationLat?: number | null
+  destinationLocationLng?: number | null
+  destinationLocationLabel?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  members?: Prisma.TripMemberUncheckedCreateNestedManyWithoutTripInput
+  days?: Prisma.TripDayUncheckedCreateNestedManyWithoutTripInput
+  dayPlanItems?: Prisma.DayPlanItemUncheckedCreateNestedManyWithoutTripInput
+  aiChanges?: Prisma.AiChangeUncheckedCreateNestedManyWithoutTripInput
+}
+
+export type TripCreateOrConnectWithoutPackingItemsInput = {
+  where: Prisma.TripWhereUniqueInput
+  create: Prisma.XOR<Prisma.TripCreateWithoutPackingItemsInput, Prisma.TripUncheckedCreateWithoutPackingItemsInput>
+}
+
+export type TripUpsertWithoutPackingItemsInput = {
+  update: Prisma.XOR<Prisma.TripUpdateWithoutPackingItemsInput, Prisma.TripUncheckedUpdateWithoutPackingItemsInput>
+  create: Prisma.XOR<Prisma.TripCreateWithoutPackingItemsInput, Prisma.TripUncheckedCreateWithoutPackingItemsInput>
+  where?: Prisma.TripWhereInput
+}
+
+export type TripUpdateToOneWithWhereWithoutPackingItemsInput = {
+  where?: Prisma.TripWhereInput
+  data: Prisma.XOR<Prisma.TripUpdateWithoutPackingItemsInput, Prisma.TripUncheckedUpdateWithoutPackingItemsInput>
+}
+
+export type TripUpdateWithoutPackingItemsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  startDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  endDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  heroImageUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  destinationLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user?: Prisma.UserUpdateOneRequiredWithoutTripsNestedInput
+  members?: Prisma.TripMemberUpdateManyWithoutTripNestedInput
+  days?: Prisma.TripDayUpdateManyWithoutTripNestedInput
+  dayPlanItems?: Prisma.DayPlanItemUpdateManyWithoutTripNestedInput
+  aiChanges?: Prisma.AiChangeUpdateManyWithoutTripNestedInput
+}
+
+export type TripUncheckedUpdateWithoutPackingItemsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  userId?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  startDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  endDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  heroImageUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  startLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  destinationLocationLat?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLng?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  destinationLocationLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  members?: Prisma.TripMemberUncheckedUpdateManyWithoutTripNestedInput
+  days?: Prisma.TripDayUncheckedUpdateManyWithoutTripNestedInput
+  dayPlanItems?: Prisma.DayPlanItemUncheckedUpdateManyWithoutTripNestedInput
+  aiChanges?: Prisma.AiChangeUncheckedUpdateManyWithoutTripNestedInput
 }
 
 export type TripCreateManyUserInput = {
@@ -1223,6 +1362,7 @@ export type TripUpdateWithoutUserInput = {
   days?: Prisma.TripDayUpdateManyWithoutTripNestedInput
   dayPlanItems?: Prisma.DayPlanItemUpdateManyWithoutTripNestedInput
   aiChanges?: Prisma.AiChangeUpdateManyWithoutTripNestedInput
+  packingItems?: Prisma.PackingItemUpdateManyWithoutTripNestedInput
 }
 
 export type TripUncheckedUpdateWithoutUserInput = {
@@ -1243,6 +1383,7 @@ export type TripUncheckedUpdateWithoutUserInput = {
   days?: Prisma.TripDayUncheckedUpdateManyWithoutTripNestedInput
   dayPlanItems?: Prisma.DayPlanItemUncheckedUpdateManyWithoutTripNestedInput
   aiChanges?: Prisma.AiChangeUncheckedUpdateManyWithoutTripNestedInput
+  packingItems?: Prisma.PackingItemUncheckedUpdateManyWithoutTripNestedInput
 }
 
 export type TripUncheckedUpdateManyWithoutUserInput = {
@@ -1271,6 +1412,7 @@ export type TripCountOutputType = {
   days: number
   dayPlanItems: number
   aiChanges: number
+  packingItems: number
 }
 
 export type TripCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1278,6 +1420,7 @@ export type TripCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.I
   days?: boolean | TripCountOutputTypeCountDaysArgs
   dayPlanItems?: boolean | TripCountOutputTypeCountDayPlanItemsArgs
   aiChanges?: boolean | TripCountOutputTypeCountAiChangesArgs
+  packingItems?: boolean | TripCountOutputTypeCountPackingItemsArgs
 }
 
 /**
@@ -1318,6 +1461,13 @@ export type TripCountOutputTypeCountAiChangesArgs<ExtArgs extends runtime.Types.
   where?: Prisma.AiChangeWhereInput
 }
 
+/**
+ * TripCountOutputType without action
+ */
+export type TripCountOutputTypeCountPackingItemsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.PackingItemWhereInput
+}
+
 
 export type TripSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -1339,6 +1489,7 @@ export type TripSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   days?: boolean | Prisma.Trip$daysArgs<ExtArgs>
   dayPlanItems?: boolean | Prisma.Trip$dayPlanItemsArgs<ExtArgs>
   aiChanges?: boolean | Prisma.Trip$aiChangesArgs<ExtArgs>
+  packingItems?: boolean | Prisma.Trip$packingItemsArgs<ExtArgs>
   _count?: boolean | Prisma.TripCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["trip"]>
 
@@ -1402,6 +1553,7 @@ export type TripInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
   days?: boolean | Prisma.Trip$daysArgs<ExtArgs>
   dayPlanItems?: boolean | Prisma.Trip$dayPlanItemsArgs<ExtArgs>
   aiChanges?: boolean | Prisma.Trip$aiChangesArgs<ExtArgs>
+  packingItems?: boolean | Prisma.Trip$packingItemsArgs<ExtArgs>
   _count?: boolean | Prisma.TripCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type TripIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1419,6 +1571,7 @@ export type $TripPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     days: Prisma.$TripDayPayload<ExtArgs>[]
     dayPlanItems: Prisma.$DayPlanItemPayload<ExtArgs>[]
     aiChanges: Prisma.$AiChangePayload<ExtArgs>[]
+    packingItems: Prisma.$PackingItemPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1834,6 +1987,7 @@ export interface Prisma__TripClient<T, Null = never, ExtArgs extends runtime.Typ
   days<T extends Prisma.Trip$daysArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Trip$daysArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TripDayPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   dayPlanItems<T extends Prisma.Trip$dayPlanItemsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Trip$dayPlanItemsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$DayPlanItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   aiChanges<T extends Prisma.Trip$aiChangesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Trip$aiChangesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AiChangePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  packingItems<T extends Prisma.Trip$packingItemsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Trip$packingItemsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$PackingItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2369,6 +2523,30 @@ export type Trip$aiChangesArgs<ExtArgs extends runtime.Types.Extensions.Internal
   take?: number
   skip?: number
   distinct?: Prisma.AiChangeScalarFieldEnum | Prisma.AiChangeScalarFieldEnum[]
+}
+
+/**
+ * Trip.packingItems
+ */
+export type Trip$packingItemsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the PackingItem
+   */
+  select?: Prisma.PackingItemSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the PackingItem
+   */
+  omit?: Prisma.PackingItemOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.PackingItemInclude<ExtArgs> | null
+  where?: Prisma.PackingItemWhereInput
+  orderBy?: Prisma.PackingItemOrderByWithRelationInput | Prisma.PackingItemOrderByWithRelationInput[]
+  cursor?: Prisma.PackingItemWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.PackingItemScalarFieldEnum | Prisma.PackingItemScalarFieldEnum[]
 }
 
 /**

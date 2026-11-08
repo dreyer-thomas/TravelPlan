@@ -60,13 +60,16 @@ FR47: Users are warned, on the day and in the trip overview, when a day's plan c
 FR48: Users who can plan a trip can park an activity of a day in the bucket list, keeping all its data; the day is recomputed and the parking can be undone.
 FR49: When applying AI suggestions, users choose for each selected suggestion whether to schedule it or park it in the bucket list.
 FR50: Users can see on the trip overview the planned distance of the whole trip (sum of known kilometres) and a per-mode breakdown with kilometres, number of legs and travel time; only legs the day shows are counted.
-FR51: Users can send a day's plan, with a link to the day and the day's document packet attached, to their own account's email address for offline use.
+FR51: Users can send a day's plan, including its take-along packing items, with a link to the day and the day's document packet attached, to their own account's email address for offline use.
 FR52: Users can connect an AI assistant to their account through a connector (sign-in and consent) and see and revoke connected assistants.
-FR53: A connected assistant can read every trip the user may plan (owner/contributor): days, activities, stays, legs, bucket list, costs, links, documents, images. View-only trips are invisible to it.
-FR54: A connected assistant can create, change, delete, reorder, park and schedule activities, and manage stays, legs, costs and links, under the app's rules; it cannot create, rename, re-date or delete trips, change budgets, or manage members.
+FR53: A connected assistant can read every trip the user may plan (owner/contributor): days, activities, stays, legs, bucket list, packing list, costs, links, documents, images. View-only trips are invisible to it.
+FR54: A connected assistant can create, change, delete, reorder, park and schedule activities, and manage stays, legs, costs, links and the packing list, under the app's rules; it cannot create, rename, re-date or delete trips, change budgets, or manage members.
 FR55: A connected assistant can apply a whole day plan in one step (append or replace), with travel legs; the day is recomputed.
 FR56: A connected assistant can download documents and images and attach new ones to activities and stays, under the app's types and limits.
 FR57: Entries created or changed through a connector show a KI/AI marker until a person changes them; each connector change can be undone in one step from the app or by the assistant, unless something it touched changed since.
+FR58: Users can keep one shared packing list per trip, with items carrying a name and an optional free category; planners add, rename, recategorize, tick off and delete items (deleting an item linked to days asks first); viewers read only.
+FR59: Planners can link packing items to a day or create one from a day (it joins the trip list, unpacked); the day shows them as information only, and removing one from a day only unlinks it.
+FR60: Planners can copy packing items from any other trip they can see; copies arrive unpacked, without day links, and existing names are skipped.
 
 ### NonFunctional Requirements
 
@@ -148,13 +151,16 @@ FR47: Epic 13 - Days Planned by Duration
 FR48: Epic 14 - The Bucket List as a Parking Lot
 FR49: Epic 14 - The Bucket List as a Parking Lot
 FR50: Epic 7 - Visual Redesign — Light Cockpit System (Story 7.14, added 2026-10-19)
-FR51: Epic 9 - Travel Documents (Story 9.3, added 2026-10-21)
+FR51: Epic 9 - Travel Documents (Story 9.3, added 2026-10-21; + Story 16.3)
 FR52: Epic 15 - Plan with Claude (Stories 15.1, 15.3, added 2026-10-29)
-FR53: Epic 15 (Story 15.2)
-FR54: Epic 15 (Stories 15.4, 15.6)
+FR53: Epic 15 (Story 15.2; + Story 16.4)
+FR54: Epic 15 (Stories 15.4, 15.6; + Story 16.4)
 FR55: Epic 15 (Story 15.5)
 FR56: Epic 15 (Story 15.7)
-FR57: Epic 15 (Story 15.4; applied by 15.5-15.7)
+FR57: Epic 15 (Story 15.4; applied by 15.5-15.7; + Story 16.4)
+FR58: Epic 16 - The Packing List (Story 16.1, added 2026-11-08)
+FR59: Epic 16 (Story 16.2)
+FR60: Epic 16 (Story 16.5)
 
 ## Epic List
 
@@ -217,6 +223,10 @@ Users park what does not fit into a day, an activity or an AI suggestion, in the
 ### Epic 15: Plan with Claude — the TravelPlan Connector
 Users who plan a trip connect their AI assistant to TravelPlan once, sign in, and from then on the assistant reads the trip and writes the planned days straight into it, every change marked KI/AI and undoable, instead of being copied over by hand.
 **FRs covered:** FR52, FR53, FR54, FR55, FR56, FR57
+
+### Epic 16: The Packing List
+The travellers keep one shared packing list on the trip, tick it off while packing, and see on each day what to take along; the connected assistant works on the same list.
+**FRs covered:** FR58, FR59, FR60 (+ FR51, FR53, FR54, FR57 amendments)
 
 ## Epic 1: Secure Access & Personal Workspace
 
@@ -5059,3 +5069,182 @@ So that I do not have to read every day in full and fill my context with texts, 
 **Then** it covers an empty trip, a day without stay, a ferry day giving a `ship` section, an undrawn leg left out of the totals, a stop without position, trip totals equal to `summarizeTripTravel`, and no text fields in the answer
 
 **Out of scope:** road geometry (option C, a future story if needed); live routing; elevation.
+
+## Epic 16: The Packing List
+
+The travellers keep one shared packing list on the trip. They tick it off while packing, and each day shows what to take along that morning. Items found missing on a day go straight onto the list, and the connected assistant works on the same list.
+
+**Rulings (Tommy, 2026-11-08):** one shared list per trip; free categories with suggestions, no tags, no quantities; only the trip list has a checkbox; the day's list is information only; one item, many days; removing from a day only unlinks; deleting from the trip list removes it from every day after a confirmation; contributors can do everything; the day list goes into the day email; connector read/add/tick off/delete/link, marked KI and undoable; copying from any other TravelPlan trip; no file import or export, no per-person lists, no templates, no in-app AI suggestions. See `sprint-change-proposal-2026-11-08-packing-list.md`.
+
+**Shared rules for every story in this epic:**
+- Writes go through `packingListRepo`, never Prisma directly, and re-check access per trip: owner and contributor write, viewer reads (FR30, FR32).
+- An item's name is trimmed, 1–80 characters, and unique per trip ignoring case. A second "Taucherbrille" resolves to the existing item.
+- A category is free text, trimmed, at most 40 characters, optional. An item without a category is shown under "Sonstiges" (de) / "Other" (en). Suggested categories (localized, not stored as a fixed list): Kleidung/Clothing, Technik/Electronics, Hygiene/Toiletries, Dokumente/Documents, Medikamente/Medication, Sonstiges/Other, plus every category already used on the trip.
+- Categories are sorted alphabetically, with "Other" last. Items within a category are sorted alphabetically. A packed item stays in place and is shown ticked and struck through.
+- All UI text exists in German and English.
+
+### Story 16.1: The Trip's Packing List
+
+As a traveller packing for a trip,
+I want one shared packing list on the trip, grouped by category, that I can extend and tick off,
+So that we can collect items while planning and see while packing what is already in the suitcase.
+
+**FRs covered:** FR58, FR33 (export carries the list)
+
+**Acceptance Criteria:**
+
+**Given** a trip
+**Then** the trip overview shows a "Packliste" / "Packing list" entry with the progress ("18 von 30 eingepackt" / "18 of 30 packed"), and it opens the trip's packing list page
+**And** a trip without items shows the entry with "Noch leer" / "Empty yet"
+
+**Given** the packing list page as owner or contributor
+**Then** I can add an item with a name and an optional category (category input offers the suggestions from the shared rules)
+**And** adding a name that already exists (ignoring case) does not create a second item but highlights the existing one
+**And** I can rename an item, change its category, and tick or untick it as packed in one tap
+**And** I can delete an item. If it is linked to one or more days, a confirmation names how many days it disappears from ("Auch an 3 Tagen entfernen?" / "Also removed from 3 days?")
+
+**Given** the page
+**Then** items are grouped by category with a per-category count ("Technik 4/7")
+**And** a filter shows "Alle" / "All" or "Noch offen" / "Not packed yet", remembered per viewer in the browser
+**And** the page works one-handed at phone width (tick targets at least 44 px)
+
+**Given** a viewer
+**Then** they see the list and its progress, read-only, with no add, edit, tick or delete controls
+
+**Given** the backup export (v2 archive)
+**Then** `trip.json` carries `packingItems` (name, category, packed, the day indexes it is linked to)
+**And** importing an archive restores them. An archive without `packingItems` still imports.
+
+**Given** the test suite
+**Then** it covers add, duplicate name, rename onto an existing name (refused), category change, tick and untick, delete with and without day links, viewer read-only, empty state, and export/import round trip
+
+**Out of scope:** day links (16.2); copying from another trip (16.5); per-person lists, quantities, tags, templates.
+
+### Story 16.2: What the Day Needs
+
+As a traveller on the morning of a day,
+I want the day to show what we should take along, and to add things I notice are missing,
+So that we don't leave the swimwear behind on the beach day, and the trip list fills up over the days.
+
+**FRs covered:** FR59
+
+**Depends on:** Story 16.1.
+
+**Acceptance Criteria:**
+
+**Given** the day view
+**Then** a "Mitnehmen" / "Take along" section lists the items linked to that day, grouped by category, as information only (no checkbox)
+**And** each item shows whether it is packed on the trip list (a small packed mark) so a missing item stands out **[default]**
+**And** a day without items shows the section collapsed with an "Hinzufügen" / "Add" action for planners, and nothing for viewers
+
+**Given** "Add" on a day, as owner or contributor
+**Then** a picker searches the trip's packing list. Picking an item links it to the day.
+**And** typing a name that does not exist offers "„Taucherbrille“ neu anlegen" / "Create 'Snorkel mask'" with an optional category. The new item lands on the trip list unpacked and is linked to the day.
+**And** typing an existing name (ignoring case) links the existing item, never a duplicate
+
+**Given** "Remove from this day" on an item in the day section
+**Then** only the link to this day is removed; the item stays on the trip list and on other days
+**And** no confirmation is asked (it can be re-added in one step)
+
+**Given** the trip's packing list page
+**Then** each item shows the days it is linked to (short dates) **[default]**
+
+**Given** the trip loses days (re-dated shorter)
+**Then** links to the removed days disappear and the items stay
+
+**Given** the test suite
+**Then** it covers linking an existing item, creating from the day, duplicate name linking the existing item, unlinking, an item on several days, deleting from the trip list removing every link, a removed day, and viewer read-only
+
+**Out of scope:** a per-day checkbox; linking items to activities instead of days.
+
+### Story 16.3: Take-Along in the Day Email
+
+As a traveller who reads the day offline in my mail app,
+I want the day's take-along list in the day email,
+So that I see it in the morning without opening the app.
+
+**FRs covered:** FR51 (amended)
+
+**Depends on:** Story 16.2.
+
+**Acceptance Criteria:**
+
+**Given** a day with linked packing items
+**When** the day email is built (HTML and text)
+**Then** it contains a "Mitnehmen" / "Take along" section after the day's plan, grouped by category, in the email's UI language
+**And** a day without items has no such section (no empty heading)
+
+**Given** the test suite
+**Then** it covers both languages, HTML and text, a day without items, and HTML escaping of item names and categories
+
+**Out of scope:** a separate packing email; the trip list in the email.
+
+### Story 16.4: The Packing List through the Connector
+
+As someone planning with Claude,
+I want Claude to read, add, tick off, delete and link packing items,
+So that Claude can draft the list from the trip's activities, places and season, and keep it current with me.
+
+**FRs covered:** FR53, FR54 (packing list, amended 2026-11-08), FR57
+
+**Depends on:** Stories 16.1, 16.2, 15.4.
+
+**Acceptance Criteria:**
+
+**Given** `get_packing_list(tripId, dayId?)`, read-only
+**Then** without `dayId` it returns every item: `id`, `name`, `category` (or null), `packed`, `dayIds`, `updatedAt`, `aiChanged`; with `dayId` only the items linked to that day
+**And** `get_trip` gains `packing: { total, packed }`, and `get_day` gains `packingItems` (id, name, category, packed)
+
+**Given** `add_packing_items(tripId, items: [{ name, category? }], dayId?)` with 1–50 items
+**Then** each name that exists (ignoring case) resolves to the existing item and is not duplicated; new names create unpacked items
+**And** with `dayId` every resolved item is linked to that day
+**And** the answer lists per input which item it resolved to and whether it was created or existed
+
+**Given** `update_packing_item(tripId, itemId, updatedAt, name?, category?, packed?, addDayIds?, removeDayIds?)`
+**Then** it changes only the given fields, under the shared rules (a rename onto an existing name is refused)
+**And** a stale `updatedAt` answers "Packing item changed since you read it; read the list again" and writes nothing
+
+**Given** `delete_packing_item(tripId, itemId)`
+**Then** it deletes the item and every day link (the confirmation of the UI is the model's job; the description says it removes the item from every day)
+
+**Given** every write here
+**Then** it follows the 15.4 rules: one `ai_changes` entry (`tripDayId` null, or the day for a day-scoped add), *not found* for trips the user cannot write, the shared rate limit
+**And** `packing_items.ai_changed_at` is set by a connector write and cleared by an app write, and the item shows the KI/AI badge while it is set
+**And** every write is undoable through `undo_ai_change` and from the app, unless the item changed since, with a packing receipt (the items' prior state and day links) **[default; FR57]**
+**And** the packing list page shows the AI-changes notice for packing changes (list, undo, OK), in the style of the day view's notice **[default]**
+
+**Given** the test suite
+**Then** it covers reading the whole list and a day's list, a batch add with an existing name, a day-scoped add, tick, rename refused on a duplicate, link and unlink days, delete, a stale `updatedAt`, undo of each write, badge set and cleared, and a view-only trip answering *not found*
+
+**Given** the production server
+**When** deployed (Tommy, manual)
+**Then** "Make a packing list for this trip and put the beach things on the beach days" in Claude produces items with KI badges, linked to the right days, and undo in the app removes them
+
+**Out of scope:** an in-app AI suggestion feature; copying between trips as a dedicated tool (the assistant reads one list and adds to the other).
+
+### Story 16.5: Copy from Another Trip
+
+As a traveller starting a new trip,
+I want to take over items from another trip's packing list,
+So that I don't type the swimwear and chargers again for every trip.
+
+**FRs covered:** FR60
+
+**Depends on:** Story 16.1.
+
+**Acceptance Criteria:**
+
+**Given** the packing list page as owner or contributor
+**When** I choose "Aus anderer Reise übernehmen" / "Copy from another trip"
+**Then** I can choose any other trip I can see (owner, contributor or viewer), newest first, showing name and dates
+**And** I see that trip's items grouped by category, all preselected, with select all / none per category
+
+**When** I confirm
+**Then** the selected items are added unpacked, with their category and without day links
+**And** names that already exist on this trip (ignoring case) are skipped, and the result says how many were added and how many already existed
+**And** the source trip is never changed
+
+**Given** the test suite
+**Then** it covers copying all, a partial selection, duplicates skipped, categories kept, packed state and day links not copied, a viewer-only source trip allowed, and a source trip the user cannot see refused
+
+**Out of scope:** file import and export (handled by the assistant through the connector); saved templates.

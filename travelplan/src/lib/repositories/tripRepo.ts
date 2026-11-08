@@ -21,6 +21,7 @@ import {
 } from "@/lib/trips/legacySchedule";
 import { buildScheduleInput, derivePlanConflicts, type DayPlanConflict } from "@/lib/trips/planConflicts";
 import { buildParkedContentJson } from "@/lib/trips/parkedItemContent";
+import { normalizePackingCategory, normalizePackingName, packingNameKey } from "@/lib/trips/packingList";
 import { parkedDayPlanItemsWhere } from "@/lib/repositories/dayPlanItemRepo";
 import {
   getTripUploadDir,
@@ -257,6 +258,8 @@ export type TripWithDays = {
   heroImageUrl: string | null;
   /** Bumped by the hero write; see `TripSummary.updatedAt` for why readers need it. */
   updatedAt: Date;
+  /** Story 16.1. The packing list's progress for the overview card, read in the same query. */
+  packing: { total: number; packed: number };
   days: TripDaySummary[];
 };
 
@@ -424,6 +427,14 @@ export type TripExportTravelSegment = {
   updatedAt: string;
 };
 
+/** Story 16.1. One packing item as the v2 backup carries it (`trip.packingItems`). */
+export type TripExportPackingItem = {
+  name: string;
+  category: string | null;
+  packed: boolean;
+  dayIndexes: number[];
+};
+
 export type TripExportPayload = {
   /**
    * Surfaced as `meta.warnings` in the manifest. Always present, `[]` when clean - an optional field
@@ -458,6 +469,12 @@ export type TripExportPayload = {
      * `trip`. Replaces `bucketListItems`, which this version no longer writes and still reads.
      */
     parkedDayPlanItems: TripExportParkedDayPlanItem[];
+    /**
+     * Story 16.1. The packing list, ordered by the name key then id (byte-stable), each with the
+     * `dayIndex`es it is linked to, ascending. Always present, `[]` when empty; additive within v2. No ids
+     * and no `aiChangedAt`: the import creates fresh rows with no marker.
+     */
+    packingItems: TripExportPackingItem[];
   };
   days: {
     id: string;
@@ -1204,6 +1221,8 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
           _count: { select: { dayPlanItems: true } },
         },
       },
+      // Story 16.1. The packing list's progress, in this query (the connector's single-pass reads count calls).
+      packingItems: { select: { packed: true } },
       _count: { select: { days: true } },
     },
   });
@@ -1262,6 +1281,10 @@ export const getTripWithDaysForUser = async (userId: string, tripId: string): Pr
     accommodationCostTotalCents,
     heroImageUrl: trip.heroImageUrl,
     updatedAt: trip.updatedAt,
+    packing: {
+      total: trip.packingItems.length,
+      packed: trip.packingItems.filter((item) => item.packed).length,
+    },
     days: trip.days.map((day, dayPosition) => {
       const accommodationName = day.accommodation?.name?.trim() ?? "";
       const orderedItems = [...day.dayPlanItems].sort(compareDayPlanItemsByOrder);
@@ -1909,6 +1932,16 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
       OR: [{ userId }, { members: { some: { userId, role: "CONTRIBUTOR" } } }],
     },
     include: {
+      // Story 16.1. The packing list with each item's linked days, in a byte-stable order.
+      packingItems: {
+        orderBy: [{ nameKey: "asc" }, { id: "asc" }],
+        select: {
+          name: true,
+          category: true,
+          packed: true,
+          days: { select: { tripDay: { select: { dayIndex: true } } } },
+        },
+      },
       // Story 14.1: the bucket list is the trip's parked activities (`tripDayId: null`); the planned
       // ones are reached through their days below, so this relation is read for the parked side only.
       // Ordering is the bucket list's (`listParkedDayPlanItemsForTrip`), so the backup matches the UI.
@@ -2543,6 +2576,12 @@ export const getTripExportForUser = async (userId: string, tripId: string): Prom
       createdAt: trip.createdAt.toISOString(),
       updatedAt: trip.updatedAt.toISOString(),
       parkedDayPlanItems,
+      packingItems: trip.packingItems.map((item) => ({
+        name: item.name,
+        category: item.category,
+        packed: item.packed,
+        dayIndexes: item.days.map((link) => link.tripDay.dayIndex).sort((left, right) => left - right),
+      })),
     },
     days,
   };
@@ -3132,6 +3171,64 @@ const droppedForeignImageWarnings = (count: number): string[] => {
 };
 
 /**
+ * Story 16.1. The packing list from `trip.packingItems`, after the days exist (links need their new ids).
+ * Entries that share a name key are merged - the first one's name and category, packed if any of them
+ * is, the union of their days - because the table allows one item per name key. Categories fold
+ * "Sonstiges"/"Other" to none and case variants to the first spelling, as the app does. No item comes back
+ * marked as an AI change. The schema has already refused a `dayIndex` the archive has no day for.
+ */
+const createImportedPackingItems = async ({
+  tx,
+  tripId,
+  items,
+}: {
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+  tripId: string;
+  items: TripImportPayloadInput["trip"]["packingItems"];
+}) => {
+  if (items.length === 0) return;
+
+  const dayIdByIndex = new Map(
+    (await tx.tripDay.findMany({ where: { tripId }, select: { id: true, dayIndex: true } })).map((day) => [day.dayIndex, day.id]),
+  );
+
+  const categorySpelling = new Map<string, string>();
+  const merged = new Map<string, { name: string; category: string | null; packed: boolean; dayIndexes: Set<number> }>();
+  for (const item of items) {
+    const name = normalizePackingName(item.name);
+    const nameKey = packingNameKey(name);
+    const existing = merged.get(nameKey);
+    if (existing) {
+      existing.packed = existing.packed || item.packed;
+      item.dayIndexes.forEach((dayIndex) => existing.dayIndexes.add(dayIndex));
+      continue;
+    }
+    let category = normalizePackingCategory(item.category);
+    if (category !== null) {
+      const key = category.toLowerCase();
+      const spelling = categorySpelling.get(key);
+      if (spelling) category = spelling;
+      else categorySpelling.set(key, category);
+    }
+    merged.set(nameKey, { name, category, packed: item.packed, dayIndexes: new Set(item.dayIndexes) });
+  }
+
+  for (const [nameKey, item] of merged) {
+    const created = await tx.packingItem.create({
+      data: { tripId, name: item.name, nameKey, category: item.category, packed: item.packed, aiChangedAt: null },
+      select: { id: true },
+    });
+    const links = [...item.dayIndexes]
+      .map((dayIndex) => dayIdByIndex.get(dayIndex))
+      .filter((tripDayId): tripDayId is string => tripDayId !== undefined)
+      .map((tripDayId) => ({ packingItemId: created.id, tripDayId }));
+    if (links.length > 0) {
+      await tx.packingItemDay.createMany({ data: links });
+    }
+  }
+};
+
+/**
  * Story 14.1. The bucket list as parked activities (`tripDayId: null`, FLEXIBLE, no times, `sortOrder`
  * 0), from both lists a backup can carry:
  *
@@ -3470,6 +3567,9 @@ const runTripImport = async ({
       // survive the overwrite and double up (Story 2.32 AC5, Story 14.1 AC12). Their files go with the
       // trip's stashed upload directory below.
       await tx.dayPlanItem.deleteMany({ where: parkedDayPlanItemsWhere(targetTrip.id) });
+      // Story 16.1. The packing list hangs off the trip, not the days, so the day delete above leaves it;
+      // without this the old items survive and the import doubles the list or hits the name-key index.
+      await tx.packingItem.deleteMany({ where: { tripId: targetTrip.id } });
 
       const days = await createImportedDays({
         tx,
@@ -3493,6 +3593,7 @@ const runTripImport = async ({
         documents,
         takenFileNames,
       });
+      await createImportedPackingItems({ tx, tripId: targetTrip.id, items: payload.trip.packingItems });
 
       return {
         trip: {
@@ -3575,6 +3676,7 @@ const runTripImport = async ({
         documents,
         takenFileNames,
       });
+      await createImportedPackingItems({ tx, tripId: createdTrip.id, items: payload.trip.packingItems });
 
       return {
         trip: {

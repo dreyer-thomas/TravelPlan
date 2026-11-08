@@ -85,6 +85,7 @@ const IMPORT_PAYLOAD: TripImportPayloadInput = {
     createdAt: "2026-02-14T12:00:00.000Z",
     updatedAt: "2026-02-14T12:00:00.000Z",
     parkedDayPlanItems: [],
+    packingItems: [],
     bucketListItems: [],
   },
   days: [
@@ -177,6 +178,7 @@ const V2_IMPORT_PAYLOAD: TripImportPayloadInput = {
     createdAt: "2026-02-14T12:00:00.000Z",
     updatedAt: "2026-02-14T12:00:00.000Z",
     parkedDayPlanItems: [],
+    packingItems: [],
     // A backup from before Story 14.1: the legacy list, which the import turns into parked activities.
     bucketListItems: [
       {

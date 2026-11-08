@@ -246,6 +246,35 @@ describe("GET /api/trips/[id]", () => {
     expect(byId.get(plain.id)).toBeNull();
   });
 
+  it("carries the packing list's progress (Story 16.1)", async () => {
+    const user = await prisma.user.create({
+      data: { email: "trip-packing-progress@example.com", passwordHash: "hashed", role: "OWNER" },
+    });
+    const token = await createSessionJwt({ sub: user.id, role: user.role });
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Packing Trip",
+      startDate: "2026-05-01T00:00:00.000Z",
+      endDate: "2026-05-02T00:00:00.000Z",
+    });
+
+    const empty = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const emptyPayload = (await empty.json()) as ApiEnvelope<{ trip: { packing: { total: number; packed: number } } }>;
+    expect(emptyPayload.data!.trip.packing).toEqual({ total: 0, packed: 0 });
+
+    await prisma.packingItem.createMany({
+      data: [
+        { tripId: trip.id, name: "Pass", nameKey: "pass", packed: true },
+        { tripId: trip.id, name: "Brille", nameKey: "brille", packed: false },
+        { tripId: trip.id, name: "Hut", nameKey: "hut", packed: true },
+      ],
+    });
+
+    const response = await GET(buildRequest(trip.id, { session: token }), routeContext(trip.id));
+    const payload = (await response.json()) as ApiEnvelope<{ trip: { packing: { total: number; packed: number } } }>;
+    expect(payload.data!.trip.packing).toEqual({ total: 3, packed: 2 });
+  });
+
   it("carries the AI marker on legs as ISO or null (Story 15.6)", async () => {
     const user = await prisma.user.create({
       data: { email: "trip-ai-leg-marker@example.com", passwordHash: "hashed", role: "OWNER" },
@@ -338,6 +367,8 @@ describe("GET /api/trips/[id]", () => {
       "heroImageUrl",
       "id",
       "name",
+      // Story 16.1. The packing list's progress for the overview card.
+      "packing",
       "plannedCostTotal",
       "startDate",
       // Added deliberately so clients can version the otherwise-stable hero image URL.

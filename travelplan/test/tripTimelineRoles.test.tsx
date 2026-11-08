@@ -184,7 +184,7 @@ describe("TripTimeline role gating", () => {
   type TripOverrides = { name: string; accessRole?: "owner" | "contributor" | "viewer" };
 
   const buildDetailResponse = (
-    trip: TripOverrides & { heroImageUrl?: string | null; updatedAt?: string },
+    trip: TripOverrides & { heroImageUrl?: string | null; updatedAt?: string; packing?: { total: number; packed: number } },
     day: { missingAccommodation: boolean; accommodation: unknown; planConflicts?: unknown[] },
   ) => ({
     data: {
@@ -205,6 +205,7 @@ describe("TripTimeline role gating", () => {
         accommodationCostTotalCents: null,
         heroImageUrl: trip.heroImageUrl ?? null,
         updatedAt: trip.updatedAt,
+        ...(trip.packing ? { packing: trip.packing } : {}),
       },
       days: [
         {
@@ -336,6 +337,47 @@ describe("TripTimeline role gating", () => {
     expect(dayCard).not.toHaveTextContent("Plan missing");
 
     vi.unstubAllGlobals();
+  });
+
+  it("shows the packing list card with its progress to every role, linking to the list (Story 16.1)", async () => {
+    for (const accessRole of ["owner", "contributor", "viewer"] as const) {
+      stubDetailFetch(
+        buildDetailResponse(
+          { name: "Packing Trip", accessRole, packing: { total: 30, packed: 18 } },
+          { missingAccommodation: true, accommodation: null },
+        ),
+      );
+      const { unmount } = renderWithProviders(<TripTimeline tripId="trip-1" />);
+
+      const card = await screen.findByTestId("trip-packing-card");
+      expect(card).toHaveTextContent("Packing list");
+      expect(screen.getByTestId("trip-packing-card-progress")).toHaveTextContent("18 of 30 packed");
+      expect(card).toHaveAttribute("href", "/trips/trip-1/packing");
+      expect(screen.getByRole("link", { name: "Open packing list, 18 of 30 packed" })).toBe(card);
+
+      unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shows 'Empty yet' on the packing card for an empty list or an older payload (Story 16.1)", async () => {
+    stubDetailFetch(
+      buildDetailResponse(
+        { name: "Empty Trip", accessRole: "viewer", packing: { total: 0, packed: 0 } },
+        { missingAccommodation: true, accommodation: null },
+      ),
+    );
+    const { unmount } = renderWithProviders(<TripTimeline tripId="trip-1" />);
+    expect(await screen.findByTestId("trip-packing-card-progress")).toHaveTextContent("Empty yet");
+    unmount();
+    vi.unstubAllGlobals();
+
+    stubDetailFetch(
+      buildDetailResponse({ name: "Old Payload", accessRole: "owner" }, { missingAccommodation: true, accommodation: null }),
+    );
+    renderWithProviders(<TripTimeline tripId="trip-1" />, { language: "de" });
+    expect(await screen.findByTestId("trip-packing-card-progress")).toHaveTextContent("Noch leer");
+    expect(screen.getByTestId("trip-packing-card")).toHaveTextContent("Packliste");
   });
 
   it("grants nothing when the payload carries no accessRole at all", async () => {

@@ -37,7 +37,7 @@ classification:
   domain: travel_planning_private
   complexity: high
   projectContext: greenfield
-lastEdited: '2026-10-29'
+lastEdited: '2026-11-08'
 editHistory:
   - date: '2026-02-12'
     changes: 'Aligned PRD to BMAD structure, resolved performance target conflict, added transport/maps MVP scope, added restore/import, contributor role, and password reset, clarified GDPR and accessibility requirements.'
@@ -63,6 +63,8 @@ editHistory:
     changes: 'Added FR52-FR57 (connect an AI assistant through an MCP connector with OAuth sign-in; it reads and writes the trips the user may plan; changes are marked KI/AI and can be undone in the app) and NFR5 (connector tokens). Added an Integration Requirements line and a GDPR note. See Sprint Change Proposal 2026-10-29 (MCP Connector).'
   - date: '2026-10-31'
     changes: 'Amended FR53, FR54, FR56 (day note and day picture through the connector). Stories 15.9, 15.10. See Sprint Change Proposal 2026-10-31 (Connector: Day and Route).'
+  - date: '2026-11-08'
+    changes: 'Added FR58-FR60 (one shared packing list per trip with free categories; take-along items per day, information only; copy from another trip). Amended FR51 (take-along items in the day email), FR53 and FR54 (packing list through the connector). See Sprint Change Proposal 2026-11-08 (Packing List).'
 ---
 
 # Product Requirements Document - TravelPlan
@@ -311,7 +313,7 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 - FR38: Users can attach documents (PDF or image files) to an accommodation entry and to a day plan item.
 - FR39: Users can see attached documents on the entry in the day timeline, open them, and delete them from the entry's dialog.
 - FR40: Users can produce an offline document packet as a single PDF containing a day's attached documents.
-- FR51: Users can send a day's plan, with a link to the day and the day's document packet attached, to the email address of their own account, so the day is available offline in their mail app. **(Added 2026-10-21)**
+- FR51: Users can send a day's plan, including the day's take-along packing items, with a link to the day and the day's document packet attached, to the email address of their own account, so the day is available offline in their mail app. **(Added 2026-10-21; amended 2026-11-08 — take-along items, Story 16.3)**
 
 ### AI Day Suggestions
 
@@ -319,11 +321,17 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 - FR45: Users can select any number of suggestions and apply them in one step. The selected suggestions become activities in visiting order along the day's route, as flexible activities with the suggested duration, appended after the day's last activity and placed under FR42, and travel legs between them in the chosen mode. The whole application can be undone in one step. **(Added 2026-10-16; amended 2026-10-17)**
 - FR49: When applying suggestions, users choose for each selected suggestion whether to schedule it on the day or park it in the bucket list. Parked suggestions keep their title, description, place, pictures and duration. **(Added 2026-10-17)**
 
+### Packing List
+
+- FR58: Users can keep one shared packing list per trip. Each item has a name and an optional free category; items are grouped by category. Users who can plan the trip can add, rename, recategorize, tick off as packed and delete items; deleting an item linked to days asks for confirmation and removes it from those days. Viewers see the list read-only. **(Added 2026-11-08 — see Sprint Change Proposal 2026-11-08, Packing List)**
+- FR59: Users who can plan a trip can link packing items to a day, or create a new item from a day (it is added to the trip's list, unpacked). The day view shows its linked items as information only, without a checkbox; removing an item from a day only unlinks it. **(Added 2026-11-08)**
+- FR60: Users who can plan a trip can copy packing items from any other trip they can see. Copied items arrive unpacked, without day links, and names already on the list are skipped. **(Added 2026-11-08)**
+
 ### Planning with an AI Assistant (Connector)
 
 - FR52: Users can connect an AI assistant to their account by adding TravelPlan as a connector in the assistant, signing in to TravelPlan and confirming the connection. Users can see their connected assistants and revoke each one. **(Added 2026-10-29 — see Sprint Change Proposal 2026-10-29, MCP Connector)**
-- FR53: A connected assistant can read every trip on which the user may plan (owner or contributor): its days (with each day's note and picture), activities with times, durations and places, stays, travel legs, the bucket list, costs, links, documents and images. Trips the user may only view are not visible to it. **(Added 2026-10-29; amended 2026-10-31 — day note and picture, Story 15.9)**
-- FR54: A connected assistant can create, change, delete, reorder, park and schedule activities, create, change and delete stays, travel legs, costs and links, and change each day's note, on those trips, under the same rules as the app (FR42, FR43, FR46-FR48, FR41). It cannot create, rename, re-date or delete a trip, change its budget, or manage its members. **(Added 2026-10-29; amended 2026-10-31 — day note and picture, Story 15.9)**
+- FR53: A connected assistant can read every trip on which the user may plan (owner or contributor): its days (with each day's note and picture), activities with times, durations and places, stays, travel legs, the bucket list, the packing list, costs, links, documents and images. Trips the user may only view are not visible to it. **(Added 2026-10-29; amended 2026-10-31 — day note and picture, Story 15.9; amended 2026-11-08 — packing list, Story 16.4)**
+- FR54: A connected assistant can create, change, delete, reorder, park and schedule activities, create, change and delete stays, travel legs, costs and links, change each day's note, and add, change, tick off, delete and link to days the items of the packing list, on those trips, under the same rules as the app (FR42, FR43, FR46-FR48, FR41). It cannot create, rename, re-date or delete a trip, change its budget, or manage its members. **(Added 2026-10-29; amended 2026-10-31 — day note and picture, Story 15.9; amended 2026-11-08 — packing list, Story 16.4)**
 - FR55: A connected assistant can apply a whole day plan in one step, either appending to the day or replacing its activities, with travel legs between them; the day is recomputed under FR42. **(Added 2026-10-29)**
 - FR56: A connected assistant can download a trip's documents and images, attach documents and images to activities and stays, and set or remove a day's picture, under the same file types and limits as the app. **(Added 2026-10-29; amended 2026-10-31 — day note and picture, Story 15.9)**
 - FR57: Every entry created or changed through a connector shows a marker ("KI" in German, "AI" in English) until a person changes it in the app. Each change made through a connector can be undone from the app, and by the assistant, in one step, unless something it touched has changed since. **(Added 2026-10-29)**

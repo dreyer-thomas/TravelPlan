@@ -157,6 +157,8 @@ export const MAX_SUPPORTED_FORMAT_VERSION = 2;
 export const MAX_IMPORT_DAYS = 7300;
 export const MAX_IMPORT_SEGMENTS_PER_DAY = 200;
 export const MAX_IMPORT_BUCKET_LIST_ITEMS = 5000;
+/** Story 16.1. The packing list (`trip.packingItems`); a real list is a few dozen items. */
+export const MAX_IMPORT_PACKING_ITEMS = 1000;
 
 /** Bounds on `meta.warnings`, which is echoed back to the client verbatim. */
 export const MAX_IMPORT_WARNINGS = 500;
