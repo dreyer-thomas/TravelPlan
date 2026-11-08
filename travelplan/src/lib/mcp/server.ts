@@ -5,6 +5,7 @@ import { registerDayPlanApplyTools } from "@/lib/mcp/tools/dayPlanApply";
 import { registerDayWriteTools } from "@/lib/mcp/tools/dayWrite";
 import { registerFileTools } from "@/lib/mcp/tools/fileTools";
 import { registerLegWriteTools } from "@/lib/mcp/tools/legWrite";
+import { registerPackingTools } from "@/lib/mcp/tools/packingTools";
 import { registerStayWriteTools } from "@/lib/mcp/tools/stayWrite";
 import { registerTripReadTools } from "@/lib/mcp/tools/tripRead";
 import { registerWhoamiTool } from "@/lib/mcp/tools/whoami";
@@ -29,5 +30,7 @@ export const createTravelPlanMcpServer = () => {
   registerFileTools(server);
   // Story 15.9.
   registerDayWriteTools(server);
+  // Story 16.4.
+  registerPackingTools(server);
   return server;
 };

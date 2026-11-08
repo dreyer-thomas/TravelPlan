@@ -47,6 +47,10 @@ const ACTION_KEYS = {
   dayNoteChanged: "trips.aiChanges.dayNoteChanged",
   dayImageSet: "trips.aiChanges.dayImageSet",
   dayImageRemoved: "trips.aiChanges.dayImageRemoved",
+  // Story 16.4. The packing list: an add's subject is the names joined, the others the item's name.
+  packingAdded: "trips.aiChanges.packingAdded",
+  packingUpdated: "trips.aiChanges.packingUpdated",
+  packingDeleted: "trips.aiChanges.packingDeleted",
 } as const;
 
 const ROW_STATUS_KEYS = {
@@ -68,20 +72,32 @@ const formatChangeTime = (iso: string, language: Language, now: Date) => {
   return `${date}, ${time}`;
 };
 
-export type AiChangesNoticeProps = {
+/**
+ * Story 16.4. `"day"` (the default) lists the changes of `dayId`, which is then required; `"packing"`
+ * lists the trip's packing list changes (`?scope=packing`, day-scoped adds included) for the packing page.
+ */
+type AiChangesNoticeScope =
+  | {
+      scope?: "day";
+      /**
+       * The day on screen. Its changes are listed; a response for a day the user has left is dropped.
+       */
+      dayId: string;
+    }
+  | { scope: "packing"; dayId?: never };
+
+export type AiChangesNoticeProps = AiChangesNoticeScope & {
   tripId: string;
-  /** The day on screen. Its changes are listed; a response for a day the user has left is dropped. */
-  dayId: string;
   /**
    * Bumped by the day view each time its day load completes (first load, another day, a reload after
    * any write). The list is read again on every bump, so it follows the user's own writes too.
    */
   refreshKey: number;
   ensureCsrfToken: () => Promise<string>;
-  /** Called after a successful undo while the user is still on the day: reload the day. */
+  /** Called after a successful undo while the user is still on the day (or the list): reload it. */
   onDayChanged: () => void;
   /** Called after any successful undo: the bucket list is the trip's, whichever day is on screen now. */
-  onBucketChanged: () => void;
+  onBucketChanged?: () => void;
   /** The outer band's styling (the day view's notice band: card background and hero gutters). */
   sx?: SxProps<Theme>;
 };
@@ -98,9 +114,13 @@ export type AiChangesNoticeProps = {
  * component: it lists several changes, each with its own undo. It goes away when the last change is undone
  * or ages out of the 14-day retention, or with OK (2026-10-31), which confirms the listed changes as seen
  * for every planner of the trip; their KI/AI badges stay.
+ *
+ * Story 16.4: with `scope="packing"` the same notice sits on the packing list page, titled "AI changed the
+ * packing list". Its "left the view" guards key on the scope instead of a day.
  */
 export default function AiChangesNotice({
   tripId,
+  scope = "day",
   dayId,
   refreshKey,
   ensureCsrfToken,
@@ -112,8 +132,12 @@ export default function AiChangesNotice({
   const theme = useTheme();
   const { tokens } = theme.palette;
   const listId = useId();
+  // What is on screen: the day, or the packing list. A response for another view is dropped.
+  const viewKey = scope === "packing" ? "packing" : `day:${dayId ?? ""}`;
+  const listQuery =
+    scope === "packing" ? "?scope=packing" : `?tripDayId=${encodeURIComponent(dayId ?? "")}`;
 
-  const [loaded, setLoaded] = useState<{ dayId: string; changes: AiChangeEntry[] } | null>(null);
+  const [loaded, setLoaded] = useState<{ viewKey: string; changes: AiChangeEntry[] } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -121,27 +145,28 @@ export default function AiChangesNotice({
   const [acknowledgeFailed, setAcknowledgeFailed] = useState(false);
   const [rowStatus, setRowStatus] = useState<Record<string, RowStatus>>({});
   // Another day on screen starts collapsed, without the previous day's row messages.
-  const [stateDayId, setStateDayId] = useState(dayId);
-  if (stateDayId !== dayId) {
-    setStateDayId(dayId);
+  const [stateViewKey, setStateViewKey] = useState(viewKey);
+  if (stateViewKey !== viewKey) {
+    setStateViewKey(viewKey);
     setExpanded(false);
     setRowStatus({});
     setAcknowledgeFailed(false);
   }
   const undoInFlightRef = useRef(false);
-  const currentDayIdRef = useRef(dayId);
+  const currentViewKeyRef = useRef(viewKey);
   useEffect(() => {
-    currentDayIdRef.current = dayId;
-  }, [dayId]);
+    currentViewKeyRef.current = viewKey;
+  }, [viewKey]);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
-        const response = await fetch(
-          `/api/trips/${encodeURIComponent(tripId)}/ai-changes?tripDayId=${encodeURIComponent(dayId)}`,
-          { method: "GET", credentials: "include", cache: "no-store" },
-        );
+        const response = await fetch(`/api/trips/${encodeURIComponent(tripId)}/ai-changes${listQuery}`, {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
         const body = (await response.json()) as ApiEnvelope<{ changes: AiChangeEntry[] }>;
         if (cancelled) return;
         const changes = body?.data?.changes;
@@ -150,7 +175,7 @@ export default function AiChangesNotice({
           return;
         }
         const newestFirst = [...changes].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-        setLoaded({ dayId, changes: newestFirst });
+        setLoaded({ viewKey, changes: newestFirst });
       } catch {
         if (!cancelled) setLoaded(null);
       }
@@ -159,12 +184,12 @@ export default function AiChangesNotice({
     return () => {
       cancelled = true;
     };
-  }, [tripId, dayId, refreshKey, reloadKey]);
+  }, [tripId, viewKey, listQuery, refreshKey, reloadKey]);
 
   const handleUndo = async (change: AiChangeEntry) => {
     if (undoInFlightRef.current) return;
     undoInFlightRef.current = true;
-    const requestedDayId = dayId;
+    const requestedViewKey = viewKey;
     setPendingId(change.id);
     const setStatus = (status: RowStatus | null) =>
       setRowStatus((current) => {
@@ -193,9 +218,9 @@ export default function AiChangesNotice({
       const code = body?.error?.code;
       const undone = response.ok && !body?.error;
 
-      if (undone) onBucketChanged();
+      if (undone) onBucketChanged?.();
       // A response for a day the user has already left is about nothing on screen.
-      if (currentDayIdRef.current !== requestedDayId) return;
+      if (currentViewKeyRef.current !== requestedViewKey) return;
 
       if (undone) {
         setStatus(null);
@@ -219,7 +244,7 @@ export default function AiChangesNotice({
       }
       setStatus("error");
     } catch {
-      if (currentDayIdRef.current === requestedDayId) setStatus("error");
+      if (currentViewKeyRef.current === requestedViewKey) setStatus("error");
     } finally {
       undoInFlightRef.current = false;
       setPendingId(null);
@@ -232,7 +257,7 @@ export default function AiChangesNotice({
    */
   const handleAcknowledge = async (changes: AiChangeEntry[]) => {
     if (acknowledging || undoInFlightRef.current) return;
-    const requestedDayId = dayId;
+    const requestedViewKey = viewKey;
     setAcknowledging(true);
     setAcknowledgeFailed(false);
     try {
@@ -243,7 +268,7 @@ export default function AiChangesNotice({
         headers: { "content-type": "application/json", "x-csrf-token": token },
         body: JSON.stringify({ changeIds: changes.map((change) => change.id) }),
       });
-      if (currentDayIdRef.current !== requestedDayId) return;
+      if (currentViewKeyRef.current !== requestedViewKey) return;
       if (response.ok) {
         setLoaded(null);
         setReloadKey((key) => key + 1);
@@ -251,13 +276,13 @@ export default function AiChangesNotice({
       }
       setAcknowledgeFailed(true);
     } catch {
-      if (currentDayIdRef.current === requestedDayId) setAcknowledgeFailed(true);
+      if (currentViewKeyRef.current === requestedViewKey) setAcknowledgeFailed(true);
     } finally {
       setAcknowledging(false);
     }
   };
 
-  if (!loaded || loaded.dayId !== dayId || loaded.changes.length === 0) {
+  if (!loaded || loaded.viewKey !== viewKey || loaded.changes.length === 0) {
     return null;
   }
 
@@ -281,7 +306,7 @@ export default function AiChangesNotice({
       >
         <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 1 }}>
           <Typography role="status" variant="body2" sx={{ color: tokens.ink, flex: "1 1 240px", minWidth: 0 }}>
-            {t("trips.aiChanges.title")} · {countText}
+            {t(scope === "packing" ? "trips.aiChanges.packingTitle" : "trips.aiChanges.title")} · {countText}
           </Typography>
           <Button
             variant="text"
@@ -352,7 +377,11 @@ export default function AiChangesNotice({
                         data-testid="ai-change-status"
                         sx={{ color: status === "error" ? theme.palette.error.main : tokens.inkSoft, mt: "2px" }}
                       >
-                        {t(ROW_STATUS_KEYS[status])}
+                        {t(
+                          status === "stale" && change.action.startsWith("packing")
+                            ? "trips.aiChanges.packingStale"
+                            : ROW_STATUS_KEYS[status],
+                        )}
                       </Typography>
                     ) : null}
                   </Box>

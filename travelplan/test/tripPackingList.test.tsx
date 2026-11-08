@@ -904,3 +904,123 @@ describe("TripPackingList category filter (Story 16.6)", () => {
     }
   });
 });
+
+describe("TripPackingList AI-changes notice (Story 16.4)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const change = {
+    id: "change-1",
+    action: "packingAdded",
+    subject: "Sonnencreme, Hut",
+    createdAt: new Date().toISOString(),
+    undoable: true,
+  };
+
+  /** The list (which loses its AI item after the undo), the packing-scoped changes and the undo. */
+  const installNoticeApi = (accessRole: "owner" | "contributor" | "viewer", undoAnswer?: () => Response) => {
+    let undone = false;
+    const calls: string[] = [];
+    stubFetch(
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestUrl(input);
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.includes("/api/auth/csrf")) return mockFetchResponse({ data: { csrfToken: "csrf" }, error: null });
+        if (url.includes("/ai-changes/change-1/undo")) {
+          if (undoAnswer) return undoAnswer();
+          undone = true;
+          return mockFetchResponse({ data: { undone: true }, error: null });
+        }
+        if (url.includes("/ai-changes")) {
+          return mockFetchResponse({ data: { changes: undone ? [] : [change] }, error: null });
+        }
+        const items = undone
+          ? [item({ id: "1", name: "Pass" })]
+          : [item({ id: "1", name: "Pass" }), item({ id: "2", name: "Sonnencreme", aiChangedAt: "2026-11-08T10:00:00.000Z" })];
+        return mockFetchResponse({ data: { accessRole, items }, error: null });
+      }),
+    );
+    return calls;
+  };
+
+  it("shows the packing-scoped notice to a writer, and Undo reloads the list", async () => {
+    const calls = installNoticeApi("contributor");
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    const notice = await screen.findByTestId("ai-changes-notice");
+    expect(notice).toHaveTextContent("AI changed the packing list");
+    expect(calls).toContain("GET /api/trips/trip-1/ai-changes?scope=packing");
+    expect(screen.getByTestId("ai-badge")).toBeInTheDocument();
+
+    await user.click(within(notice).getByTestId("ai-changes-toggle"));
+    expect(within(notice).getByTestId("ai-change-row")).toHaveTextContent("Added to the packing list: Sonnencreme, Hut");
+    await user.click(within(notice).getByRole("button", { name: "Undo" }));
+
+    await waitFor(() => expect(rowNames()).toEqual(["Pass"]));
+    expect(screen.queryByTestId("ai-changes-notice")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("ai-badge")).not.toBeInTheDocument();
+  });
+
+  it("speaks German, and says the list changed since for a stale undo", async () => {
+    installNoticeApi("owner", () =>
+      mockFetchResponse({ data: null, error: { code: "undo_stale", message: "stale" } }, { status: 409 }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />, { language: "de" });
+
+    const notice = await screen.findByTestId("ai-changes-notice");
+    expect(notice).toHaveTextContent("KI hat die Packliste geändert");
+    await user.click(within(notice).getByTestId("ai-changes-toggle"));
+    expect(within(notice).getByTestId("ai-change-row")).toHaveTextContent("Zur Packliste hinzugefügt: Sonnencreme, Hut");
+    await user.click(within(notice).getByRole("button", { name: "Rückgängig" }));
+    expect(await within(notice).findByTestId("ai-change-status")).toHaveTextContent(
+      "Die Packliste hat sich seitdem geändert; diese Änderung kann nicht mehr rückgängig gemacht werden.",
+    );
+  });
+
+  it("reads the changes again after the person's own edit, so an edited item's change shows as stale", async () => {
+    let changesReads = 0;
+    let packed = false;
+    stubFetch(
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestUrl(input);
+        if (url.includes("/api/auth/csrf")) return mockFetchResponse({ data: { csrfToken: "csrf" }, error: null });
+        if (url.includes("/ai-changes")) {
+          changesReads += 1;
+          return mockFetchResponse({ data: { changes: [{ ...change, undoable: !packed }] }, error: null });
+        }
+        if (init?.method === "PATCH") {
+          packed = true;
+          return mockFetchResponse({ data: { item: item({ id: "2", name: "Sonnencreme", packed: true }) }, error: null });
+        }
+        return mockFetchResponse({
+          data: { accessRole: "owner", items: [item({ id: "2", name: "Sonnencreme", aiChangedAt: "2026-11-08T10:00:00.000Z" })] },
+          error: null,
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+
+    await screen.findByTestId("ai-changes-notice");
+    const readsBefore = changesReads;
+    await user.click(screen.getByRole("checkbox", { name: /Sonnencreme/ }));
+    await waitFor(() => expect(changesReads).toBeGreaterThan(readsBefore));
+  });
+
+  it("shows no notice to a viewer and does not ask for the changes", async () => {
+    const calls = installNoticeApi("viewer");
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    expect(await screen.findByTestId("packing-progress")).toBeInTheDocument();
+    expect(screen.queryByTestId("ai-changes-notice")).not.toBeInTheDocument();
+    expect(calls.some((call) => call.includes("/ai-changes"))).toBe(false);
+  });
+});

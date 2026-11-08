@@ -13,9 +13,17 @@ import {
   type DayChangeReceipt,
 } from "@/lib/trips/dayChangeReceipt";
 import { runDayChangeUndo } from "@/lib/trips/dayChangeUndo";
+import { undoPackingChangeForTrip } from "@/lib/repositories/packingListRepo";
+import {
+  fromPackingChangeReceiptWire,
+  isPackingChangeReceipt,
+  toPackingChangeReceiptWire,
+  type PackingChangeReceipt,
+} from "@/lib/trips/packingChangeReceipt";
 import { removeManagedMediaFile } from "@/lib/trips/mediaCleanup";
 import { getTripDayUploadDir, isExternalMediaUrl } from "@/lib/trips/uploadPaths";
 import { storedDayChangeReceiptSchema } from "@/lib/validation/dayChangeReceiptSchemas";
+import { storedPackingChangeReceiptSchema } from "@/lib/validation/packingChangeReceiptSchemas";
 
 /**
  * Story 15.4. The connector's stored changes (`ai_changes`): one row per write tool call, inserted in the
@@ -51,6 +59,11 @@ export const AI_CHANGE_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
  * Story 15.9 adds the day's own note and picture: `dayNoteChanged` (`subject`: the new note, or the previous
  * one when cleared), `dayImageSet` and `dayImageRemoved` (`subject`: the picture's file name), each capped
  * at 120 code points.
+ *
+ * Story 16.4 adds the packing list: `packingAdded` (`subject`: the stored names joined by ", ", capped at 120
+ * code points), `packingUpdated` and `packingDeleted` (`subject`: the item's name). Their receipt is the
+ * packing receipt (`packingChangeReceipt.ts`), not the day receipt; `tripDayId` is null except for an add
+ * to one day.
  */
 export type AiChangeAction =
   | "created"
@@ -71,7 +84,13 @@ export type AiChangeAction =
   | "fileDeleted"
   | "dayNoteChanged"
   | "dayImageSet"
-  | "dayImageRemoved";
+  | "dayImageRemoved"
+  | "packingAdded"
+  | "packingUpdated"
+  | "packingDeleted";
+
+/** Story 16.4. The packing list's actions, for the packing page's notice (`?scope=packing`). */
+export const PACKING_AI_CHANGE_ACTIONS: AiChangeAction[] = ["packingAdded", "packingUpdated", "packingDeleted"];
 
 export type AiChangeEntry = {
   id: string;
@@ -92,7 +111,7 @@ export type AiChangeUndoResult =
   | { status: "not_found" }
   | { status: "already_undone" }
   | { status: "unavailable" }
-  | { status: "stale" };
+  | { status: "stale"; scope: "day" | "packing" };
 
 const retentionCutoff = (now: Date) => new Date(now.getTime() - AI_CHANGE_RETENTION_MS);
 
@@ -160,11 +179,21 @@ export class UnstorableReceiptError extends Error {
  * invalid for this trip.
  */
 const storableReceiptJson = (
-  receipt: DayChangeReceipt | null,
+  receipt: DayChangeReceipt | PackingChangeReceipt | null,
   tripId: string,
   requireReceipt = false,
 ): string | null => {
   if (!receipt) return null;
+  if (isPackingChangeReceipt(receipt)) {
+    // Story 16.4. The packing undo does its own ownership checks against the trip at undo time.
+    const wire = toPackingChangeReceiptWire(receipt);
+    if (!storedPackingChangeReceiptSchema.safeParse(wire).success) {
+      if (requireReceipt) throw new UnstorableReceiptError();
+      console.error("ai-changes: packing receipt failed the stored schema; stored without receipt");
+      return null;
+    }
+    return JSON.stringify(wire);
+  }
   if (requireReceipt && findInvalidity(receipt, tripId) !== null) throw new UnstorableReceiptError();
   const wire = toDayChangeReceiptWire(receipt);
   if (!storedDayChangeReceiptSchema.safeParse(wire).success) {
@@ -189,7 +218,8 @@ export const insertAiChangeInTransaction = async (
     clientId: string;
     action: AiChangeAction;
     subject: string | null;
-    receipt: DayChangeReceipt | null;
+    /** Story 16.4: or the packing receipt. */
+    receipt: DayChangeReceipt | PackingChangeReceipt | null;
     /** Story 15.5. Refuse (throw, rolling the write back) rather than store a receipt the undo cannot read. */
     requireReceipt?: boolean;
     now?: Date;
@@ -215,11 +245,13 @@ export const insertAiChangeInTransaction = async (
 
 /**
  * Newest first, within retention, undone ones included unless `notUndone`, acknowledged ones unless
- * `notAcknowledged`. `tripDayId` narrows to one day's changes; `take` caps the number of rows.
+ * `notAcknowledged`. `tripDayId` narrows to one day's changes; `take` caps the number of rows. Story 16.4:
+ * `actions` narrows to those actions (the packing page's notice).
  */
 export const listAiChangesForTrip = async (params: {
   tripId: string;
   tripDayId?: string;
+  actions?: AiChangeAction[];
   now: Date;
   notUndone?: boolean;
   notAcknowledged?: boolean;
@@ -229,6 +261,7 @@ export const listAiChangesForTrip = async (params: {
     where: {
       tripId: params.tripId,
       ...(params.tripDayId !== undefined ? { tripDayId: params.tripDayId } : {}),
+      ...(params.actions !== undefined ? { action: { in: params.actions } } : {}),
       ...(params.notUndone ? { undoneAt: null } : {}),
       ...(params.notAcknowledged ? { acknowledgedAt: null } : {}),
       createdAt: { gte: retentionCutoff(params.now) },
@@ -275,15 +308,28 @@ export const findAiChangeForTrip = async (params: {
   return row ? toEntry(row) : null;
 };
 
-const parseStoredReceipt = (receiptJson: string): DayChangeReceipt | null => {
+type StoredReceipt = { type: "day"; receipt: DayChangeReceipt } | { type: "packing"; receipt: PackingChangeReceipt };
+
+/** Story 16.4. A stored receipt is a day receipt or, keyed on `kind`, a packing receipt. */
+const parseStoredReceipt = (receiptJson: string): StoredReceipt | null => {
   let raw: unknown;
   try {
     raw = JSON.parse(receiptJson);
   } catch {
     return null;
   }
+  if (typeof raw === "object" && raw !== null && "kind" in raw && raw.kind === "packingChanged") {
+    const parsed = storedPackingChangeReceiptSchema.safeParse(raw);
+    return parsed.success ? { type: "packing", receipt: fromPackingChangeReceiptWire(parsed.data) } : null;
+  }
   const parsed = storedDayChangeReceiptSchema.safeParse(raw);
-  return parsed.success ? fromDayChangeReceiptWire(parsed.data) : null;
+  return parsed.success ? { type: "day", receipt: fromDayChangeReceiptWire(parsed.data) } : null;
+};
+
+/** The sweep and the kept-picture check only ever see day receipts (`KEPT_FILE_ACTIONS`). */
+const parseStoredDayReceipt = (receiptJson: string): DayChangeReceipt | null => {
+  const stored = parseStoredReceipt(receiptJson);
+  return stored?.type === "day" ? stored.receipt : null;
 };
 
 /**
@@ -325,7 +371,7 @@ const pendingDayChangeKeepsUrl = async (tripDayId: string, url: string) => {
     select: { receiptJson: true },
   });
   return rows.some((row) => {
-    const receipt = row.receiptJson === null ? null : parseStoredReceipt(row.receiptJson);
+    const receipt = row.receiptJson === null ? null : parseStoredDayReceipt(row.receiptJson);
     return receipt?.edited.kind === "dayDetailsChanged" && receipt.edited.previous.imageUrl === url;
   });
 };
@@ -358,7 +404,7 @@ export const sweepExpiredFileDeletions = async (now: Date = new Date()): Promise
   });
   let removed = 0;
   for (const row of rows) {
-    const receipt = row.receiptJson === null ? null : parseStoredReceipt(row.receiptJson);
+    const receipt = row.receiptJson === null ? null : parseStoredDayReceipt(row.receiptJson);
     const deleted = await prisma.aiChange.deleteMany({ where: { id: row.id, undoneAt: null } });
     if (deleted.count !== 1) continue;
     removed += 1;
@@ -414,19 +460,24 @@ export const undoAiChange = async (params: {
   if (!row) return { status: "not_found" };
   if (row.undoneAt) return { status: "already_undone" };
   if (row.receiptJson === null) return { status: "unavailable" };
-  const receipt = parseStoredReceipt(row.receiptJson);
-  if (!receipt) return { status: "unavailable" };
+  const stored = parseStoredReceipt(row.receiptJson);
+  if (!stored) return { status: "unavailable" };
 
-  const result = await runDayChangeUndo({
-    userId,
-    tripId,
-    receipt,
-    logContext: "ai-changes undo",
-    inTransaction: async (tx) => {
-      const marked = await tx.aiChange.updateMany({ where: { id: row.id, undoneAt: null }, data: { undoneAt: now } });
-      if (marked.count !== 1) throw new UndoStaleError("change already undone");
-    },
-  });
+  const markUndone = async (tx: TransactionClient) => {
+    const marked = await tx.aiChange.updateMany({ where: { id: row.id, undoneAt: null }, data: { undoneAt: now } });
+    if (marked.count !== 1) throw new UndoStaleError("change already undone");
+  };
+  // Story 16.4. A packing receipt has its own undo; both answer the same four outcomes.
+  const result =
+    stored.type === "packing"
+      ? await undoPackingChangeForTrip({ userId, tripId, receipt: stored.receipt, inTransaction: markUndone })
+      : await runDayChangeUndo({
+          userId,
+          tripId,
+          receipt: stored.receipt,
+          logContext: "ai-changes undo",
+          inTransaction: markUndone,
+        });
 
   switch (result.status) {
     case "undone":
@@ -438,7 +489,7 @@ export const undoAiChange = async (params: {
     case "stale": {
       // A concurrent undo of the same change got there first: say so rather than "stale".
       const after = await prisma.aiChange.findUnique({ where: { id: row.id }, select: { undoneAt: true } });
-      return after?.undoneAt ? { status: "already_undone" } : { status: "stale" };
+      return after?.undoneAt ? { status: "already_undone" } : { status: "stale", scope: stored.type };
     }
     default: {
       const unhandled: never = result;

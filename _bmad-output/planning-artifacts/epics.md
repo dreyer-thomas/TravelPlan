@@ -67,9 +67,9 @@ FR54: A connected assistant can create, change, delete, reorder, park and schedu
 FR55: A connected assistant can apply a whole day plan in one step (append or replace), with travel legs; the day is recomputed.
 FR56: A connected assistant can download documents and images and attach new ones to activities and stays, under the app's types and limits.
 FR57: Entries created or changed through a connector show a KI/AI marker until a person changes them; each connector change can be undone in one step from the app or by the assistant, unless something it touched changed since.
-FR58: Users can keep one shared packing list per trip, with items carrying a name and an optional free category; planners add, rename, recategorize, tick off and delete items (deleting an item linked to days asks first); viewers read only.
+FR58: Users can keep one shared packing list per trip, with items carrying a name, an optional free category and any number of free tags; planners add, rename, recategorize, tag, tick off, mark as not needed this time and delete items (deleting an item linked to days asks first); not-needed items stay on the list but count neither as open nor as packed and cannot be linked to days; everyone can narrow the list by category and tag; viewers read only.
 FR59: Planners can link packing items to a day or create one from a day (it joins the trip list, unpacked); the day shows them as information only, and removing one from a day only unlinks it.
-FR60: Planners can copy packing items from any other trip they can see; copies arrive unpacked, without day links, and existing names are skipped.
+FR60: Planners can copy packing items from any other trip they can see; copies arrive unpacked, needed, without day links but with their tags, and existing names are skipped.
 
 ### NonFunctional Requirements
 
@@ -158,9 +158,9 @@ FR54: Epic 15 (Stories 15.4, 15.6; + Story 16.4)
 FR55: Epic 15 (Story 15.5)
 FR56: Epic 15 (Story 15.7)
 FR57: Epic 15 (Story 15.4; applied by 15.5-15.7; + Story 16.4)
-FR58: Epic 16 - The Packing List (Story 16.1, added 2026-11-08)
+FR58: Epic 16 - The Packing List (Story 16.1, added 2026-11-08; + Stories 16.6, 16.7, 16.8)
 FR59: Epic 16 (Story 16.2)
-FR60: Epic 16 (Story 16.5)
+FR60: Epic 16 (Story 16.5; amended by 16.7, 16.8)
 
 ## Epic List
 
@@ -225,7 +225,7 @@ Users who plan a trip connect their AI assistant to TravelPlan once, sign in, an
 **FRs covered:** FR52, FR53, FR54, FR55, FR56, FR57
 
 ### Epic 16: The Packing List
-The travellers keep one shared packing list on the trip, tick it off while packing, narrow it to their own categories, and see on each day what to take along; the connected assistant works on the same list.
+The travellers keep one shared packing list on the trip, tick it off while packing, tag what still needs doing, set aside what this trip doesn't need, narrow it to their own categories or tags, and see on each day what to take along; the connected assistant works on the same list.
 **FRs covered:** FR58, FR59, FR60 (+ FR51, FR53, FR54, FR57 amendments)
 
 ## Epic 1: Secure Access & Personal Workspace
@@ -5074,7 +5074,9 @@ So that I do not have to read every day in full and fill my context with texts, 
 
 The travellers keep one shared packing list on the trip. They tick it off while packing, and each day shows what to take along that morning. Items found missing on a day go straight onto the list, and the connected assistant works on the same list.
 
-**Rulings (Tommy, 2026-11-08):** one shared list per trip; free categories with suggestions, no tags, no quantities; only the trip list has a checkbox; the day's list is information only; one item, many days; removing from a day only unlinks; deleting from the trip list removes it from every day after a confirmation; contributors can do everything; the day list goes into the day email; connector read/add/tick off/delete/link, marked KI and undoable; copying from any other TravelPlan trip; no file import or export, no per-person lists, no templates, no in-app AI suggestions. See `sprint-change-proposal-2026-11-08-packing-list.md`.
+**Rulings (Tommy, 2026-11-08):** one shared list per trip; free categories with suggestions, no tags (reversed later the same day, see below), no quantities; only the trip list has a checkbox; the day's list is information only; one item, many days; removing from a day only unlinks; deleting from the trip list removes it from every day after a confirmation; contributors can do everything; the day list goes into the day email; connector read/add/tick off/delete/link, marked KI and undoable; copying from any other TravelPlan trip; no file import or export, no per-person lists, no templates, no in-app AI suggestions. See `sprint-change-proposal-2026-11-08-packing-list.md`.
+
+**Amended rulings (Tommy, 2026-11-08, later the same day):** items can carry **free tags** after all, several per item, for things still to do before packing ("Kaufen", "Reparieren", "Aufladen", "Zoll anmelden", and whatever else comes up). **"Nicht nötig" is a fixed item state, not a tag**: one master list is carried from trip to trip (the summer trip's swimwear stays on the winter trip's list without counting there). Tags show on the day list and in the day email. Ticking an item packed does not remove its tags. Copying from another trip carries the tags and resets "Nicht nötig". Two stories, 16.7 (Nicht nötig) and 16.8 (Tags), sequenced after 16.4 and before 16.5. Still no quantities, no per-person lists.
 
 **Shared rules for every story in this epic:**
 - Writes go through `packingListRepo`, never Prisma directly, and re-check access per trip: owner and contributor write, viewer reads (FR30, FR32).
@@ -5228,9 +5230,9 @@ As a traveller starting a new trip,
 I want to take over items from another trip's packing list,
 So that I don't type the swimwear and chargers again for every trip.
 
-**FRs covered:** FR60
+**FRs covered:** FR60 (amended 2026-11-08)
 
-**Depends on:** Story 16.1.
+**Depends on:** Story 16.1; Stories 16.7 and 16.8 (sequenced after both, so the copy carries their fields from the start).
 
 **Acceptance Criteria:**
 
@@ -5240,12 +5242,13 @@ So that I don't type the swimwear and chargers again for every trip.
 **And** I see that trip's items grouped by category, all preselected, with select all / none per category
 
 **When** I confirm
-**Then** the selected items are added unpacked, with their category and without day links
+**Then** the selected items are added unpacked, with their category and tags and without day links
+**And** they arrive as needed, even if they were "Nicht nötig" on the source trip (the summer trip's swimwear is needed again next summer); the source trip's not-needed items are listed and preselected like all others **[default]**
 **And** names that already exist on this trip (ignoring case) are skipped, and the result says how many were added and how many already existed
 **And** the source trip is never changed
 
 **Given** the test suite
-**Then** it covers copying all, a partial selection, duplicates skipped, categories kept, packed state and day links not copied, a viewer-only source trip allowed, and a source trip the user cannot see refused
+**Then** it covers copying all, a partial selection, duplicates skipped, categories and tags kept, packed state, "Nicht nötig" and day links not copied, a viewer-only source trip allowed, and a source trip the user cannot see refused
 
 **Out of scope:** file import and export (handled by the assistant through the connector); saved templates.
 
@@ -5292,3 +5295,105 @@ So that a long list shows only what I am responsible for, and "Noch offen" tells
 **Then** it covers no selection, one and several categories, the "Other" group, combination with "Noch offen", the selection's progress line, the remembered selection per trip including a vanished category, a single category hiding the chips, the add-form prefill, the added-outside-the-selection case, and a viewer using the filter
 
 **Out of scope:** a per-person assignment of categories or items ("who packs what" stays out, as ruled for Epic 16); a category filter on the day's "Take along" section (it is short); filtering in the day email or the connector.
+
+### Story 16.7: Not Needed This Time
+
+As a traveller who keeps one packing list going from trip to trip,
+I want to mark an item as not needed on this trip without deleting it,
+So that the summer swimwear stays on the list for later but doesn't clutter "Noch offen" or the progress of the winter trip.
+
+**FRs covered:** FR58 (not needed, amended 2026-11-08), FR53, FR54 (connector), FR57
+
+**Depends on:** Stories 16.1, 16.2, 16.4. **Sequenced** after 16.4, before 16.8 and 16.5. Added 2026-11-08 at Tommy's request.
+
+**Acceptance Criteria:**
+
+**Given** an item on the trip's packing list, as owner or contributor
+**Then** I can mark it "Diesmal nicht nötig" / "Not needed this time", and mark a not-needed item "Doch nötig" / "Needed after all"
+**And** an item is in exactly one of three states: open, packed, not needed. Marking a packed item not needed unticks it; marking it needed again returns it as open **[default]**
+
+**Given** not-needed items on the list
+**Then** they are shown after all categories in a collapsed section "Nicht nötig (4)" / "Not needed (4)", grouped by category inside, greyed out, without a checkbox **[default]**
+**And** they count neither in the progress ("18 von 30 eingepackt" counts needed items only, on the page and on the trip overview entry), nor in the per-category counts, nor in 16.6's selection progress
+**And** the "Noch offen" filter does not show them; the category filter (16.6) applies to the section as well
+**And** when every item on the list is not needed, the overview entry shows "0 von 0 eingepackt · 4 nicht nötig" / "0 of 0 packed · 4 not needed" instead of "Noch leer" / "Empty yet" **[default]**
+
+**Given** an item linked to one or more days
+**When** I mark it not needed
+**Then** a confirmation names how many days it disappears from ("Von 3 Tagen entfernen?" / "Remove from 3 days?"), and confirming removes those day links **[default]**
+
+**Given** a day's "Add" picker (16.2)
+**Then** it does not offer not-needed items in the search results
+**And** typing the exact name of a not-needed item (ignoring case) offers "„Badehose“ wieder als nötig markieren und hinzufügen" / "Mark 'Swimwear' needed and add", never a duplicate **[default]**
+
+**Given** adding an item on the trip list with the name of a not-needed item
+**Then** the not-needed section opens and the existing item is highlighted, as for any existing name (16.1)
+
+**Given** a viewer
+**Then** they see the not-needed section read-only, without the marking actions
+
+**Given** the backup export (v2 archive)
+**Then** each item in `packingItems` carries `notNeeded`; an archive without it imports with `notNeeded: false`
+
+**Given** the connector (16.4)
+**Then** `get_packing_list` returns `notNeeded` per item, `get_trip`'s `packing` gains `notNeeded` (and `total`/`packed` count needed items only), `get_day` is unchanged (not-needed items are never linked)
+**And** `update_packing_item` accepts `notNeeded`, under the same rules (marking a linked item not needed removes its day links; the tool description says so), and linking a not-needed item to a day is refused with "Item is marked not needed; set notNeeded false first"
+**And** the change is marked KI and undoable with the packing receipt, which restores the prior state and the removed day links
+
+**Given** the test suite
+**Then** it covers marking and unmarking, a packed item becoming not needed, progress and counts excluding not-needed items on the page and the overview entry, the "Noch offen" and category filters, the collapsed section, removal of day links after confirmation, the day picker hiding the item and the exact-name re-add, viewer read-only, export/import with and without the field, and the connector read, write, refused link and undo
+
+**Out of scope:** a reason or note for "not needed"; automatic suggestions of what isn't needed (Claude does that through the connector); hiding not-needed items in the day email (they are never linked to a day).
+
+### Story 16.8: Tags on Packing Items
+
+As a traveller preparing the trip,
+I want to put tags like "Kaufen", "Reparieren", "Aufladen" or "Zoll anmelden" on packing items, and filter by them,
+So that one tap shows me everything I still have to buy, or charge, before I can pack it.
+
+**FRs covered:** FR58 (tags, amended 2026-11-08), FR59 (tags shown on the day), FR51 (tags in the day email), FR53, FR54 (connector), FR57
+
+**Depends on:** Stories 16.1, 16.2, 16.3, 16.4, 16.6, 16.7. **Sequenced** after 16.7, before 16.5. Added 2026-11-08 at Tommy's request.
+
+**Tag rules:**
+- A tag is free text, trimmed, 1–30 characters. An item carries 0 to 10 tags **[default]**, unique per item ignoring case.
+- Tags are matched ignoring case across the trip; the first spelling used on the trip is shown (like category groups) **[default]**.
+- Suggested tags (localized, not stored as a fixed list): Kaufen/Buy, Reparieren/Repair, Aufladen/Charge, Zoll anmelden/Declare at customs, plus every tag already used on the trip.
+- Ticking an item packed, or marking it not needed, keeps its tags; tags are removed by hand only.
+
+**Acceptance Criteria:**
+
+**Given** the packing list page, as owner or contributor
+**Then** the add form and the item's edit take tags (several, with the suggestions above; Enter or comma adds one)
+**And** each tag on an item can be removed in one tap from the item's edit
+
+**Given** items with tags
+**Then** each item shows its tags as small chips after its name, in the soft `badge-pill` variant, on the trip list, in the not-needed section and in the day's "Take along" section (16.2)
+**And** the chips wrap below the name at phone width rather than truncating it
+
+**Given** at least one tag on the trip
+**Then** a row of tag chips appears below 16.6's category chips (or alone, if there is only one category group), one per tag on the trip, sorted alphabetically, with the same toggling, horizontal scrolling, 44 px targets and "Alle Tags" / "All tags" reset
+**And** with several tags selected, an item with any of them is shown; tags combine with the category selection and "Noch offen" (selected categories AND any selected tag AND not packed)
+**And** the selection progress line (16.6) and the "all packed" message apply to the combined selection
+**And** the tag selection is remembered per viewer in the browser, per trip, like the category selection; vanished tags are ignored
+**And** with exactly one tag selected, the add form prefills it **[default]**
+
+**Given** the day email (16.3)
+**Then** each take-along item shows its tags after the name ("Powerbank (Aufladen)"), in HTML and text, escaped
+
+**Given** a viewer
+**Then** they see the tags and can use the tag filter, without editing controls
+
+**Given** the backup export (v2 archive)
+**Then** each item in `packingItems` carries `tags` (array of strings); an archive without it imports with no tags
+
+**Given** the connector (16.4)
+**Then** `get_packing_list` and `get_day`'s `packingItems` return `tags` per item
+**And** `add_packing_items` accepts `tags` per item; a name that resolves to an existing item adds the given tags to it **[default]**
+**And** `update_packing_item` accepts `addTags` and `removeTags` (like `addDayIds`/`removeDayIds`), under the tag rules
+**And** each change is marked KI and undoable with the packing receipt, which restores the prior tags
+
+**Given** the test suite
+**Then** it covers adding and removing tags, the limits and the case-insensitive uniqueness, suggestions from the trip, chips on the trip list, the not-needed section and the day section, the tag filter alone and combined with categories and "Noch offen", the remembered selection including a vanished tag, the add-form prefill, the day email in both languages, viewer read-only, export/import with and without tags, and the connector read, add, update and undo
+
+**Out of scope:** renaming or deleting a tag across the whole trip in one step; tag colours; tag filters in the day section, the day email or the connector; automatic tags (e.g. "Kaufen" removed when packed).

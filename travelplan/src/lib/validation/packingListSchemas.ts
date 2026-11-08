@@ -7,9 +7,10 @@ import { PACKING_CATEGORY_MAX, PACKING_ITEM_NAME_MAX } from "@/lib/trips/packing
  * "Sonstiges"/"Other" folding and the reuse of an existing spelling happen in the repository.
  */
 
+// Story 16.4: `nameField` and `categoryField` are exported for the connector's packing tools.
 // NFC before the length check: the repository stores the NFC form, and a few characters grow under it,
 // so measuring the raw input could let a stored name exceed the limit.
-const nameField = z
+export const nameField = z
   .string()
   .transform((value) => value.normalize("NFC").trim())
   .pipe(
@@ -19,7 +20,7 @@ const nameField = z
       .max(PACKING_ITEM_NAME_MAX, `Name must be at most ${PACKING_ITEM_NAME_MAX} characters`),
   );
 
-const categoryField = z
+export const categoryField = z
   .string()
   .transform((value) => value.normalize("NFC").trim())
   .pipe(z.string().max(PACKING_CATEGORY_MAX, `Category must be at most ${PACKING_CATEGORY_MAX} characters`))

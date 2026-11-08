@@ -190,6 +190,10 @@ describe("whoami", () => {
       "delete_file",
       // Story 15.9.
       "update_day",
+      "get_packing_list",
+      "add_packing_items",
+      "update_packing_item",
+      "delete_packing_item",
     ]);
 
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);

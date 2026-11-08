@@ -1,6 +1,8 @@
 import { formatMessage, type Language } from "@/i18n";
+import type { PackingItemForDay } from "@/lib/repositories/packingListRepo";
 import type { TripDayPrintPayload, TripDayPrintTimelineEntry } from "@/lib/repositories/tripRepo";
 import { formatLongDate } from "@/lib/trips/formatLongDate";
+import { groupPackingItems } from "@/lib/trips/packingList";
 import { parsePlanText } from "@/lib/trips/planText";
 import { formatPrintDuration, getEntryDisplayName, getPrintEntryLabel } from "@/lib/trips/printDocuments";
 import { TRANSPORT_LABEL_KEYS, isTransportType, transportTypeAllowsDistance } from "@/lib/trips/transportTypes";
@@ -164,6 +166,11 @@ const rowToHtml = (row: Row): string => {
  *
  * `language` and `t` must be one resolution of the request's `lang` cookie (`getRequestI18n`), as for the
  * packet: the date is formatted with `language`, every label comes through `t`.
+ *
+ * **Take along** (Story 16.3, FR51 amended): the day's linked packing items follow the plan as the mail's
+ * last block, grouped by `groupPackingItems` exactly as the day view's section is ("Other" last, no
+ * packed/total count, no packed mark - the mail is a snapshot and a frozen tick would go stale). Both
+ * parts iterate the same groups. No items, no section: the output is then byte for byte what it was before.
  */
 export const buildDayEmail = ({
   payload,
@@ -171,12 +178,15 @@ export const buildDayEmail = ({
   t,
   dayUrl,
   documents,
+  packingItems,
 }: {
   payload: TripDayPrintPayload;
   language: Language;
   t: (key: string) => string;
   dayUrl: string;
   documents: DayEmailDocuments;
+  /** The day's linked items (`listPackingItemsForDay`). Required: every caller decides, `[]` for none. */
+  packingItems: readonly PackingItemForDay[];
 }): DayEmail => {
   const { trip, day, timeline } = payload;
   const date = formatLongDate(day.date, language) ?? "";
@@ -189,6 +199,8 @@ export const buildDayEmail = ({
   const itinerary = t("trips.dayPrint.itinerarySection");
   const rows = toRows(timeline, t);
   const empty = rows.length === 0 ? t("trips.dayPrint.empty") : null;
+  const packingGroups = groupPackingItems(packingItems, t("trips.packingList.other"), language);
+  const takeAlong = t("trips.packingList.dayTitle");
 
   const subject = formatMessage(t("trips.dayEmail.subject"), { trip: trip.name, date }).trim();
 
@@ -199,6 +211,12 @@ export const buildDayEmail = ({
     documentsSentence,
     itinerary.toUpperCase(),
     ...(empty ? [empty] : rows.map(rowToText)),
+    ...(packingGroups.length > 0
+      ? [
+          takeAlong.toUpperCase(),
+          ...packingGroups.map((group) => [group.label, ...group.items.map((entry) => `- ${entry.name}`)].join("\n")),
+        ]
+      : []),
   ].join("\n\n");
 
   const html =
@@ -215,6 +233,18 @@ export const buildDayEmail = ({
     `<p style="margin:0 0 20px 0">${escapeHtml(documentsSentence)}</p>` +
     `<div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;${MUTED};font-weight:bold;margin:0 0 8px 0">${escapeHtml(itinerary)}</div>` +
     (empty ? `<p style="${MUTED}">${escapeHtml(empty)}</p>` : rows.map(rowToHtml).join("")) +
+    (packingGroups.length > 0
+      ? `<div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;${MUTED};font-weight:bold;margin:20px 0 8px 0">${escapeHtml(takeAlong)}</div>` +
+        packingGroups
+          .map(
+            (group) =>
+              `<div style="font-weight:bold;font-size:14px;${TEXT_STYLE}">${escapeHtml(group.label)}</div>` +
+              `<ul style="margin:4px 0 12px 0;padding-left:20px">` +
+              group.items.map((entry) => `<li style="${TEXT_STYLE}">${escapeHtml(entry.name)}</li>`).join("") +
+              `</ul>`,
+          )
+          .join("")
+      : "") +
     `</div></body></html>`;
 
   return { subject, text, html };

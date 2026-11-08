@@ -8,6 +8,7 @@ import { createSessionJwt } from "@/lib/auth/jwt";
 import { prisma } from "@/lib/db/prisma";
 import { clearEmailOutbox, getEmailOutbox } from "@/lib/notifications/email";
 import { createTripWithDays } from "@/lib/repositories/tripRepo";
+import { packingNameKey } from "@/lib/trips/packingList";
 import { getAccommodationDocumentUploadDir, getTripsUploadRoot } from "@/lib/trips/uploadPaths";
 import { realPdfBytes } from "./helpers/packetFixtures";
 import { writeUploadFile } from "./helpers/uploadFixtures";
@@ -89,6 +90,8 @@ const addStayDocument = async (tripId: string, dayId: string, bytes: Uint8Array)
 
 describe("POST /api/trips/[id]/days/[dayId]/email", () => {
   beforeEach(async () => {
+    await prisma.packingItemDay.deleteMany();
+    await prisma.packingItem.deleteMany();
     await prisma.accommodationDocument.deleteMany();
     await prisma.dayPlanItemDocument.deleteMany();
     await prisma.accommodationImage.deleteMany();
@@ -154,6 +157,10 @@ describe("POST /api/trips/[id]/days/[dayId]/email", () => {
     });
     await prisma.tripMember.create({ data: { tripId: trip.id, userId: viewer.id, role: "VIEWER" } });
     const session = await createSessionJwt({ sub: viewer.id, role: viewer.role });
+    const sunscreen = await prisma.packingItem.create({
+      data: { tripId: trip.id, name: "Sunscreen", nameKey: packingNameKey("Sunscreen") },
+    });
+    await prisma.packingItemDay.create({ data: { packingItemId: sunscreen.id, tripDayId: day.id } });
 
     const response = await call(trip.id, day.id, { session });
     expect(response.status).toBe(200);
@@ -165,6 +172,8 @@ describe("POST /api/trips/[id]/days/[dayId]/email", () => {
     const outbox = getEmailOutbox();
     expect(outbox).toHaveLength(1);
     expect(outbox[0].to).toBe("viewer@example.com");
+    // Viewers read the packing list, so their mail carries the section too (Story 16.3 AC8).
+    expect(outbox[0].text).toContain("TAKE ALONG\n\nOther\n- Sunscreen");
   });
 
   it("sends to the session's account even when the body names another address", async () => {
@@ -207,6 +216,41 @@ describe("POST /api/trips/[id]/days/[dayId]/email", () => {
     for (const part of [mail.text, mail.html]) {
       expect(part).toContain("Glacier walk");
       expect(part).toContain("Day 1");
+      // No linked packing items, no take-along section (Story 16.3 AC4).
+      expect(part).not.toContain("Take along");
+      expect(part).not.toContain("TAKE ALONG");
+    }
+  });
+
+  it("carries this day's take-along items and no other day's or unlinked ones (Story 16.3)", async () => {
+    const user = await prisma.user.create({ data: { email: "packing@example.com", passwordHash: "hashed", role: "OWNER" } });
+    const session = await createSessionJwt({ sub: user.id, role: user.role });
+    const { trip } = await createTripWithDays({
+      userId: user.id,
+      name: "Iceland",
+      startDate: "2026-08-09T00:00:00.000Z",
+      endDate: "2026-08-10T00:00:00.000Z",
+    });
+    const [day, otherDay] = await prisma.tripDay.findMany({ where: { tripId: trip.id }, orderBy: { dayIndex: "asc" } });
+    const create = (name: string, category: string | null) =>
+      prisma.packingItem.create({ data: { tripId: trip.id, name, nameKey: packingNameKey(name), category } });
+    const linked = await create("Crampons", "Hiking gear");
+    const elsewhere = await create("Swimsuit", "Pool things");
+    await create("Unlinked umbrella", null);
+    await prisma.packingItemDay.create({ data: { packingItemId: linked.id, tripDayId: day.id } });
+    await prisma.packingItemDay.create({ data: { packingItemId: elsewhere.id, tripDayId: otherDay.id } });
+
+    const response = await call(trip.id, day.id, { session });
+    expect(response.status).toBe(200);
+    const [mail] = getEmailOutbox();
+    expect(mail.text).toContain("TAKE ALONG");
+    expect(mail.html).toContain("Take along");
+    for (const part of [mail.text, mail.html]) {
+      expect(part).toContain("Crampons");
+      expect(part).toContain("Hiking gear");
+      expect(part).not.toContain("Swimsuit");
+      expect(part).not.toContain("Pool things");
+      expect(part).not.toContain("Unlinked umbrella");
     }
   });
 

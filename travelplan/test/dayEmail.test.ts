@@ -6,6 +6,7 @@ import type {
   TripDayPrintStay,
   TripDayPrintTimelineEntry,
 } from "@/lib/repositories/tripRepo";
+import type { PackingItemForDay } from "@/lib/repositories/packingListRepo";
 import { buildDayEmail } from "@/lib/notifications/dayEmail";
 
 const DAY_URL = "https://plan.example.test/trips/trip-1/days/day-1";
@@ -73,7 +74,24 @@ const build = (
   p: TripDayPrintPayload,
   language: Language = "en",
   documents: "attached" | "tooLarge" | "none" = "none",
-) => buildDayEmail({ payload: p, language, t: tFor(language), dayUrl: DAY_URL, documents });
+  packingItems: readonly PackingItemForDay[] = [],
+) => buildDayEmail({ payload: p, language, t: tFor(language), dayUrl: DAY_URL, documents, packingItems });
+
+const packing = (name: string, category: string | null, packed = false): PackingItemForDay => ({
+  id: `pack-${name}`,
+  name,
+  category,
+  packed,
+});
+
+/** Two categories plus the "Other" group, given out of order so the grouping has work to do. */
+const PACKING: PackingItemForDay[] = [
+  packing("Sunscreen", null),
+  packing("Charger", "Electronics", true),
+  packing("Rain jacket", "Clothes"),
+  packing("Adapter", "electronics"),
+  packing("Hat", null),
+];
 
 const FULL_DAY: TripDayPrintTimelineEntry[] = [
   { kind: "previousStay", stay: stay({ name: "Guesthouse Zero", checkOutTime: "10:00" }) },
@@ -206,12 +224,14 @@ describe("buildDayEmail", () => {
       t: tFor("en"),
       dayUrl: `https://x.test/a?b=1&c="2"`,
       documents: "none",
+      packingItems: [],
     });
     expect(mail.html).toContain(`href="https://x.test/a?b=1&amp;c=&quot;2&quot;"`);
   });
 
   it("loads nothing from anywhere: no images, links, styles, scripts, fonts or other URLs", () => {
-    const mail = build(payload(FULL_DAY), "en", "attached");
+    const mail = build(payload(FULL_DAY), "en", "attached", PACKING);
+    expect(mail.html).toContain("Take along");
     for (const forbidden of ["<img", "<script", "<link", "<style", "url(", "@import", "<iframe"]) {
       expect(mail.html, forbidden).not.toContain(forbidden);
     }
@@ -238,5 +258,88 @@ describe("buildDayEmail", () => {
     const mail = build(payload([segment("hovercraft", 30, null)]));
     expect(mail.text).toContain("hovercraft · 30m");
     expect(mail.text).not.toContain("trips.travelSegment");
+  });
+
+  describe("take-along section (Story 16.3)", () => {
+    const indexes = (part: string, values: string[]) => values.map((value) => part.indexOf(value));
+    const expectAscending = (positions: number[], part: string) => {
+      expect(positions.every((position) => position >= 0), part).toBe(true);
+      expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+    };
+
+    it("puts the grouped items after the last plan row in both parts, English", () => {
+      const mail = build(payload(FULL_DAY), "en", "none", PACKING);
+      expect(mail.text).toContain("TAKE ALONG");
+      expect(mail.html).toContain("Take along");
+      expect(mail.text).toContain("- Charger");
+      expect(mail.text).toContain("- Sunscreen");
+      for (const [part, heading] of [
+        [mail.text, "TAKE ALONG"],
+        [mail.html, "Take along"],
+      ] as const) {
+        // After the last row (tonight's stay notes), then Clothes, Electronics, Other; items by name.
+        expectAscending(
+          indexes(part, ["Ask for the sea view", heading, "Clothes", "Rain jacket", "Electronics", "Adapter", "Charger", "Other", "Hat", "Sunscreen"]),
+          part,
+        );
+      }
+    });
+
+    it("merges categories that differ only in case into one group, labelled by the first spelling met", () => {
+      const mail = build(payload([]), "en", "none", PACKING);
+      for (const part of [mail.text, mail.html]) {
+        expect(part).toContain("Electronics");
+        expect(part).not.toContain("electronics");
+      }
+      expect(mail.text).toContain("Electronics\n- Adapter\n- Charger");
+    });
+
+    it("carries no packed/total count on the group labels and no packed mark", () => {
+      const mail = build(payload([]), "en", "none", PACKING);
+      expect(mail.text).not.toMatch(/\d+\/\d+/);
+      expect(mail.html).not.toMatch(/\d+\/\d+/);
+    });
+
+    it("comes after the 'nothing recorded' sentence on an empty plan", () => {
+      const mail = build(payload([]), "en", "none", PACKING);
+      expect(mail.text.indexOf("No details recorded for this day.")).toBeLessThan(mail.text.indexOf("TAKE ALONG"));
+      expect(mail.html.indexOf("No details recorded for this day.")).toBeLessThan(mail.html.indexOf("Take along"));
+    });
+
+    it("speaks German: Mitnehmen and Sonstiges", () => {
+      const mail = build(payload(FULL_DAY), "de", "none", PACKING);
+      expect(mail.text).toContain("MITNEHMEN");
+      expect(mail.html).toContain("Mitnehmen");
+      for (const part of [mail.text, mail.html]) {
+        expect(part).toContain("Sonstiges");
+        expect(part).not.toContain("Other");
+        expect(part.indexOf("Electronics")).toBeLessThan(part.indexOf("Sonstiges"));
+      }
+    });
+
+    it.each(["en", "de"] as const)("has no section at all for a day without items (%s)", (language) => {
+      const mail = build(payload(FULL_DAY), language, "none", []);
+      for (const part of [mail.text, mail.html]) {
+        for (const word of ["Take along", "TAKE ALONG", "Mitnehmen", "MITNEHMEN", "Sonstiges"]) {
+          expect(part).not.toContain(word);
+        }
+      }
+      // Unchanged from before the story: the text ends with the last row, the HTML closes right after it.
+      const lastRow = "Ask for the sea view";
+      expect(mail.text.endsWith(lastRow)).toBe(true);
+      expect(mail.html.endsWith(`${lastRow}</div></div></div></body></html>`)).toBe(true);
+    });
+
+    it("escapes item names and categories in the HTML and leaves them raw in the text", () => {
+      // Distinct strings, so a missing escape on either field shows which one failed.
+      const hostileName = `<b>name</b> & "n"`;
+      const hostileCategory = `<i>cat</i> & 'c'`;
+      const mail = build(payload([]), "en", "none", [packing(hostileName, hostileCategory)]);
+      expect(mail.html).not.toContain("<b>");
+      expect(mail.html).not.toContain("<i>");
+      expect(mail.html).toContain(`<li style="word-break:break-word;overflow-wrap:anywhere">&lt;b&gt;name&lt;/b&gt; &amp; &quot;n&quot;</li>`);
+      expect(mail.html).toContain(">&lt;i&gt;cat&lt;/i&gt; &amp; &#39;c&#39;</div>");
+      expect(mail.text).toContain(`${hostileCategory}\n- ${hostileName}`);
+    });
   });
 });

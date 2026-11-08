@@ -2,7 +2,13 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { deriveTripAccessRole, type TripAccessRole } from "@/lib/auth/tripAccessRole";
 import { normalizePackingCategory, normalizePackingName, packingNameKey } from "@/lib/trips/packingList";
-import { aiChangedAtFor, type WriteOrigin } from "@/lib/trips/writeOrigin";
+import { aiChangedAtFor, ChangedSinceReadError, type WriteOrigin } from "@/lib/trips/writeOrigin";
+import { UndoStaleError } from "@/lib/repositories/dayPlanChangeRepo";
+import type {
+  PackingChangeReceipt,
+  PackingItemSnapshot,
+  PackingReceiptEntry,
+} from "@/lib/trips/packingChangeReceipt";
 
 /**
  * Story 16.1 (FR58). The trip's shared packing list. Every app read and write of `PackingItem` /
@@ -16,13 +22,20 @@ import { aiChangedAtFor, type WriteOrigin } from "@/lib/trips/writeOrigin";
  * uses (ignoring case) is stored in the existing spelling; "Sonstiges"/"Other" is stored as `null`.
  *
  * `origin` is required on create and update (Story 15.4): the app passes `"user"`, which clears the
- * KI/AI marker. Story 16.4 will add the connector's `inTransaction` hook; the writes already run in a
- * transaction so it has a place to go.
+ * KI/AI marker.
  *
  * Story 16.2 (FR59) links items to days: `linkPackingItemToDay`, `addPackingItemToDay` (create-or-resolve
  * by name, then link) and `unlinkPackingItemFromDay`. A link or unlink that changes a row also writes the
  * item (`aiChangedAt` per origin, `updatedAt` automatically), so a later stale check on `updatedAt` sees
  * it; a no-op link or unlink writes nothing.
+ *
+ * Story 16.3 (FR51 amended): the day email reads one day's items through `listPackingItemsForDay`.
+ *
+ * Story 16.4 (FR57) adds the connector's writes (`addPackingItemsForConnector`,
+ * `updatePackingItemForConnector`, `deletePackingItemForConnector`), each with an `inTransaction` hook that
+ * runs last in the write's transaction with the packing receipt, so the connector records its `ai_changes`
+ * row with the write; and `undoPackingChangeForTrip`, the undo of such a receipt. Every connector write
+ * sets `aiChangedAt` on each item it created or changed, and a no-op writes nothing and runs no hook.
  */
 
 export type PackingItemDetail = {
@@ -179,6 +192,31 @@ export const listPackingItemsForTrip = async (params: {
   const accessRole = deriveTripAccessRole(userId, trip);
   if (accessRole === null) return null;
   return { accessRole, items: trip.packingItems.map(toDetail) };
+};
+
+export type PackingItemForDay = { id: string; name: string; category: string | null; packed: boolean };
+
+/**
+ * Story 16.3. The items linked to one day, in name-key order, with the four fields the day email groups
+ * by - not the trip-wide read with every day link. Every participant reads (viewer included); the route
+ * already checked read access, so the participant clause is defence in depth: a non-participant, or a day
+ * of another trip, gets `[]`.
+ */
+export const listPackingItemsForDay = async (params: {
+  userId: string;
+  tripId: string;
+  tripDayId: string;
+}): Promise<PackingItemForDay[]> => {
+  const { userId, tripId, tripDayId } = params;
+  return prisma.packingItem.findMany({
+    where: {
+      tripId,
+      days: { some: { tripDayId } },
+      trip: { OR: [{ userId }, { members: { some: { userId } } }] },
+    },
+    select: { id: true, name: true, category: true, packed: true },
+    orderBy: [{ nameKey: "asc" }, { id: "asc" }],
+  });
 };
 
 /**
@@ -449,4 +487,369 @@ export const unlinkPackingItemFromDay = async (params: {
     if (removed.count === 0) return { status: "unlinked", item: toDetail(item) };
     return { status: "unlinked", item: await touchItem(tx, params.itemId, params.origin) };
   });
+};
+
+// ---------------------------------------------------------------------------------------------------------
+// Story 16.4. The connector's writes and their undo.
+
+/**
+ * Runs last inside a connector packing write's transaction, with the write's receipt; the connector inserts
+ * its `ai_changes` row here. A throw rolls the write back (as `InTransactionHook` in `writeOrigin.ts`).
+ */
+export type PackingInTransactionHook = (
+  tx: TransactionClient,
+  outcome: { receipt: PackingChangeReceipt },
+) => Promise<void>;
+
+const snapshotSelect = {
+  id: true,
+  name: true,
+  nameKey: true,
+  category: true,
+  packed: true,
+  aiChangedAt: true,
+  createdAt: true,
+  updatedAt: true,
+  days: { select: { tripDayId: true } },
+} as const;
+
+const toSnapshot = (row: {
+  id: string;
+  name: string;
+  nameKey: string;
+  category: string | null;
+  packed: boolean;
+  aiChangedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  days: { tripDayId: string }[];
+}): PackingItemSnapshot => ({
+  id: row.id,
+  name: row.name,
+  nameKey: row.nameKey,
+  category: row.category,
+  packed: row.packed,
+  aiChangedAt: row.aiChangedAt,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+  dayIds: row.days.map((link) => link.tripDayId),
+});
+
+const receiptOf = (entries: PackingReceiptEntry[]): PackingChangeReceipt => ({
+  kind: "packingChanged",
+  version: 1,
+  entries,
+});
+
+export type PackingConnectorAddResult =
+  | { status: "not_found" }
+  | { status: "day_missing" }
+  | {
+      status: "added";
+      /** One per input, in input order. */
+      results: { name: string; itemId: string; status: "created" | "existed" }[];
+      /** The resolved items, deduplicated, in first-resolved order. */
+      items: PackingItemDetail[];
+      /** Whether anything was written (and the hook ran). */
+      written: boolean;
+    };
+
+/**
+ * `add_packing_items`. Resolves every name in one transaction, as the app's add does (an existing name is
+ * that item, unchanged; a new one an unpacked item), and with `tripDayId` links each to the day. A created
+ * item gets a `created` entry; an existing item whose link to the day is new gets an `updated` entry with
+ * its state before. An existing item without a day, or already on it, writes nothing and gets no entry.
+ * The hook runs only when there is an entry. A lost race on a unique index reruns the whole batch once.
+ */
+export const addPackingItemsForConnector = async (params: {
+  userId: string;
+  tripId: string;
+  items: { name: string; category?: string | null }[];
+  tripDayId?: string;
+  inTransaction: PackingInTransactionHook;
+}): Promise<PackingConnectorAddResult> => {
+  const { userId, tripId, tripDayId, inTransaction } = params;
+  const trip = await findTripForTripWriter(userId, tripId);
+  if (!trip) return { status: "not_found" };
+
+  return retryOnceOnUniqueViolation(() =>
+    prisma.$transaction(async (tx): Promise<PackingConnectorAddResult> => {
+      if (tripDayId !== undefined && !(await dayOfTrip(tx, tripId, tripDayId))) return { status: "day_missing" };
+
+      const entries = new Map<string, PackingReceiptEntry>();
+      const results: { name: string; itemId: string; status: "created" | "existed" }[] = [];
+      const order: string[] = [];
+
+      for (const input of params.items) {
+        const nameKey = packingNameKey(normalizePackingName(input.name));
+        // The item's state before this call, read before the resolve: only an existing item has one.
+        const before = await tx.packingItem.findUnique({
+          where: { tripId_nameKey: { tripId, nameKey } },
+          select: snapshotSelect,
+        });
+        const resolved = await createOrResolveInTx(tx, { tripId, name: input.name, category: input.category, origin: "ai" });
+        const itemId = resolved.item.id;
+        results.push({ name: input.name, itemId, status: resolved.status });
+        if (!order.includes(itemId)) order.push(itemId);
+        if (resolved.status === "created") {
+          entries.set(itemId, { change: "created", itemId, updatedAt: resolved.item.updatedAt });
+        }
+        if (tripDayId !== undefined) {
+          const link = await tx.packingItemDay.findUnique({
+            where: { packingItemId_tripDayId: { packingItemId: itemId, tripDayId } },
+            select: { packingItemId: true },
+          });
+          if (!link) {
+            await linkInTx(tx, itemId, tripDayId, "ai");
+            if (!entries.has(itemId) && before) {
+              entries.set(itemId, { change: "updated", before: toSnapshot(before), updatedAt: before.updatedAt });
+            }
+          }
+        }
+      }
+
+      // Every entry carries the stamp the write left last on its item.
+      const finalItems = await tx.packingItem.findMany({ where: { id: { in: order } }, select: detailSelect });
+      const byId = new Map(finalItems.map((row) => [row.id, toDetail(row)]));
+      for (const [itemId, entry] of entries) {
+        const stamp = byId.get(itemId)!.updatedAt;
+        if (entry.change !== "deleted") entry.updatedAt = stamp;
+      }
+
+      const receiptEntries = [...entries.values()];
+      if (receiptEntries.length > 0) await inTransaction(tx, { receipt: receiptOf(receiptEntries) });
+      return {
+        status: "added",
+        results,
+        items: order.map((id) => byId.get(id)!),
+        written: receiptEntries.length > 0,
+      };
+    }),
+  );
+};
+
+export type PackingConnectorUpdateResult =
+  | { status: "not_found" }
+  | { status: "missing" }
+  | { status: "day_missing" }
+  | { status: "duplicate_name" }
+  | { status: "unchanged"; item: PackingItemDetail }
+  | { status: "updated"; item: PackingItemDetail };
+
+/**
+ * `update_packing_item`. Changes only the given fields, under the app's rules (rename clash, category
+ * spelling, "Other" as `null`), and links or unlinks days, checked against the `updatedAt` the caller read
+ * (`ChangedSinceReadError` otherwise, nothing written). A call that changes nothing writes nothing and
+ * runs no hook (`unchanged`).
+ */
+export const updatePackingItemForConnector = async (params: {
+  userId: string;
+  tripId: string;
+  itemId: string;
+  expectedUpdatedAt: Date;
+  name?: string;
+  category?: string | null;
+  packed?: boolean;
+  addDayIds?: string[];
+  removeDayIds?: string[];
+  inTransaction: PackingInTransactionHook;
+}): Promise<PackingConnectorUpdateResult> => {
+  const { userId, tripId, itemId, inTransaction } = params;
+  const trip = await findTripForTripWriter(userId, tripId);
+  if (!trip) return { status: "not_found" };
+
+  try {
+    return await prisma.$transaction(async (tx): Promise<PackingConnectorUpdateResult> => {
+      const current = await tx.packingItem.findFirst({ where: { id: itemId, tripId }, select: snapshotSelect });
+      if (!current) return { status: "missing" };
+      if (current.updatedAt.getTime() !== params.expectedUpdatedAt.getTime()) throw new ChangedSinceReadError();
+
+      const addDayIds = [...new Set(params.addDayIds ?? [])];
+      const removeDayIds = [...new Set(params.removeDayIds ?? [])];
+      const givenDays = [...new Set([...addDayIds, ...removeDayIds])];
+      if (givenDays.length > 0) {
+        const found = await tx.tripDay.count({ where: { id: { in: givenDays }, tripId } });
+        if (found !== givenDays.length) return { status: "day_missing" };
+      }
+
+      const data: Prisma.PackingItemUpdateInput = {};
+      if (params.name !== undefined) {
+        const name = normalizePackingName(params.name);
+        const nameKey = packingNameKey(name);
+        const clash = await tx.packingItem.findFirst({
+          where: { tripId, nameKey, id: { not: itemId } },
+          select: { id: true },
+        });
+        if (clash) return { status: "duplicate_name" };
+        if (name !== current.name) {
+          data.name = name;
+          data.nameKey = nameKey;
+        }
+      }
+      if (params.category !== undefined) {
+        const category = await resolveCategory(tx, tripId, params.category, itemId);
+        if (category !== current.category) data.category = category;
+      }
+      if (params.packed !== undefined && params.packed !== current.packed) data.packed = params.packed;
+
+      const linked = new Set(current.days.map((link) => link.tripDayId));
+      const toLink = addDayIds.filter((id) => !linked.has(id));
+      const toUnlink = removeDayIds.filter((id) => linked.has(id));
+
+      if (Object.keys(data).length === 0 && toLink.length === 0 && toUnlink.length === 0) {
+        const item = await tx.packingItem.findUniqueOrThrow({ where: { id: itemId }, select: detailSelect });
+        return { status: "unchanged", item: toDetail(item) };
+      }
+
+      for (const tripDayId of toLink) await tx.packingItemDay.create({ data: { packingItemId: itemId, tripDayId } });
+      if (toUnlink.length > 0) {
+        await tx.packingItemDay.deleteMany({ where: { packingItemId: itemId, tripDayId: { in: toUnlink } } });
+      }
+      const updated = await tx.packingItem.update({
+        where: { id: itemId },
+        data: { ...data, aiChangedAt: new Date() },
+        select: detailSelect,
+      });
+      await inTransaction(tx, {
+        receipt: receiptOf([{ change: "updated", before: toSnapshot(current), updatedAt: updated.updatedAt }]),
+      });
+      return { status: "updated", item: toDetail(updated) };
+    });
+  } catch (error) {
+    // A concurrent create or rename took the name between the check and the write. Only a rename can
+    // clash on the name; any other unique violation (a day link added meanwhile) is not a name clash.
+    if (params.name !== undefined && isUniqueViolation(error)) return { status: "duplicate_name" };
+    throw error;
+  }
+};
+
+export type PackingConnectorDeleteResult =
+  | { status: "not_found" }
+  | { status: "missing" }
+  | { status: "deleted"; id: string; name: string; dayCount: number };
+
+/** `delete_packing_item`. Deletes the item and every day link, with the item's full state in the receipt. */
+export const deletePackingItemForConnector = async (params: {
+  userId: string;
+  tripId: string;
+  itemId: string;
+  inTransaction: PackingInTransactionHook;
+}): Promise<PackingConnectorDeleteResult> => {
+  const { userId, tripId, itemId, inTransaction } = params;
+  const trip = await findTripForTripWriter(userId, tripId);
+  if (!trip) return { status: "not_found" };
+
+  return prisma.$transaction(async (tx): Promise<PackingConnectorDeleteResult> => {
+    const current = await tx.packingItem.findFirst({ where: { id: itemId, tripId }, select: snapshotSelect });
+    if (!current) return { status: "missing" };
+    const removed = await tx.packingItem.deleteMany({ where: { id: itemId, tripId } });
+    if (removed.count !== 1) return { status: "missing" };
+    await inTransaction(tx, { receipt: receiptOf([{ change: "deleted", before: toSnapshot(current) }]) });
+    return { status: "deleted", id: current.id, name: current.name, dayCount: current.days.length };
+  });
+};
+
+export type PackingUndoResult =
+  | { status: "undone" }
+  | { status: "not_found" }
+  | { status: "invalid" }
+  | { status: "stale" };
+
+/** Links the item to exactly those of `dayIds` that are still days of the trip. */
+const restoreLinks = async (tx: TransactionClient, tripId: string, itemId: string, dayIds: string[]) => {
+  const days = dayIds.length
+    ? await tx.tripDay.findMany({ where: { id: { in: dayIds }, tripId }, select: { id: true } })
+    : [];
+  const keep = days.map((day) => day.id);
+  await tx.packingItemDay.deleteMany({ where: { packingItemId: itemId, tripDayId: { notIn: keep } } });
+  const present = await tx.packingItemDay.findMany({ where: { packingItemId: itemId }, select: { tripDayId: true } });
+  const have = new Set(present.map((link) => link.tripDayId));
+  for (const tripDayId of keep) {
+    if (!have.has(tripDayId)) await tx.packingItemDay.create({ data: { packingItemId: itemId, tripDayId } });
+  }
+};
+
+/**
+ * Undoes one stored packing receipt in one transaction, newest entry first, then runs `inTransaction` (which
+ * marks the change undone). `stale` when any touched item changed since (another `updatedAt`, gone, or a
+ * restore would take another item's name); everything rolls back. `invalid` when an item id of the receipt
+ * belongs to another trip. Restores each item's `updatedAt` and `aiChangedAt`, so undoing newest first works
+ * across chained changes. A link to a day that no longer exists is not restored.
+ */
+export const undoPackingChangeForTrip = async (params: {
+  userId: string;
+  tripId: string;
+  receipt: PackingChangeReceipt;
+  inTransaction?: (tx: TransactionClient) => Promise<void>;
+}): Promise<PackingUndoResult> => {
+  const { userId, tripId, receipt, inTransaction } = params;
+  const trip = await findTripForTripWriter(userId, tripId);
+  if (!trip) return { status: "not_found" };
+
+  const ids = receipt.entries.map((entry) => (entry.change === "created" ? entry.itemId : entry.before.id));
+  const foreign = await prisma.packingItem.count({ where: { id: { in: ids }, tripId: { not: tripId } } });
+  if (foreign > 0) return { status: "invalid" };
+
+  const sameStamp = (row: { updatedAt: Date } | null, stamp: Date) =>
+    row !== null && row.updatedAt.getTime() === stamp.getTime();
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      for (const entry of [...receipt.entries].reverse()) {
+        if (entry.change === "created") {
+          const row = await tx.packingItem.findFirst({ where: { id: entry.itemId, tripId }, select: { updatedAt: true } });
+          if (!sameStamp(row, entry.updatedAt)) throw new UndoStaleError("packing item changed since");
+          await tx.packingItem.delete({ where: { id: entry.itemId } });
+          continue;
+        }
+        const { before } = entry;
+        if (entry.change === "updated") {
+          const row = await tx.packingItem.findFirst({ where: { id: before.id, tripId }, select: { updatedAt: true } });
+          if (!sameStamp(row, entry.updatedAt)) throw new UndoStaleError("packing item changed since");
+          const clash = await tx.packingItem.findFirst({
+            where: { tripId, nameKey: before.nameKey, id: { not: before.id } },
+            select: { id: true },
+          });
+          if (clash) throw new UndoStaleError("packing item name taken since");
+          await restoreLinks(tx, tripId, before.id, before.dayIds);
+          await tx.packingItem.update({
+            where: { id: before.id },
+            data: {
+              name: before.name,
+              nameKey: before.nameKey,
+              category: before.category,
+              packed: before.packed,
+              aiChangedAt: before.aiChangedAt,
+              updatedAt: before.updatedAt,
+            },
+          });
+          continue;
+        }
+        const taken = await tx.packingItem.findFirst({
+          where: { OR: [{ id: before.id }, { tripId, nameKey: before.nameKey }] },
+          select: { id: true },
+        });
+        if (taken) throw new UndoStaleError("packing item recreated or name taken since");
+        await tx.packingItem.create({
+          data: {
+            id: before.id,
+            tripId,
+            name: before.name,
+            nameKey: before.nameKey,
+            category: before.category,
+            packed: before.packed,
+            aiChangedAt: before.aiChangedAt,
+            createdAt: before.createdAt,
+            updatedAt: before.updatedAt,
+          },
+        });
+        await restoreLinks(tx, tripId, before.id, before.dayIds);
+      }
+      if (inTransaction) await inTransaction(tx);
+    });
+  } catch (error) {
+    if (error instanceof UndoStaleError || isUniqueViolation(error)) return { status: "stale" };
+    throw error;
+  }
+  return { status: "undone" };
 };

@@ -1183,9 +1183,14 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
     }
   }, [canEditPlanning, resolveApiError, t, tripId]);
 
+  // Story 16.4. Bumped by an undo in the notice, so "Take along" reads the day's items again (a day-scoped
+  // packing add is listed on the day's notice too).
+  const [packingRefreshKey, setPackingRefreshKey] = useState(0);
+
   // Story 15.4. The notice's undo took a connector change back: show the day as it is now.
   const reloadDayAfterAiUndo = useCallback(() => {
     void loadDay({ silent: true });
+    setPackingRefreshKey((key) => key + 1);
   }, [loadDay]);
 
   const ensureCsrfToken = useCallback(async () => {
@@ -5055,7 +5060,12 @@ export default function TripDayView({ tripId, dayId, aiSuggestionsEnabled = fals
                   costs, take-along, bucket list. Outside the `canEditPlanning` guard: viewers see a
                   day's list (the section renders nothing for them on an empty day). It loads the trip's
                   packing list itself. */}
-              <TripDayPackingSection tripId={tripId} dayId={day.id} canEdit={canEditPlanning} />
+              <TripDayPackingSection
+                tripId={tripId}
+                dayId={day.id}
+                canEdit={canEditPlanning}
+                refreshKey={packingRefreshKey}
+              />
               {/* Story 5.13: `canEditPlanning`, not `isOwner` - the bucket-list route and the schedule
                   route behind this panel (Story 14.1) are both owner-or-contributor. A viewer still
                   sees nothing, which matches the routes that would refuse them. */}

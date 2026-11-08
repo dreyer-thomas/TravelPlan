@@ -128,6 +128,8 @@ export type PlannerDay = {
   imageUrl: string | null;
   updatedAt: Date;
   aiChangedAt: Date | null;
+  /** Story 16.4. The packing items linked to the day, in name-key order. */
+  packingItems: { id: string; name: string; category: string | null; packed: boolean }[];
 };
 
 /** `null`: no trip this user may plan. `{ day: null }`: the trip, but no such day in it. */
@@ -256,6 +258,13 @@ export const getPlannerDayForUser = async (params: {
     });
     if (!day) return { day: null };
 
+    // Story 16.4. The things the day needs, in the same snapshot.
+    const packingItems = await tx.packingItem.findMany({
+      where: { tripId: trip.id, days: { some: { tripDayId: target.id } } },
+      select: { id: true, name: true, category: true, packed: true },
+      orderBy: [{ nameKey: "asc" }, { id: "asc" }],
+    });
+
     const orderedItems = [...day.dayPlanItems].sort(compareDayPlanItemsByOrder);
     const warnings = derivePlanConflicts(
       buildScheduleInput({ items: orderedItems, legs: day.travelSegments, previousStay }),
@@ -327,6 +336,7 @@ export const getPlannerDayForUser = async (params: {
         imageUrl: day.imageUrl,
         updatedAt: day.updatedAt,
         aiChangedAt: day.aiChangedAt,
+        packingItems,
       },
     };
   });

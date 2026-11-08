@@ -764,6 +764,12 @@ const de: Dictionary = {
   "trips.aiChanges.dayNoteChanged": "Tagesnotiz geändert: {title}",
   "trips.aiChanges.dayImageSet": "Tagesbild gesetzt: {title}",
   "trips.aiChanges.dayImageRemoved": "Tagesbild entfernt: {title}",
+  // Story 16.4. The packing list page's notice.
+  "trips.aiChanges.packingTitle": "KI hat die Packliste geändert",
+  "trips.aiChanges.packingAdded": "Zur Packliste hinzugefügt: {title}",
+  "trips.aiChanges.packingUpdated": "Gegenstand geändert: {title}",
+  "trips.aiChanges.packingDeleted": "Gegenstand gelöscht: {title}",
+  "trips.aiChanges.packingStale": "Die Packliste hat sich seitdem geändert; diese Änderung kann nicht mehr rückgängig gemacht werden.",
   "trips.aiChanges.undo": "Rückgängig",
   "trips.aiChanges.stale": "Der Tag hat sich seitdem geändert; diese Änderung kann nicht mehr rückgängig gemacht werden.",
   "trips.aiChanges.unavailable": "Diese Änderung lässt sich nicht mehr rückgängig machen.",

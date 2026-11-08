@@ -65,6 +65,8 @@ editHistory:
     changes: 'Amended FR53, FR54, FR56 (day note and day picture through the connector). Stories 15.9, 15.10. See Sprint Change Proposal 2026-10-31 (Connector: Day and Route).'
   - date: '2026-11-08'
     changes: 'Added FR58-FR60 (one shared packing list per trip with free categories; take-along items per day, information only; copy from another trip). Amended FR51 (take-along items in the day email), FR53 and FR54 (packing list through the connector). See Sprint Change Proposal 2026-11-08 (Packing List).'
+  - date: '2026-11-08'
+    changes: 'Amended FR58 (category filter, Story 16.6; free tags and a not-needed state, Stories 16.7 and 16.8) and FR60 (copies carry tags and arrive as needed). Reverses the morning ruling "no tags" at Tommy''s request.'
 ---
 
 # Product Requirements Document - TravelPlan
@@ -323,9 +325,9 @@ TravelPlan is a web SPA targeting Chrome/Safari on desktop and mobile/tablet.
 
 ### Packing List
 
-- FR58: Users can keep one shared packing list per trip. Each item has a name and an optional free category; items are grouped by category. Users who can plan the trip can add, rename, recategorize, tick off as packed and delete items; deleting an item linked to days asks for confirmation and removes it from those days. Viewers see the list read-only. Everyone viewing the list can narrow it to one or more categories, so travellers who split the packing by area see only their own part; the choice is remembered per viewer in the browser. **(Added 2026-11-08 — see Sprint Change Proposal 2026-11-08, Packing List; category filter added 2026-11-08, Story 16.6)**
+- FR58: Users can keep one shared packing list per trip. Each item has a name and an optional free category; items are grouped by category. Users who can plan the trip can add, rename, recategorize, tick off as packed and delete items; deleting an item linked to days asks for confirmation and removes it from those days. Viewers see the list read-only. Items can carry any number of free tags for what still needs doing before packing (such as to buy, to repair, to charge, to declare at customs). An item can be marked as not needed on this trip: it stays on the list, counts neither as open nor as packed and cannot be linked to days, so one list can be carried from trip to trip. Everyone viewing the list can narrow it to one or more categories and tags, so travellers who split the packing by area see only their own part and one tap shows what is still to buy; the choice is remembered per viewer in the browser. **(Added 2026-11-08 — see Sprint Change Proposal 2026-11-08, Packing List; category filter added 2026-11-08, Story 16.6; not needed and tags added 2026-11-08, Stories 16.7 and 16.8)**
 - FR59: Users who can plan a trip can link packing items to a day, or create a new item from a day (it is added to the trip's list, unpacked). The day view shows its linked items as information only, without a checkbox; removing an item from a day only unlinks it. **(Added 2026-11-08)**
-- FR60: Users who can plan a trip can copy packing items from any other trip they can see. Copied items arrive unpacked, without day links, and names already on the list are skipped. **(Added 2026-11-08)**
+- FR60: Users who can plan a trip can copy packing items from any other trip they can see. Copied items arrive unpacked and needed, without day links but with their tags, and names already on the list are skipped. **(Added 2026-11-08; amended 2026-11-08, Stories 16.7 and 16.8)**
 
 ### Planning with an AI Assistant (Connector)
 

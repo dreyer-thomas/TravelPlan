@@ -7,9 +7,13 @@ import {
   findAiChangeForTrip,
   insertAiChangeInTransaction,
   listAiChangesForTrip,
+  PACKING_AI_CHANGE_ACTIONS,
   sweepExpiredFileDeletions,
   undoAiChange,
+  UnstorableReceiptError,
 } from "@/lib/repositories/aiChangeRepo";
+import { addPackingItemsForConnector, updatePackingItem } from "@/lib/repositories/packingListRepo";
+import type { PackingChangeReceipt } from "@/lib/trips/packingChangeReceipt";
 import { createParkedDayPlanItem } from "@/lib/repositories/bucketListRepo";
 import { createDayPlanItemForTripDay, updateDayPlanItemForTripDay } from "@/lib/repositories/dayPlanItemRepo";
 import { toDayChangeReceiptWire, type DayChangeReceipt } from "@/lib/trips/dayChangeReceipt";
@@ -215,6 +219,7 @@ describe("aiChangeRepo (Story 15.4)", () => {
 
     expect(await undoAiChange({ userId: seeded.user.id, tripId: seeded.trip.id, changeId, now: new Date() })).toEqual({
       status: "stale",
+      scope: "day",
     });
     expect(await prisma.dayPlanItem.findMany({ orderBy: { id: "asc" } })).toEqual(before);
     expect((await prisma.aiChange.findUniqueOrThrow({ where: { id: changeId } })).undoneAt).toBeNull();
@@ -516,5 +521,104 @@ describe("the expiry of day pictures kept for a dayDetailsChanged undo (Story 15
     await createByAi(seeded, "Later");
 
     expect(await prisma.aiChange.count({ where: { id: kept.change.id } })).toBe(1);
+  });
+});
+
+describe("aiChangeRepo packing receipts (Story 16.4)", () => {
+  beforeEach(resetDatabase);
+
+  const addByAi = async (seeded: Seeded, names: string[], tripDayId?: string) => {
+    let changeId = "";
+    const result = await addPackingItemsForConnector({
+      userId: seeded.user.id,
+      tripId: seeded.trip.id,
+      tripDayId,
+      items: names.map((name) => ({ name })),
+      inTransaction: async (tx, { receipt }) => {
+        changeId = await insertAiChangeInTransaction(tx, {
+          tripId: seeded.trip.id,
+          tripDayId: tripDayId ?? null,
+          userId: seeded.user.id,
+          clientId: CLIENT_ID,
+          action: "packingAdded",
+          subject: names.join(", "),
+          receipt,
+          requireReceipt: true,
+        });
+      },
+    });
+    if (result.status !== "added") throw new Error("setup");
+    return { items: result.items, changeId };
+  };
+
+  it("stores the packing receipt in its wire form and lists the change as undoable", async () => {
+    const seeded = await seedTrip();
+    const { items, changeId } = await addByAi(seeded, ["Pass"]);
+
+    const row = await prisma.aiChange.findUniqueOrThrow({ where: { id: changeId } });
+    expect(JSON.parse(row.receiptJson!)).toEqual({
+      kind: "packingChanged",
+      version: 1,
+      entries: [{ change: "created", itemId: items[0].id, updatedAt: items[0].updatedAt.toISOString() }],
+    });
+    expect(row.tripDayId).toBeNull();
+    const [entry] = await listAiChangesForTrip({ tripId: seeded.trip.id, now: new Date() });
+    expect(entry).toMatchObject({ id: changeId, action: "packingAdded", hasReceipt: true });
+  });
+
+  it("refuses an unstorable packing receipt with requireReceipt, rolling the write back", async () => {
+    const seeded = await seedTrip();
+    const badReceipt: PackingChangeReceipt = { kind: "packingChanged", version: 1, entries: [] };
+    await expect(
+      prisma.$transaction((tx) =>
+        insertAiChangeInTransaction(tx, {
+          tripId: seeded.trip.id,
+          tripDayId: null,
+          userId: seeded.user.id,
+          clientId: CLIENT_ID,
+          action: "packingAdded",
+          subject: "x",
+          receipt: badReceipt,
+          requireReceipt: true,
+        }),
+      ),
+    ).rejects.toBeInstanceOf(UnstorableReceiptError);
+    expect(await prisma.aiChange.count()).toBe(0);
+  });
+
+  it("undoes a packing change through its own undo, marks it undone, and answers stale with the packing scope", async () => {
+    const seeded = await seedTrip();
+    const first = await addByAi(seeded, ["Pass"]);
+    expect(await undoAiChange({ userId: seeded.user.id, tripId: seeded.trip.id, changeId: first.changeId, now: new Date() })).toEqual({
+      status: "undone",
+    });
+    expect(await prisma.packingItem.count()).toBe(0);
+    expect((await prisma.aiChange.findUniqueOrThrow({ where: { id: first.changeId } })).undoneAt).toBeInstanceOf(Date);
+
+    const second = await addByAi(seeded, ["Hut"]);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await updatePackingItem({ userId: seeded.user.id, tripId: seeded.trip.id, itemId: second.items[0].id, packed: true, origin: "user" });
+    expect(await undoAiChange({ userId: seeded.user.id, tripId: seeded.trip.id, changeId: second.changeId, now: new Date() })).toEqual({
+      status: "stale",
+      scope: "packing",
+    });
+    expect((await prisma.aiChange.findUniqueOrThrow({ where: { id: second.changeId } })).undoneAt).toBeNull();
+  });
+
+  it("two concurrent undos of one packing change: one undoes it, the other answers already_undone", async () => {
+    const seeded = await seedTrip();
+    const { changeId } = await addByAi(seeded, ["Pass"]);
+    const run = () => undoAiChange({ userId: seeded.user.id, tripId: seeded.trip.id, changeId, now: new Date() });
+    const results = await Promise.all([run(), run()]);
+    expect(results.map((result) => result.status).sort()).toEqual(["already_undone", "undone"]);
+  });
+
+  it("narrows the list to the given actions", async () => {
+    const seeded = await seedTrip();
+    await createByAi(seeded, "Louvre");
+    const packing = await addByAi(seeded, ["Pass"], seeded.day.id);
+    const listed = await listAiChangesForTrip({ tripId: seeded.trip.id, now: new Date(), actions: PACKING_AI_CHANGE_ACTIONS });
+    expect(listed.map((entry) => entry.id)).toEqual([packing.changeId]);
+    expect(listed[0].tripDayId).toBe(seeded.day.id);
   });
 });

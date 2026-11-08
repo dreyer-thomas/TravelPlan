@@ -19,6 +19,9 @@ import { listAiChangesForTrip, undoAiChange, type AiChangeEntry } from "@/lib/re
 
 export const AI_CHANGE_NOT_FOUND = "AI change not found";
 export const AI_CHANGE_STALE = "The day has changed since this change was made; it can no longer be undone.";
+/** Story 16.4. */
+export const AI_CHANGE_PACKING_STALE =
+  "The packing list has changed since this change was made; it can no longer be undone.";
 
 const SUMMARIES: Record<string, (subject: string) => string> = {
   created: (subject) => `Created activity ${subject}`,
@@ -44,6 +47,10 @@ const SUMMARIES: Record<string, (subject: string) => string> = {
   dayNoteChanged: (subject) => `Changed the day note: ${subject}`,
   dayImageSet: (subject) => `Set the day picture ${subject}`,
   dayImageRemoved: (subject) => `Removed the day picture ${subject}`,
+  // Story 16.4. An add's subject is the names joined, an update's or delete's the item's name.
+  packingAdded: (subject) => `Added packing items ${subject}`,
+  packingUpdated: (subject) => `Updated packing item ${subject}`,
+  packingDeleted: (subject) => `Deleted packing item ${subject}`,
 };
 
 /** The English one-liner from `action` + `subject`, e.g. `Created activity "Louvre"`. */
@@ -80,11 +87,13 @@ export const registerAiChangeTools = (server: McpServer) => {
       title: "List AI changes to a trip",
       description:
         "Lists the changes made to a trip through this connector in the last 14 days, newest first, by any " +
-        "connected app of any trip member: id, dayId (null for the bucket list), action (created, updated, " +
+        "connected app of any trip member: id, dayId (null for the bucket list and trip-wide packing " +
+        "changes), action (created, updated, " +
         "deleted, moved, parked, scheduled, planAppended, planReplaced, stayCreated, stayUpdated, stayDeleted, " +
         "legCreated, legUpdated, legDeleted, fileAttached, fileDeleted, dayNoteChanged, dayImageSet, " +
-        "dayImageRemoved), subject (the activity's title, a day plan's titles joined by commas, a stay's name, a " +
-        "leg's \"from → to\", a file's name, or the day's note), summary (one " +
+        "dayImageRemoved, packingAdded, packingUpdated, packingDeleted), subject (the activity's title, a day " +
+        "plan's titles joined by commas, a stay's name, a leg's \"from → to\", a file's name, the day's note, " +
+        "or the packing items' names), summary (one " +
         "English line), " +
         "createdAt and undoneAt (ISO 8601; undoneAt null = not undone), undoable (undo_ai_change can be tried) " +
         "and clientHost (the app that made it). At most the newest 100; truncated is true when there are more. " +
@@ -126,8 +135,8 @@ export const registerAiChangeTools = (server: McpServer) => {
       title: "Undo an AI change",
       description:
         "Undoes one change made through this connector (aiChangeId from a write tool, or an id from " +
-        "list_ai_changes), restoring the day as it was before, as the app's Undo does. Refused when the day has " +
-        "changed since in a way the undo would overwrite, when the change is already undone, or when it cannot " +
+        "list_ai_changes), restoring the day (or the packing list) as it was before, as the app's Undo does. " +
+        "Refused when the day or the packing item has changed since in a way the undo would overwrite, when the change is already undone, or when it cannot " +
         "be undone (bucket-list creates, edits and deletes). Undo changes newest first.",
       inputSchema: undoInput,
       annotations: DESTRUCTIVE_WRITE_TOOL_ANNOTATIONS,
@@ -147,7 +156,7 @@ export const registerAiChangeTools = (server: McpServer) => {
           case "unavailable":
             return toolError("This AI change cannot be undone.");
           case "stale":
-            return toolError(AI_CHANGE_STALE);
+            return toolError(result.scope === "packing" ? AI_CHANGE_PACKING_STALE : AI_CHANGE_STALE);
           default: {
             const unhandled: never = result;
             throw new Error(`Unhandled undo status: ${String(unhandled)}`);

@@ -215,6 +215,13 @@ export const toPlannerDay = (day: PlannerDay, links?: FileLinks) => ({
   warnings: day.warnings.map(toWarning),
   updatedAt: day.updatedAt.toISOString(),
   aiChangedAt: toIsoOrNull(day.aiChangedAt),
+  // Story 16.4. The day's packing items (get_packing_list with dayId has their stamps and day links).
+  packingItems: day.packingItems.map((item) => ({
+    id: item.id,
+    name: item.name,
+    category: item.category,
+    packed: item.packed,
+  })),
 });
 
 /** `list_trips`: the caller has already dropped trips it may only view. */
@@ -245,6 +252,8 @@ export const toTripOverview = (trip: TripWithDays) => ({
     activityCount: day.dayPlanItems.length,
     warnings: day.planConflicts.map(toWarning),
   })),
+  // Story 16.4. The packing list's progress (get_packing_list reads the items).
+  packing: { total: trip.packing.total, packed: trip.packing.packed },
 });
 
 export const toBucketActivity = (item: ParkedDayPlanItemDetail, media: PlannerMedia | undefined, links?: FileLinks) =>

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TripDayView from "@/components/features/trips/TripDayView";
 import en from "@/i18n/en";
@@ -169,5 +170,59 @@ describe("TripDayView: take along (Story 16.2)", () => {
 
     expect(await screen.findByRole("button", { name: en["trips.packingList.dayAddAria"] })).toBeInTheDocument();
     expect(screen.getByTestId("day-packing-section")).toBeInTheDocument();
+  });
+});
+
+describe("TripDayView: undo of a day-scoped packing add (Story 16.4)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("lists the add on the day's notice, and Undo there refreshes Take along", async () => {
+    let undone = false;
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async (input) => {
+      const url = requestUrl(input);
+      if (url.includes("/ai-changes/change-1/undo")) {
+        undone = true;
+        return mockFetchResponse({ data: { undone: true }, error: null });
+      }
+      if (url.includes("/ai-changes")) {
+        const change = {
+          id: "change-1",
+          action: "packingAdded",
+          subject: "Swimwear",
+          createdAt: new Date().toISOString(),
+          undoable: true,
+        };
+        return mockFetchResponse({ data: { changes: undone ? [] : [change] }, error: null });
+      }
+      if (url.includes("/packing-items")) {
+        const items = undone ? [] : [packingItem("p1", "Swimwear", ["day-1"])];
+        return mockFetchResponse({ data: { accessRole: "owner", items }, error: null });
+      }
+      if (url.includes("/bucket-list-items")) return mockFetchResponse({ data: { items: [] }, error: null });
+      if (url.includes("/api/auth/csrf")) return mockFetchResponse({ data: { csrfToken: "csrf-token" }, error: null });
+      if (url.includes("/images")) return mockFetchResponse({ data: { images: [] }, error: null });
+      if (url.includes("/documents")) return mockFetchResponse({ data: { documents: [] }, error: null });
+      if (url.includes("/route")) {
+        return mockFetchResponse({
+          data: { points: [], route: { polyline: [], distanceMeters: null, durationSeconds: null } },
+          error: null,
+        });
+      }
+      return mockFetchResponse({ data: tripDetail("owner"), error: null });
+    });
+    stubFetch(fetchMock);
+    const user = userEvent.setup();
+    renderWithProviders(<TripDayView tripId="trip-1" dayId="day-1" />);
+
+    // Take along shows the item; the notice is still collapsed.
+    expect(await screen.findByText("Swimwear")).toBeInTheDocument();
+    const notice = await screen.findByTestId("ai-changes-notice");
+    await user.click(within(notice).getByTestId("ai-changes-toggle"));
+    expect(within(notice).getByTestId("ai-change-row")).toHaveTextContent("Added to the packing list: Swimwear");
+    await user.click(within(notice).getByRole("button", { name: "Undo" }));
+
+    await waitFor(() => expect(screen.queryByText("Swimwear")).not.toBeInTheDocument());
   });
 });

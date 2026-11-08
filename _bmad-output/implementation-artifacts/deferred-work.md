@@ -4312,3 +4312,27 @@ severity: low
 summary: One `travelplan.packingList.categories.<tripId>` key per visited trip stays in the browser after the trip is deleted or access is lost; "All categories" writes `[]` rather than removing the key.
 evidence: Tiny per-viewer leftovers, no functional effect; a cleanup would need a list of the viewer's trips.
 status: open
+
+## Deferred from: code review of 16-3-take-along-in-the-day-email (2026-11-08)
+
+### DW-442: Packing item names and categories may contain interior newlines
+
+source_spec: `_bmad-output/implementation-artifacts/16-3-take-along-in-the-day-email.md`
+origin: bmad-code-review of 16-3, 2026-11-08
+location: `travelplan/src/lib/validation/packingListSchemas.ts` (`nameField`, `categoryField`); visible in `travelplan/src/lib/notifications/dayEmail.ts` (take-along text block)
+severity: low
+summary: The schemas trim only the ends, so the API (and the coming 16.4 connector) can store a name or category with an embedded line break; the day email's plain-text part then breaks its `- name` list and the HTML part collapses the break to a space.
+evidence: The app's input is single-line, so only API/connector writes can trigger it; fix by collapsing interior whitespace/line breaks in validation (one-line fields) rather than in each renderer.
+status: open
+
+## Deferred from: code review of 16-4-the-packing-list-through-the-connector (2026-11-08)
+
+### DW-443: Deleting a day removes the undo of a day-scoped packing add whose items survive
+
+source_spec: `_bmad-output/implementation-artifacts/16-4-the-packing-list-through-the-connector.md`
+origin: bmad-code-review of 16-4, 2026-11-08
+location: `travelplan/prisma/schema.prisma` (`AiChange.tripDay ... onDelete: Cascade`); reached through `travelplan/src/lib/mcp/tools/packingTools.ts` (`add_packing_items` sets `tripDayId = args.dayId`)
+severity: low
+summary: An `add_packing_items` with `dayId` stores its `ai_changes` row on that day. Deleting the day cascades the row away, but the items it created are trip-wide and stay, so the change drops out of the packing page notice and `list_ai_changes` and can no longer be undone.
+evidence: AC 6 asks for the day on the row by design; a fix would set the row's `tripDayId` to null on day delete for packing actions (`onDelete: SetNull` plus a scope rule), a schema change outside this story.
+status: open

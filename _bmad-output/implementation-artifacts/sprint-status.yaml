@@ -1,5 +1,15 @@
 # generated: 2026-03-01 13:08:00 CET
-# last_updated: 2026-11-08 (16-6-my-part-of-the-list -> done via bmad-code-review; 5 patches applied, 2 deferred (DW-440, DW-441), full suite 268 files / 4293 tests green, typecheck/lint(0 errors)/build pass)
+# last_updated: 2026-11-08 (16-7-not-needed-this-time -> ready-for-dev via bmad-create-story; defaults D1-D5 flagged: server refuses link/tick of not-needed items, add-with-day refuses batch, overview suffix always, all-not-needed message, receipt stays v1)
+# previously: 2026-11-08 (16-7-not-needed-this-time and 16-8-tags-on-packing-items added to backlog by PM: "Nicht nötig" item state and free tags with a tag filter; reverses the "no tags" ruling; sequenced after 16-4, before 16-5; FR58/FR60 amended, epics.md Stories 16.7/16.8)
+# previously: 2026-11-08 (16-4-the-packing-list-through-the-connector -> done via bmad-code-review; 5 patches applied, 1 deferred (DW-443), 23 dismissed, full suite 269 files / 4342 tests green, typecheck/lint clean)
+# previously: 2026-11-08 (16-4-the-packing-list-through-the-connector -> review via bmad-dev-story; all 8 tasks done, full suite 269 files / 4338 tests green, typecheck/lint(0 errors)/build pass)
+# previously: 2026-11-08 (16-4-the-packing-list-through-the-connector -> in-progress via bmad-dev-story)
+# previously: 2026-11-08 (16-4-the-packing-list-through-the-connector -> ready-for-dev via bmad-create-story; own packingChanged receipt (D1) and aiChangedAt key (D2) flagged)
+# previously: 2026-11-08 (16-3-take-along-in-the-day-email -> done via bmad-code-review; 1 patch applied (distinct name/category escaping test), 1 deferred (DW-442), 17 dismissed)
+# previously: 2026-11-08 (16-3-take-along-in-the-day-email -> review via bmad-dev-story; all 5 tasks done, full suite 268 files / 4304 tests green, typecheck/lint(0 errors)/build pass)
+# previously: 2026-11-08 (16-3-take-along-in-the-day-email -> in-progress via bmad-dev-story)
+# previously: 2026-11-08 (16-3-take-along-in-the-day-email -> ready-for-dev via bmad-create-story)
+# previously: 2026-11-08 (16-6-my-part-of-the-list -> done via bmad-code-review; 5 patches applied, 2 deferred (DW-440, DW-441), full suite 268 files / 4293 tests green, typecheck/lint(0 errors)/build pass)
 # previously: 2026-11-08 (16-6-my-part-of-the-list -> review via bmad-dev-story; all 7 tasks done, full suite 268 files / 4289 tests green, typecheck/lint(0 errors)/build pass)
 # previously: 2026-11-08 (16-6-my-part-of-the-list -> in-progress via bmad-dev-story)
 # previously: 2026-11-08 (16-6-my-part-of-the-list -> ready-for-dev via bmad-create-story)
@@ -403,7 +413,9 @@ development_status:
   16-1-the-trips-packing-list: done
   16-2-what-the-day-needs: done
   16-6-my-part-of-the-list: done
-  16-3-take-along-in-the-day-email: backlog
-  16-4-the-packing-list-through-the-connector: backlog
+  16-3-take-along-in-the-day-email: done
+  16-4-the-packing-list-through-the-connector: done
+  16-7-not-needed-this-time: ready-for-dev
+  16-8-tags-on-packing-items: backlog
   16-5-copy-from-another-trip: backlog
   epic-16-retrospective: optional

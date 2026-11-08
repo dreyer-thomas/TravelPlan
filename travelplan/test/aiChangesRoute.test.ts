@@ -7,6 +7,13 @@ import { createSessionJwt } from "@/lib/auth/jwt";
 import { prisma } from "@/lib/db/prisma";
 import { insertAiChangeInTransaction } from "@/lib/repositories/aiChangeRepo";
 import { createDayPlanItemForTripDay, updateDayPlanItemForTripDay } from "@/lib/repositories/dayPlanItemRepo";
+import {
+  addPackingItemsForConnector,
+  deletePackingItemForConnector,
+  updatePackingItem,
+  updatePackingItemForConnector,
+  type PackingInTransactionHook,
+} from "@/lib/repositories/packingListRepo";
 
 /**
  * Story 15.4. `GET /api/trips/{id}/ai-changes` and `POST .../ai-changes/{changeId}/undo`: the writer gate
@@ -275,5 +282,136 @@ describe("POST /api/trips/[id]/ai-changes/acknowledge (OK, 2026-10-31)", () => {
     });
     expect((await acknowledge(otherTrip.id, { changeIds: [changeId] }, owner)).body.data).toEqual({ acknowledged: 0 });
     expect((await prisma.aiChange.findUniqueOrThrow({ where: { id: changeId } })).acknowledgedAt).toBeNull();
+  });
+});
+
+describe("ai-changes routes for the packing list (Story 16.4)", () => {
+  /** A connector packing add, recorded as `add_packing_items` records it. */
+  const addByAi = async (seeded: Seeded, names: string[], tripDayId?: string) => {
+    let changeId = "";
+    const result = await addPackingItemsForConnector({
+      userId: seeded.owner.id,
+      tripId: seeded.trip.id,
+      tripDayId,
+      items: names.map((name) => ({ name })),
+      inTransaction: async (tx, { receipt }) => {
+        changeId = await insertAiChangeInTransaction(tx, {
+          tripId: seeded.trip.id,
+          tripDayId: tripDayId ?? null,
+          userId: seeded.owner.id,
+          clientId: CLIENT_ID,
+          action: "packingAdded",
+          subject: names.join(", "),
+          receipt,
+          requireReceipt: true,
+        });
+      },
+    });
+    if (result.status !== "added") throw new Error("setup");
+    return { items: result.items, changeId };
+  };
+
+  it("?scope=packing lists every packing change, day-scoped adds included, and no activity change", async () => {
+    const seeded = await seed();
+    const activity = await createByAi(seeded, "Louvre");
+    const tripWide = await addByAi(seeded, ["Pass"]);
+    const onDay = await addByAi(seeded, ["Badehose"], seeded.day.id);
+
+    const packing = await list(seeded.trip.id, await sessionFor(seeded.owner), "?scope=packing");
+    expect(packing.status).toBe(200);
+    expect(packing.body.data?.changes.map((change) => change.id)).toEqual([onDay.changeId, tripWide.changeId]);
+    expect(packing.body.data?.changes[0]).toMatchObject({ action: "packingAdded", subject: "Badehose", undoable: true });
+
+    // The day's notice shows the day-scoped add next to the day's own changes.
+    const day = await list(seeded.trip.id, await sessionFor(seeded.owner), `?tripDayId=${seeded.day.id}`);
+    expect(day.body.data?.changes.map((change) => change.id)).toEqual([onDay.changeId, activity.changeId]);
+  });
+
+  it("refuses scope together with tripDayId, and an unknown scope, with 400", async () => {
+    const seeded = await seed();
+    const session = await sessionFor(seeded.owner);
+    for (const query of [`?scope=packing&tripDayId=${seeded.day.id}`, "?scope=bucket"]) {
+      const result = await list(seeded.trip.id, session, query);
+      expect(result.status).toBe(400);
+      expect(result.body.error?.code).toBe("validation_error");
+    }
+    expect((await list(seeded.trip.id, await sessionFor(seeded.viewer), "?scope=packing")).status).toBe(404);
+  });
+
+  it("undoes a packing change from the app, and answers 409 undo_stale after an app edit", async () => {
+    const seeded = await seed();
+    const first = await addByAi(seeded, ["Pass"]);
+    const result = await undo(seeded.trip.id, first.changeId, await sessionFor(seeded.contributor));
+    expect(result.status).toBe(200);
+    expect(await prisma.packingItem.count({ where: { tripId: seeded.trip.id } })).toBe(0);
+
+    const second = await addByAi(seeded, ["Hut"]);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await updatePackingItem({ userId: seeded.owner.id, tripId: seeded.trip.id, itemId: second.items[0].id, packed: true, origin: "user" });
+    const stale = await undo(seeded.trip.id, second.changeId, await sessionFor(seeded.owner));
+    expect(stale.status).toBe(409);
+    expect(stale.body.error).toEqual({ code: "undo_stale", message: "The packing list has changed since this change was made" });
+    expect(await prisma.packingItem.count({ where: { tripId: seeded.trip.id } })).toBe(1);
+  });
+  /** The hook a connector packing write runs, recording the change as the tools do. */
+  const recordAs =
+    (seeded: Seeded, action: "packingUpdated" | "packingDeleted", subject: string, sink: { id: string }): PackingInTransactionHook =>
+    async (tx, { receipt }) => {
+      sink.id = await insertAiChangeInTransaction(tx, {
+        tripId: seeded.trip.id,
+        tripDayId: null,
+        userId: seeded.owner.id,
+        clientId: CLIENT_ID,
+        action,
+        subject,
+        receipt,
+        requireReceipt: true,
+      });
+    };
+
+  it("undoes a chain of add, update and delete from the app, newest first; an older one first is stale", async () => {
+    const seeded = await seed();
+    const session = await sessionFor(seeded.owner);
+    const added = await addByAi(seeded, ["Sonnencreme"]);
+    const [item] = added.items;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const updated = { id: "" };
+    const update = await updatePackingItemForConnector({
+      userId: seeded.owner.id,
+      tripId: seeded.trip.id,
+      itemId: item.id,
+      expectedUpdatedAt: item.updatedAt,
+      packed: true,
+      addDayIds: [seeded.day.id],
+      inTransaction: recordAs(seeded, "packingUpdated", item.name, updated),
+    });
+    if (update.status !== "updated") throw new Error("setup");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const deleted = { id: "" };
+    const removal = await deletePackingItemForConnector({
+      userId: seeded.owner.id,
+      tripId: seeded.trip.id,
+      itemId: item.id,
+      inTransaction: recordAs(seeded, "packingDeleted", item.name, deleted),
+    });
+    if (removal.status !== "deleted") throw new Error("setup");
+
+    // The update before the delete: the item is gone, so stale.
+    expect((await undo(seeded.trip.id, updated.id, session)).status).toBe(409);
+
+    expect((await undo(seeded.trip.id, deleted.id, session)).status).toBe(200);
+    const restored = await prisma.packingItem.findUniqueOrThrow({ where: { id: item.id }, include: { days: true } });
+    expect(restored).toMatchObject({ packed: true, updatedAt: update.item.updatedAt });
+    expect(restored.days.map((link) => link.tripDayId)).toEqual([seeded.day.id]);
+
+    expect((await undo(seeded.trip.id, updated.id, session)).status).toBe(200);
+    const back = await prisma.packingItem.findUniqueOrThrow({ where: { id: item.id }, include: { days: true } });
+    expect(back).toMatchObject({ packed: false, updatedAt: item.updatedAt });
+    expect(back.days).toEqual([]);
+
+    expect((await undo(seeded.trip.id, added.changeId, session)).status).toBe(200);
+    expect(await prisma.packingItem.count({ where: { tripId: seeded.trip.id } })).toBe(0);
   });
 });

@@ -63,9 +63,11 @@ type TripDayPackingSectionProps = {
   tripId: string;
   dayId: string;
   canEdit: boolean;
+  /** Story 16.4. Bumped by the day view after an undo in the AI-changes notice: read the items again. */
+  refreshKey?: number;
 };
 
-export default function TripDayPackingSection({ tripId, dayId, canEdit }: TripDayPackingSectionProps) {
+export default function TripDayPackingSection({ tripId, dayId, canEdit, refreshKey = 0 }: TripDayPackingSectionProps) {
   const { t, language } = useI18n();
   const { tokens } = useTheme().palette;
   const locale = INTL_LOCALES[language];
@@ -96,7 +98,8 @@ export default function TripDayPackingSection({ tripId, dayId, canEdit }: TripDa
 
   const resolveApiError = useCallback((code?: string) => packingApiErrorMessage(t, code), [t]);
 
-  // Re-fetched on every day: prev/next navigation keeps this component mounted.
+  // Re-fetched on every day: prev/next navigation keeps this component mounted. Story 16.4: and on every
+  // `refreshKey` bump; the cleanup drops an answer for a day the user has left.
   useEffect(() => {
     let active = true;
     const load = async () => {
@@ -129,7 +132,7 @@ export default function TripDayPackingSection({ tripId, dayId, canEdit }: TripDa
     return () => {
       active = false;
     };
-  }, [t, tripId, dayId]);
+  }, [t, tripId, dayId, refreshKey]);
 
   const ensureCsrfToken = useCallback(async () => {
     if (csrfToken) return csrfToken;

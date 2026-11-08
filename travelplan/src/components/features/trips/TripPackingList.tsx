@@ -24,6 +24,7 @@ import {
 import { formatMessage, INTL_LOCALES } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 import AiBadge from "@/components/ui/AiBadge";
+import AiChangesNotice from "@/components/features/trips/AiChangesNotice";
 import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
 import { CheckIcon, PencilIcon } from "@/components/features/trips/TripIcons";
 import { formatShortDate } from "@/lib/trips/formatShortDate";
@@ -192,6 +193,13 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
   const [revealedIds, setRevealedIds] = useState<ReadonlySet<string>>(() => new Set());
   // The trip whose remembered selection was last restored (reveals reset, add form prefilled).
   const restoredForTrip = useRef<string | null>(null);
+  // Story 16.4. `reloadKey` reads the list again after an undo in the AI-changes notice; `loadCount` counts
+  // completed loads and `writeCount` the person's own successful writes; their sum is the notice's
+  // `refreshKey`, so it reads its changes again with the list and after every edit here (an edited item's
+  // connector change is then shown as no longer undoable, as in the day view).
+  const [reloadKey, setReloadKey] = useState(0);
+  const [loadCount, setLoadCount] = useState(0);
+  const [writeCount, setWriteCount] = useState(0);
 
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
@@ -237,8 +245,11 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
         } else if (!response.ok || body.error || !body.data) {
           setLoadError(t("trips.packingList.loadError"));
         } else {
+          // A reload after an AI undo may follow a failed one: drop its error.
+          setLoadError(null);
           setItems(body.data.items);
           setAccessRole(body.data.accessRole);
+          setLoadCount((count) => count + 1);
           // The remembered filter is read here, after mount and never during render, so the server HTML
           // and the first client render agree (the list is only shown once this has run).
           setFilter(readStoredFilter());
@@ -274,7 +285,9 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
     return () => {
       active = false;
     };
-  }, [t, tripId]);
+  }, [t, tripId, reloadKey]);
+
+  const reloadAfterAiUndo = useCallback(() => setReloadKey((key) => key + 1), []);
 
   // Scroll the highlighted row into view, then drop the highlight after ~2 s.
   useEffect(() => {
@@ -307,6 +320,7 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
         body: JSON.stringify(payload),
       });
       const body = (await response.json()) as ApiEnvelope<T>;
+      if (response.ok && !body.error) setWriteCount((count) => count + 1);
       return { response, body };
     },
     [ensureCsrfToken, tripId],
@@ -614,6 +628,17 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
         </Box>
 
         {loadError && <Alert severity="error">{loadError}</Alert>}
+
+        {/* Story 16.4. The connector's changes to the list, for writers, above the add form and the filters. */}
+        {!loadError && canEdit && (
+          <AiChangesNotice
+            tripId={tripId}
+            scope="packing"
+            refreshKey={loadCount + writeCount}
+            ensureCsrfToken={ensureCsrfToken}
+            onDayChanged={reloadAfterAiUndo}
+          />
+        )}
 
         {!loadError && canEdit && (
           <Box

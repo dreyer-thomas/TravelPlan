@@ -820,6 +820,12 @@ const en: Dictionary = {
   "trips.aiChanges.dayNoteChanged": "Day note changed: {title}",
   "trips.aiChanges.dayImageSet": "Day picture set: {title}",
   "trips.aiChanges.dayImageRemoved": "Day picture removed: {title}",
+  // Story 16.4. The packing list page's notice.
+  "trips.aiChanges.packingTitle": "AI changed the packing list",
+  "trips.aiChanges.packingAdded": "Added to the packing list: {title}",
+  "trips.aiChanges.packingUpdated": "Packing item changed: {title}",
+  "trips.aiChanges.packingDeleted": "Packing item deleted: {title}",
+  "trips.aiChanges.packingStale": "The packing list has changed since; this change can no longer be undone.",
   "trips.aiChanges.undo": "Undo",
   "trips.aiChanges.stale": "The day has changed since; this change can no longer be undone.",
   "trips.aiChanges.unavailable": "This change can no longer be undone.",

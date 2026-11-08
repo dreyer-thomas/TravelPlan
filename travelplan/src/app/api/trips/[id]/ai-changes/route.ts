@@ -3,7 +3,7 @@ import { apiError } from "@/lib/errors/apiError";
 import { fail, ok } from "@/lib/http/response";
 import { hasTripOwnerOrContributorAccess } from "@/lib/auth/tripAccess";
 import { requireSession } from "@/lib/auth/sessionGuard";
-import { listAiChangesForTrip } from "@/lib/repositories/aiChangeRepo";
+import { listAiChangesForTrip, PACKING_AI_CHANGE_ACTIONS } from "@/lib/repositories/aiChangeRepo";
 
 /** The notice shows the newest changes; more than this on one day is not worth listing. */
 const AI_CHANGES_LIST_LIMIT = 50;
@@ -21,6 +21,10 @@ type RouteContext = {
  * Session, then the owner-or-contributor gate (404, not 403, so a viewer learns nothing), as the undo
  * routes check. `undoable` means a receipt is stored; whether the undo is still possible is only known by
  * trying it (`409 undo_stale`).
+ *
+ * Story 16.4: `?scope=packing` lists the packing list's changes instead (every `packing*` action of the
+ * trip, day-scoped adds included), for the packing page's notice. `scope` together with `tripDayId` is
+ * `400 validation_error`; any other `scope` value too.
  */
 export const GET = async (request: NextRequest, context: RouteContext) => {
   const auth = await requireSession(request);
@@ -38,11 +42,16 @@ export const GET = async (request: NextRequest, context: RouteContext) => {
   }
 
   const tripDayId = request.nextUrl.searchParams.get("tripDayId") || undefined;
+  const scope = request.nextUrl.searchParams.get("scope") || undefined;
+  if (scope !== undefined && (scope !== "packing" || tripDayId !== undefined)) {
+    return fail(apiError("validation_error", "Use either scope=packing or tripDayId"), 400);
+  }
 
   try {
     const entries = await listAiChangesForTrip({
       tripId,
       tripDayId,
+      ...(scope === "packing" ? { actions: PACKING_AI_CHANGE_ACTIONS } : {}),
       now: new Date(),
       notUndone: true,
       notAcknowledged: true,

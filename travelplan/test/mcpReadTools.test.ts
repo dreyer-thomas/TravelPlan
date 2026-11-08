@@ -143,6 +143,7 @@ describe("get_trip", () => {
       name: "Prague",
       startDate: "2027-05-01",
       endDate: "2027-05-03",
+      packing: { total: 0, packed: 0 },
       days: [
         { id: seed.day1.id, date: "2027-05-01", dayIndex: 1, stay: { name: "Hotel Arrival", status: "planned" }, missingStay: false, hasNote: false, hasImage: false, activityCount: 0, warnings: [] },
         {

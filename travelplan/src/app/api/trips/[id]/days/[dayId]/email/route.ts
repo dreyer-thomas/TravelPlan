@@ -9,6 +9,7 @@ import { getRequestI18n } from "@/i18n/request";
 import { buildDayEmail, type DayEmailDocuments } from "@/lib/notifications/dayEmail";
 import { MAX_DAY_EMAIL_BYTES } from "@/lib/notifications/dayEmailLimits";
 import { describeSendFailure, sendEmail, type EmailAttachment } from "@/lib/notifications/email";
+import { listPackingItemsForDay } from "@/lib/repositories/packingListRepo";
 import { getTripDayPrintPayloadForUser } from "@/lib/repositories/tripRepo";
 import { CSRF_COOKIE_NAME, validateCsrf } from "@/lib/security/csrf";
 import { buildDayPacket } from "@/lib/trips/dayPacket";
@@ -73,6 +74,9 @@ const measureMail = async (mail: {
  *
  * Guard order: CSRF → session → params → read access (404 for non-members) → day. Read access, not
  * ownership: a viewer who can open the day can take it offline, exactly as with the packet.
+ *
+ * The mail also carries the day's take-along packing items (Story 16.3, FR51 amended), read once through
+ * `packingListRepo` - not through the print payload, which also feeds the print sheet and the packet.
  */
 export const POST = async (request: NextRequest, context: RouteContext) => {
   const csrfCookie = request.cookies.get(CSRF_COOKIE_NAME)?.value;
@@ -114,12 +118,16 @@ export const POST = async (request: NextRequest, context: RouteContext) => {
       return fail(apiError("not_found", "Trip day not found"), 404, NO_STORE);
     }
 
+    // Read once for both `compose` calls. A failure lands in the catch below: a mail silently missing the
+    // section would be worse than no mail.
+    const packingItems = await listPackingItemsForDay({ userId, tripId, tripDayId: dayId });
+
     const { language, t } = getRequestI18n(request);
     const dayUrl = new URL(
       `/trips/${tripId}/days/${dayId}`,
       process.env.APP_BASE_URL ?? "http://localhost:3000",
     ).toString();
-    const compose = (which: DayEmailDocuments) => buildDayEmail({ payload, language, t, dayUrl, documents: which });
+    const compose = (which: DayEmailDocuments) => buildDayEmail({ payload, language, t, dayUrl, documents: which, packingItems });
 
     // The packet is the download's packet, built by the same code: same order, labels, failure pages and
     // file name. More than `MAX_PACKET_DOCUMENTS` cannot be built at all, which for this mail is the same
