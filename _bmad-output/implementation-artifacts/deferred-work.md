@@ -4380,3 +4380,65 @@ severity: low
 summary: `resolveTags` filters by `tag_key IN (...)` joined to the item's trip; the only index is the primary key `(packing_item_id, tag_key)`, whose first column is the item, so the lookup scans the table.
 evidence: Tables are small today (dozens of tags per trip). An `@@index([tagKey])` in a new migration would fix it.
 status: open
+
+## Deferred from: code review of 16-5-copy-from-another-trip (2026-11-08)
+
+### DW-448: Copy dialog: source list with more than 500 items cannot be copied as preselected
+
+source_spec: `_bmad-output/implementation-artifacts/16-5-copy-from-another-trip.md`
+origin: bmad-code-review of 16-5, 2026-11-08
+location: `travelplan/src/components/features/trips/PackingCopyDialog.tsx (preselect) / packingListSchemas.ts (`PACKING_COPY_MAX_ITEMS`)`
+severity: low
+summary: Step 2 preselects every item; above 500 the POST fails with 400 `validation_error`, shown as a generic error, with no hint about the limit.
+evidence: Packing lists today are far below 500. A fix would disable confirm with a hint above the cap, or batch.
+status: open
+
+### DW-449: Copy: a second lost unique race answers 500
+
+source_spec: `_bmad-output/implementation-artifacts/16-5-copy-from-another-trip.md`
+origin: bmad-code-review of 16-5, 2026-11-08
+location: `travelplan/src/lib/repositories/packingListRepo.ts (`copyPackingItemsFromTrip`)`
+severity: low
+summary: `retryOnceOnUniqueViolation` reruns once; a second P2002 escapes to the route catch as `server_error`.
+evidence: Needs two consecutive races on the same name during a copy; same shape as DW-446. A fix would catch the second violation and answer a retryable error.
+status: open
+
+### DW-450: Copy dialog: empty source list in step 2 has no message
+
+source_spec: `_bmad-output/implementation-artifacts/16-5-copy-from-another-trip.md`
+origin: bmad-code-review of 16-5, 2026-11-08
+location: `travelplan/src/components/features/trips/PackingCopyDialog.tsx (step 2)`
+severity: low
+summary: If every item of the source was deleted after the trip listing, step 2 shows only "0 of 0 selected" and a disabled confirm.
+evidence: Rare race between listing and choosing. A fix would show an empty-state line.
+status: open
+
+### DW-451: Copy dialog: gone source trip still listed after source_not_found
+
+source_spec: `_bmad-output/implementation-artifacts/16-5-copy-from-another-trip.md`
+origin: bmad-code-review of 16-5, 2026-11-08
+location: `travelplan/src/components/features/trips/PackingCopyDialog.tsx (`backToTrips`)`
+severity: low
+summary: After a 404 `source_not_found`, "Other trip" returns to the cached trip list, which still offers the gone trip.
+evidence: Low; a fix would drop the failed trip from `sources` or reload them on back.
+status: open
+
+### DW-452: Copy dialog: block elements inside label
+
+source_spec: `_bmad-output/implementation-artifacts/16-5-copy-from-another-trip.md`
+origin: bmad-code-review of 16-5, 2026-11-08
+location: `travelplan/src/components/features/trips/PackingCopyDialog.tsx (group heading and item rows)`
+severity: low
+summary: The group header is a `<label>` containing an `<h3>`; item rows are `<label>`s containing `<div>`/`<p>`. Label allows phrasing content only.
+evidence: Browsers render it fine; the input aria-label wins for the group. A fix would wrap only phrasing content or use `htmlFor`.
+status: open
+
+### DW-453: Story 16.5 test gaps
+
+source_spec: `_bmad-output/implementation-artifacts/16-5-copy-from-another-trip.md`
+origin: bmad-code-review of 16-5, 2026-11-08
+location: `travelplan/test/packingListRepo.test.ts, tripPackingList.test.tsx, packingListCopyRoute.test.ts`
+severity: low
+summary: Not covered: the listing id tie-break on equal start dates, the network-failure branch of `handleCopy`, a viewer-only source through the route.
+evidence: Behaviour is covered at other layers; low.
+status: open

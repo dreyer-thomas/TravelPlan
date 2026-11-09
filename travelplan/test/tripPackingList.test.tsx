@@ -1862,3 +1862,284 @@ describe("TripPackingList tags (Story 16.8)", () => {
   });
 });
 
+
+describe("TripPackingList copy from another trip (Story 16.5)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  type Source = { id: string; name: string; startDate: string; endDate: string; itemCount: number };
+
+  const summer: Source = {
+    id: "src-1",
+    name: "Sommer 2026",
+    startDate: "2026-07-01T00:00:00.000Z",
+    endDate: "2026-07-14T00:00:00.000Z",
+    itemCount: 4,
+  };
+  const winter: Source = {
+    id: "src-2",
+    name: "Winter 2025",
+    startDate: "2025-12-20T00:00:00.000Z",
+    endDate: "2025-12-27T00:00:00.000Z",
+    itemCount: 1,
+  };
+
+  const summerItems = [
+    item({ id: "s1", name: "Badehose", category: "Kleidung", packed: true }),
+    item({ id: "s2", name: "Sonnenhut", category: "Kleidung", tags: ["Kaufen"] }),
+    item({ id: "s3", name: "Schnorchel", category: "Kleidung", notNeeded: true }),
+    item({ id: "s4", name: "Ladekabel" }),
+  ];
+
+  /**
+   * The list stub routes by URL before the method: the sources listing, the source trip's list and the
+   * copy POST, then the trip's own list for every other GET.
+   */
+  const installCopyApi = (options: {
+    accessRole?: "owner" | "contributor" | "viewer";
+    items?: PackingItemWire[];
+    sources?: Source[] | "error";
+    sourceItems?: PackingItemWire[] | "error";
+    copyAnswer?: (body: Record<string, unknown>) => Response;
+  }) => {
+    const calls: Call[] = [];
+    stubFetch(
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestUrl(input);
+        const method = init?.method ?? "GET";
+        const body = typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, unknown>) : null;
+        calls.push({ url, method, body });
+        if (url.includes("/api/auth/csrf")) return mockFetchResponse({ data: { csrfToken: "csrf" }, error: null });
+        if (url.includes("/packing-items/copy")) {
+          if (method === "GET") {
+            if (options.sources === "error") return mockFetchResponse({ data: null, error: { code: "server_error", message: "x" } }, { status: 500 });
+            return mockFetchResponse({ data: { trips: options.sources ?? [summer, winter] }, error: null });
+          }
+          if (options.copyAnswer) return options.copyAnswer(body!);
+          const ids = body!.itemIds as string[];
+          return mockFetchResponse({
+            data: {
+              added: ids.length,
+              existed: 0,
+              items: ids.map((id) => item({ id: `copy-${id}`, name: summerItems.find((entry) => entry.id === id)!.name })),
+            },
+            error: null,
+          });
+        }
+        if (/\/api\/trips\/src-\d\/packing-items$/.test(url)) {
+          if (options.sourceItems === "error") return mockFetchResponse({ data: null, error: { code: "server_error", message: "x" } }, { status: 500 });
+          return mockFetchResponse({ data: { accessRole: "viewer", items: options.sourceItems ?? summerItems }, error: null });
+        }
+        return mockFetchResponse({ data: { accessRole: options.accessRole ?? "owner", items: options.items ?? [] }, error: null });
+      }),
+    );
+    return { calls, copyPosts: () => calls.filter((call) => call.method === "POST" && call.url.includes("/copy")) };
+  };
+
+  const openDialog = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(await screen.findByTestId("packing-copy-open"));
+    return screen.findByRole("dialog");
+  };
+
+  const chooseSummer = async (user: ReturnType<typeof userEvent.setup>) => {
+    const dialog = await openDialog(user);
+    const rows = await within(dialog).findAllByTestId("packing-copy-source");
+    await user.click(rows[0]);
+    await within(dialog).findAllByTestId("packing-copy-item");
+    return dialog;
+  };
+
+  it("shows the button for owner and contributor, below the add form, also on an empty list", async () => {
+    for (const accessRole of ["owner", "contributor"] as const) {
+      installCopyApi({ accessRole });
+      const { unmount } = renderWithProviders(<TripPackingList tripId="trip-1" />);
+      expect(await screen.findByTestId("packing-copy-open")).toHaveTextContent("Copy from another trip");
+      unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("hides the button from a viewer", async () => {
+    installCopyApi({ accessRole: "viewer", items: [item({ id: "1", name: "Pass" })] });
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    await screen.findByText("Pass");
+    expect(screen.queryByTestId("packing-copy-open")).not.toBeInTheDocument();
+  });
+
+  it("lists the trips in the server's order with name, dates and item count", async () => {
+    const user = userEvent.setup();
+    installCopyApi({});
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    const dialog = await openDialog(user);
+
+    const rows = await within(dialog).findAllByTestId("packing-copy-source");
+    expect(rows.map((row) => row.textContent)).toEqual([
+      "Sommer 2026Jul 1, 2026 – Jul 14, 2026 · 4 items",
+      "Winter 2025Dec 20, 2025 – Dec 27, 2025 · 1 item",
+    ]);
+  });
+
+  it("says so when no other trip has a packing list", async () => {
+    const user = userEvent.setup();
+    installCopyApi({ sources: [] });
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    const dialog = await openDialog(user);
+    expect(await within(dialog).findByTestId("packing-copy-no-sources")).toHaveTextContent("No other trip has a packing list.");
+  });
+
+  it("shows a load error for the trips and for the source list", async () => {
+    const user = userEvent.setup();
+    installCopyApi({ sources: "error" });
+    const first = renderWithProviders(<TripPackingList tripId="trip-1" />);
+    let dialog = await openDialog(user);
+    expect(await within(dialog).findByTestId("packing-copy-load-error")).toHaveTextContent("Could not be loaded.");
+    first.unmount();
+    vi.unstubAllGlobals();
+
+    installCopyApi({ sourceItems: "error" });
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    dialog = await openDialog(user);
+    await user.click((await within(dialog).findAllByTestId("packing-copy-source"))[0]);
+    expect(await within(dialog).findByTestId("packing-copy-load-error")).toHaveTextContent("Could not be loaded.");
+  });
+
+  it("groups the source items like the list, Other last, all selected, not-needed inside its category, with hints", async () => {
+    const user = userEvent.setup();
+    installCopyApi({ items: [item({ id: "mine", name: "LADEKABEL" })] });
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    const dialog = await chooseSummer(user);
+
+    const groups = within(dialog).getAllByTestId("packing-copy-group");
+    expect(groups.map((group) => within(group).getByRole("heading").textContent)).toEqual(["Kleidung", "Other"]);
+    expect(within(groups[0]).getAllByTestId("packing-copy-item").map((row) => row.textContent)).toEqual([
+      "Badehose",
+      "Schnorchelnot needed there",
+      "SonnenhutKaufen",
+    ]);
+    expect(within(groups[1]).getAllByTestId("packing-copy-item").map((row) => row.textContent)).toEqual([
+      "Ladekabelalready on the list",
+    ]);
+    for (const row of within(dialog).getAllByTestId("packing-copy-item")) {
+      expect(within(row).getByRole("checkbox")).toBeChecked();
+    }
+    expect(within(dialog).getByTestId("packing-copy-count")).toHaveTextContent("4 of 4 selected");
+    expect(within(dialog).getByTestId("packing-copy-confirm")).toHaveTextContent("Copy 4");
+  });
+
+  it("selects a category all / none with its tri-state box and disables confirm at zero", async () => {
+    const user = userEvent.setup();
+    installCopyApi({});
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    const dialog = await chooseSummer(user);
+    const groupBox = within(dialog).getByRole("checkbox", { name: "Kleidung: select all" });
+    const otherBox = within(dialog).getByRole("checkbox", { name: "Other: select all" });
+
+    expect(groupBox).toBeChecked();
+    await user.click(groupBox);
+    expect(groupBox).not.toBeChecked();
+    expect(within(dialog).getByTestId("packing-copy-count")).toHaveTextContent("1 of 4 selected");
+
+    await user.click(groupBox);
+    expect(groupBox).toBeChecked();
+
+    const badehose = within(dialog).getAllByTestId("packing-copy-item")[0];
+    await user.click(within(badehose).getByRole("checkbox"));
+    expect(groupBox).toHaveAttribute("data-indeterminate", "true");
+    expect(within(dialog).getByTestId("packing-copy-count")).toHaveTextContent("3 of 4 selected");
+
+    await user.click(groupBox);
+    expect(groupBox).toBeChecked();
+    await user.click(groupBox);
+    await user.click(otherBox);
+    expect(within(dialog).getByTestId("packing-copy-confirm")).toBeDisabled();
+    expect(within(dialog).getByTestId("packing-copy-confirm")).toHaveTextContent("Copy 0");
+  });
+
+  it("sends the source and the selected ids, closes, shows the created items and the notice", async () => {
+    const user = userEvent.setup();
+    const api = installCopyApi({});
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    const dialog = await chooseSummer(user);
+    await user.click(within(dialog).getByRole("checkbox", { name: "Kleidung: select all" }));
+
+    await user.click(within(dialog).getByTestId("packing-copy-confirm"));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(api.copyPosts()).toEqual([
+      { url: "/api/trips/trip-1/packing-items/copy", method: "POST", body: { sourceTripId: "src-1", itemIds: ["s4"] } },
+    ]);
+    expect(screen.getByTestId("packing-notice")).toHaveTextContent("1 item added.");
+    expect(rowNames()).toEqual(["Ladekabel"]);
+  });
+
+  it.each([
+    [3, 0, "3 items added."],
+    [2, 1, "2 items added. 1 was already on the list."],
+    [1, 2, "1 item added. 2 were already on the list."],
+    [0, 4, "Nothing added. 4 were already on the list."],
+  ])("words the notice for %i added and %i skipped", async (added, existed, text) => {
+    const user = userEvent.setup();
+    installCopyApi({
+      copyAnswer: () => mockFetchResponse({ data: { added, existed, items: [] }, error: null }),
+    });
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    const dialog = await chooseSummer(user);
+    await user.click(within(dialog).getByTestId("packing-copy-confirm"));
+    expect(await screen.findByTestId("packing-notice")).toHaveTextContent(text);
+  });
+
+  it("speaks German in the notice", async () => {
+    const user = userEvent.setup();
+    installCopyApi({
+      copyAnswer: () => mockFetchResponse({ data: { added: 2, existed: 1, items: [] }, error: null }),
+    });
+    renderWithProviders(<TripPackingList tripId="trip-1" />, { language: "de" });
+    await user.click(await screen.findByTestId("packing-copy-open"));
+    const dialog = await screen.findByRole("dialog");
+    await user.click((await within(dialog).findAllByTestId("packing-copy-source"))[0]);
+    await within(dialog).findAllByTestId("packing-copy-item");
+    expect(within(dialog).getByTestId("packing-copy-confirm")).toHaveTextContent("4 übernehmen");
+    await user.click(within(dialog).getByTestId("packing-copy-confirm"));
+    expect(await screen.findByTestId("packing-notice")).toHaveTextContent(
+      "2 Gegenstände übernommen. 1 war schon auf der Liste.",
+    );
+  });
+
+  it("keeps the dialog on step 2 with the selection and shows a failed copy in it", async () => {
+    const user = userEvent.setup();
+    installCopyApi({
+      copyAnswer: () => mockFetchResponse({ data: null, error: { code: "source_not_found", message: "x" } }, { status: 404 }),
+    });
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    const dialog = await chooseSummer(user);
+    await user.click(within(dialog).getByRole("checkbox", { name: "Other: select all" }));
+
+    await user.click(within(dialog).getByTestId("packing-copy-confirm"));
+
+    expect(await within(dialog).findByTestId("packing-copy-error")).toHaveTextContent("That trip is no longer available.");
+    expect(within(dialog).getByTestId("packing-copy-count")).toHaveTextContent("3 of 4 selected");
+    expect(screen.queryByTestId("packing-notice")).not.toBeInTheDocument();
+  });
+
+  it("goes back to the trips with Other trip and drops the selection", async () => {
+    const user = userEvent.setup();
+    installCopyApi({});
+    renderWithProviders(<TripPackingList tripId="trip-1" />);
+    const dialog = await chooseSummer(user);
+    await user.click(within(dialog).getByRole("checkbox", { name: "Other: select all" }));
+
+    await user.click(within(dialog).getByRole("button", { name: "Other trip" }));
+
+    expect(await within(dialog).findAllByTestId("packing-copy-source")).toHaveLength(2);
+    await user.click(within(dialog).getAllByTestId("packing-copy-source")[0]);
+    await within(dialog).findAllByTestId("packing-copy-item");
+    expect(within(dialog).getByTestId("packing-copy-count")).toHaveTextContent("4 of 4 selected");
+  });
+});

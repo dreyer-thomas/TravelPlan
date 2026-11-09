@@ -61,6 +61,12 @@ import type {
  * `removeTags`), and undo (restores the snapshot's tags when it has any; an older receipt has none, D5).
  * A merge that would leave an item with more than 10 tags is refused and writes nothing
  * (`PackingTagLimitError` → `too_many_tags`). State changes (pack, not needed) never touch tags.
+ *
+ * Story 16.5 (FR60) copies items from another trip (`listPackingCopySources`, `copyPackingItemsFromTrip`).
+ * Two gates: the target trip needs a writer (`findTripForTripWriter`), the source trip any participant
+ * (viewers included). A copy keeps name, category and tags (in the target's spelling), arrives unpacked,
+ * needed, unlinked and without the KI marker; a name already on the target is skipped and never touched
+ * (no tag merge). The source trip is only read.
  */
 
 export type PackingItemDetail = {
@@ -1205,4 +1211,129 @@ export const undoPackingChangeForTrip = async (params: {
     throw error;
   }
   return { status: "undone" };
+};
+
+/** Story 16.5. Another trip the person can copy packing items from. */
+export type PackingCopySource = { id: string; name: string; startDate: Date; endDate: Date; itemCount: number };
+
+export type PackingCopyResult =
+  | { status: "not_found" }
+  | { status: "source_not_found" }
+  | { status: "copied"; added: number; existed: number; items: PackingItemDetail[] };
+
+/** The participant read clause (owner or any member, viewers included) - the source gate of a copy. */
+/** Story 16.5. Up to 500 items, each with a category read, a tag read and a create: past Prisma's 5 s default. */
+const COPY_TRANSACTION_TIMEOUT_MS = 30000;
+
+const participantClause = (userId: string): Prisma.TripWhereInput => ({
+  OR: [{ userId }, { members: { some: { userId } } }],
+});
+
+/**
+ * Story 16.5 (FR60). The trips a writer of `tripId` can copy from: every other trip they can see (any role)
+ * that has at least one packing item (D1), newest first. `null` when the person cannot write `tripId`.
+ */
+export const listPackingCopySources = async (params: {
+  userId: string;
+  tripId: string;
+}): Promise<PackingCopySource[] | null> => {
+  const { userId, tripId } = params;
+  if (!(await findTripForTripWriter(userId, tripId))) return null;
+  // Annotated so an excess property in this authorisation filter is a type error (see `listTripsForUser`).
+  const where: Prisma.TripWhereInput = {
+    id: { not: tripId },
+    ...participantClause(userId),
+    packingItems: { some: {} },
+  };
+  const trips = await prisma.trip.findMany({
+    where,
+    select: { id: true, name: true, startDate: true, endDate: true, _count: { select: { packingItems: true } } },
+    orderBy: [{ startDate: "desc" }, { id: "desc" }],
+  });
+  return trips.map((trip) => ({
+    id: trip.id,
+    name: trip.name,
+    startDate: trip.startDate,
+    endDate: trip.endDate,
+    itemCount: trip._count.packingItems,
+  }));
+};
+
+/**
+ * Story 16.5 (FR60). Copies the chosen items of `sourceTripId` onto `tripId` in one transaction. Each copy
+ * keeps the source's name, category and tags (in this trip's spelling, as `resolveCategory` / `resolveTags`)
+ * and arrives unpacked, needed, without day links and without the KI marker. A name already on this trip
+ * (ignoring case) is skipped and that item is not touched at all (D3, no tag merge). Ids not on the source
+ * trip are ignored and not counted (D5). The source trip is only read.
+ *
+ * Gates: the target needs a writer (`not_found` otherwise); the source needs any participant, viewers
+ * included (`source_not_found` otherwise, also for the target itself). A concurrent add of the same name
+ * loses on `tripId_nameKey` and reruns once, then counting that name as existing.
+ */
+export const copyPackingItemsFromTrip = async (params: {
+  userId: string;
+  tripId: string;
+  sourceTripId: string;
+  itemIds: readonly string[];
+}): Promise<PackingCopyResult> => {
+  const { userId, tripId, sourceTripId } = params;
+  if (!(await findTripForTripWriter(userId, tripId))) return { status: "not_found" };
+  if (sourceTripId === tripId) return { status: "source_not_found" };
+  const source = await prisma.trip.findFirst({
+    where: { id: sourceTripId, ...participantClause(userId) },
+    select: { id: true },
+  });
+  if (!source) return { status: "source_not_found" };
+
+  const itemIds = [...params.itemIds];
+  return retryOnceOnUniqueViolation(() =>
+    prisma.$transaction(async (tx): Promise<PackingCopyResult> => {
+      // `tripId: sourceTripId` in the filter: ids of any other trip are never read (D5).
+      const sourceItems = await tx.packingItem.findMany({
+        where: { tripId: sourceTripId, id: { in: itemIds } },
+        select: {
+          name: true,
+          nameKey: true,
+          category: true,
+          tags: { select: { tag: true, tagKey: true }, orderBy: { tagKey: "asc" } },
+        },
+        orderBy: [{ nameKey: "asc" }, { id: "asc" }],
+      });
+      const existing = await tx.packingItem.findMany({
+        where: { tripId, nameKey: { in: sourceItems.map((item) => item.nameKey) } },
+        select: { nameKey: true },
+      });
+      const existingKeys = new Set(existing.map((row) => row.nameKey));
+
+      const items: PackingItemDetail[] = [];
+      let existed = 0;
+      for (const item of sourceItems) {
+        if (existingKeys.has(item.nameKey)) {
+          existed += 1;
+          continue;
+        }
+        const category = await resolveCategory(tx, tripId, item.category);
+        const tags = await resolveTags(
+          tx,
+          tripId,
+          item.tags.map((row) => row.tag),
+        );
+        const created = await tx.packingItem.create({
+          data: {
+            tripId,
+            name: item.name,
+            nameKey: item.nameKey,
+            category,
+            packed: false,
+            notNeeded: false,
+            aiChangedAt: null,
+            ...(tags.length > 0 ? { tags: { create: tags.map((tag) => ({ tag, tagKey: packingTagKey(tag) })) } } : {}),
+          },
+          select: detailSelect,
+        });
+        items.push(toDetail(created));
+      }
+      return { status: "copied", added: items.length, existed, items };
+    }, { timeout: COPY_TRANSACTION_TIMEOUT_MS }),
+  );
 };

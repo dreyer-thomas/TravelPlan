@@ -26,6 +26,7 @@ import { formatMessage, INTL_LOCALES } from "@/i18n";
 import { useI18n } from "@/i18n/provider";
 import AiBadge from "@/components/ui/AiBadge";
 import AiChangesNotice from "@/components/features/trips/AiChangesNotice";
+import PackingCopyDialog from "@/components/features/trips/PackingCopyDialog";
 import { DialogTitleWithClose } from "@/components/ui/DialogCloseButton";
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, PencilIcon } from "@/components/features/trips/TripIcons";
 import { formatShortDate } from "@/lib/trips/formatShortDate";
@@ -67,6 +68,10 @@ import {
  * the edit dialog (`PackingTags.tsx`). A second chip row filters by tag: any selected tag (OR), combined with
  * the category selection and "Noch offen" by AND; remembered per trip like the categories. Group heading
  * counts keep counting the whole category (D6); the selection progress line counts the filtered view.
+ *
+ * Story 16.5: planners copy items from another trip ("Aus anderer Reise übernehmen", `PackingCopyDialog`).
+ * The page does the POST: the created items join the list at once, a notice gives the added and skipped
+ * counts; the copied items are not revealed past an active filter and not highlighted (D4).
  */
 
 type ApiEnvelope<T> = {
@@ -292,6 +297,8 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
   const [notNeededBusy, setNotNeededBusy] = useState(false);
   const [notNeededError, setNotNeededError] = useState<string | null>(null);
   const [markNeededBusyId, setMarkNeededBusyId] = useState<string | null>(null);
+  // Story 16.5. The "copy from another trip" dialog.
+  const [copyOpen, setCopyOpen] = useState(false);
 
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const rowRefs = useRef(new Map<string, HTMLElement>());
@@ -396,9 +403,9 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
 
   /** One write: answers the envelope and the status, or throws on a network or CSRF failure. */
   const send = useCallback(
-    async <T,>(method: "POST" | "PATCH" | "DELETE", payload: unknown) => {
+    async <T,>(method: "POST" | "PATCH" | "DELETE", payload: unknown, pathSuffix = "") => {
       const token = await ensureCsrfToken();
-      const response = await fetch(`/api/trips/${tripId}/packing-items`, {
+      const response = await fetch(`/api/trips/${tripId}/packing-items${pathSuffix}`, {
         method,
         credentials: "include",
         headers: { "Content-Type": "application/json", "x-csrf-token": token },
@@ -410,6 +417,51 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
     },
     [ensureCsrfToken, tripId],
   );
+
+  /** Story 16.5. "{n} items added." plus, when something was skipped, "{n} were already on the list." */
+  const copyResultMessage = (added: number, existed: number) => {
+    const addedText =
+      added === 0
+        ? t("trips.packingList.copyResultNone")
+        : added === 1
+          ? t("trips.packingList.copyResultAddedOne")
+          : formatMessage(t("trips.packingList.copyResultAdded"), { count: added });
+    if (existed === 0) return addedText;
+    const existedText =
+      existed === 1
+        ? t("trips.packingList.copyResultExistedOne")
+        : formatMessage(t("trips.packingList.copyResultExisted"), { count: existed });
+    return `${addedText} ${existedText}`;
+  };
+
+  /** Story 16.5. The copy's POST; answers the error for the dialog, or closes it and shows the notice. */
+  const handleCopy = async (sourceTripId: string, itemIds: string[]): Promise<{ error?: string }> => {
+    try {
+      const { response, body } = await send<{ added: number; existed: number; items: PackingItemWire[] }>(
+        "POST",
+        { sourceTripId, itemIds },
+        "/copy",
+      );
+      if (!response.ok || body.error || !body.data) {
+        const code = body.error?.code;
+        return {
+          error: code === "source_not_found" ? t("trips.packingList.copySourceGone") : resolveApiError(code),
+        };
+      }
+      const { added, existed, items: created } = body.data;
+      // Merged by id: a reload that finished meanwhile may already hold the created items.
+      setItems((current) => {
+        const createdIds = new Set(created.map((item) => item.id));
+        return [...current.filter((item) => !createdIds.has(item.id)), ...created];
+      });
+      setCopyOpen(false);
+      setActionError(null);
+      setNotice(copyResultMessage(added, existed));
+      return {};
+    } catch {
+      return { error: resolveApiError() };
+    }
+  };
 
   const upsertItem = (item: PackingItemWire) =>
     setItems((current) => {
@@ -1051,6 +1103,18 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
           </Box>
         )}
 
+        {/* Story 16.5. Copy from another trip, directly below the add form; empty list or not. */}
+        {!loadError && canEdit && (
+          <Button
+            variant="outlined"
+            onClick={() => setCopyOpen(true)}
+            sx={{ minHeight: TOUCH_TARGET_PX, alignSelf: "flex-start" }}
+            data-testid="packing-copy-open"
+          >
+            {t("trips.packingList.copyOpen")}
+          </Button>
+        )}
+
         {notice && (
           <Alert severity="info" onClose={() => setNotice(null)} data-testid="packing-notice">
             {notice}
@@ -1498,6 +1562,16 @@ export default function TripPackingList({ tripId }: TripPackingListProps) {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {canEdit && (
+        <PackingCopyDialog
+          open={copyOpen}
+          tripId={tripId}
+          currentItems={items}
+          onClose={() => setCopyOpen(false)}
+          onCopy={handleCopy}
+        />
+      )}
     </Box>
   );
 }

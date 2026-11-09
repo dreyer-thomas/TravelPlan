@@ -128,3 +128,23 @@ export type PackingDayLinkCreateInput = z.infer<typeof packingDayLinkCreateSchem
 export const packingDayLinkDeleteSchema = z.object({ tripDayId: tripDayIdField, itemId: itemIdField }).strict();
 
 export type PackingDayLinkDeleteInput = z.infer<typeof packingDayLinkDeleteSchema>;
+
+/**
+ * Story 16.5 (FR60). Copy items from another trip's packing list: the source trip and the chosen item ids.
+ * `PACKING_COPY_MAX_ITEMS` is a body bound (there is no per-trip item cap); duplicate ids are dropped.
+ * Ids that are not on the source trip are ignored by the repository (D5).
+ */
+export const PACKING_COPY_MAX_ITEMS = 500;
+
+export const packingCopySchema = z
+  .object({
+    sourceTripId: z.string().trim().min(1, "Source trip is required"),
+    itemIds: z
+      .array(itemIdField)
+      .min(1, "Nothing selected")
+      .max(PACKING_COPY_MAX_ITEMS, `At most ${PACKING_COPY_MAX_ITEMS} items can be copied at once`)
+      .transform((ids) => [...new Set(ids)]),
+  })
+  .strict();
+
+export type PackingCopyInput = z.infer<typeof packingCopySchema>;

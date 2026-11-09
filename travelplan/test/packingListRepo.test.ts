@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db/prisma";
 import {
   addPackingItemsForConnector,
   addPackingItemToDay,
+  copyPackingItemsFromTrip,
+  listPackingCopySources,
   createPackingItem,
   deletePackingItemForConnector,
   undoPackingChangeForTrip,
@@ -1471,5 +1473,264 @@ describe("packingListRepo tags (Story 16.8)", () => {
       await createPackingItem({ userId: viewer.id, tripId: trip.id, name: "Powerbank", tags: ["Kaufen"], origin: "user" }),
     ).toEqual({ status: "not_found" });
     expect(await prisma.packingItemTag.count()).toBe(0);
+  });
+});
+
+describe("packingListRepo copy from another trip (Story 16.5)", () => {
+  beforeEach(async () => {
+    await prisma.packingItem.deleteMany();
+    await prisma.tripDay.deleteMany();
+    await prisma.tripMember.deleteMany();
+    await prisma.trip.deleteMany();
+    await prisma.user.deleteMany();
+  });
+
+  const tripOn = (userId: string, name: string, start: string) =>
+    prisma.trip.create({
+      data: {
+        userId,
+        name,
+        startDate: new Date(`${start}T00:00:00.000Z`),
+        endDate: new Date(`${start}T00:00:00.000Z`),
+      },
+    });
+
+  const copy = (userId: string, tripId: string, sourceTripId: string, itemIds: string[]) =>
+    copyPackingItemsFromTrip({ userId, tripId, sourceTripId, itemIds });
+
+  const shape = (item: {
+    name: string;
+    category: string | null;
+    packed: boolean;
+    notNeeded: boolean;
+    tags: string[];
+    dayCount: number;
+    aiChangedAt: Date | null;
+  }) => ({
+    name: item.name,
+    category: item.category,
+    packed: item.packed,
+    notNeeded: item.notNeeded,
+    tags: item.tags,
+    dayCount: item.dayCount,
+    aiChangedAt: item.aiChangedAt,
+  });
+
+  const fresh = { packed: false, notNeeded: false, dayCount: 0, aiChangedAt: null };
+
+  it("copies every chosen item with name, category and tags, unpacked and needed", async () => {
+    const owner = await createUser("owner");
+    const source = await createTrip(owner.id);
+    const target = await createTrip(owner.id);
+    const a = await add(owner.id, source.id, "Badehose", "Kleidung", ["Sommer"]);
+    const b = await add(owner.id, source.id, "Ladekabel");
+
+    const result = await copy(owner.id, target.id, source.id, [a.item.id, b.item.id]);
+
+    expect(result.status).toBe("copied");
+    if (result.status !== "copied") return;
+    expect({ added: result.added, existed: result.existed }).toEqual({ added: 2, existed: 0 });
+    expect(result.items.map(shape)).toEqual([
+      { name: "Badehose", category: "Kleidung", tags: ["Sommer"], ...fresh },
+      { name: "Ladekabel", category: null, tags: [], ...fresh },
+    ]);
+    expect(await prisma.packingItem.count({ where: { tripId: target.id } })).toBe(2);
+  });
+
+  it("copies only the chosen items", async () => {
+    const owner = await createUser("owner");
+    const source = await createTrip(owner.id);
+    const target = await createTrip(owner.id);
+    const a = await add(owner.id, source.id, "Badehose");
+    await add(owner.id, source.id, "Ladekabel");
+
+    const result = await copy(owner.id, target.id, source.id, [a.item.id]);
+
+    expect(result).toMatchObject({ status: "copied", added: 1, existed: 0 });
+    const names = (await prisma.packingItem.findMany({ where: { tripId: target.id } })).map((row) => row.name);
+    expect(names).toEqual(["Badehose"]);
+  });
+
+  it("skips a name already on the trip (ignoring case) and leaves that item untouched", async () => {
+    const owner = await createUser("owner");
+    const source = await createTrip(owner.id);
+    const target = await createTrip(owner.id);
+    const a = await add(owner.id, source.id, "BADEHOSE", "Sport", ["Kaufen"]);
+    const b = await add(owner.id, source.id, "Sonnencreme");
+    const mine = await add(owner.id, target.id, "Badehose", "Kleidung", ["Sommer"]);
+    await updatePackingItem({ userId: owner.id, tripId: target.id, itemId: mine.item.id, packed: true, origin: "user" });
+    const before = await prisma.packingItem.findUniqueOrThrow({ where: { id: mine.item.id }, include: { tags: true } });
+
+    const result = await copy(owner.id, target.id, source.id, [a.item.id, b.item.id]);
+
+    expect(result).toMatchObject({ status: "copied", added: 1, existed: 1 });
+    if (result.status === "copied") expect(result.items.map((item) => item.name)).toEqual(["Sonnencreme"]);
+    const after = await prisma.packingItem.findUniqueOrThrow({ where: { id: mine.item.id }, include: { tags: true } });
+    expect(after).toEqual(before);
+  });
+
+  it("stores categories and tags in this trip's spelling and keeps no category", async () => {
+    const owner = await createUser("owner");
+    const source = await createTrip(owner.id);
+    const target = await createTrip(owner.id);
+    const a = await add(owner.id, source.id, "Powerbank", "technik", ["kaufen", "aufladen"]);
+    const b = await add(owner.id, source.id, "Buch", null);
+    await add(owner.id, target.id, "Kamera", "Technik", ["Kaufen"]);
+
+    const result = await copy(owner.id, target.id, source.id, [a.item.id, b.item.id]);
+
+    expect(result.status).toBe("copied");
+    if (result.status !== "copied") return;
+    expect(result.items.map(shape)).toEqual([
+      { name: "Buch", category: null, tags: [], ...fresh },
+      { name: "Powerbank", category: "Technik", tags: ["aufladen", "Kaufen"], ...fresh },
+    ]);
+  });
+
+  it("does not copy packed state, not-needed state, day links or the KI marker", async () => {
+    const owner = await createUser("owner");
+    const source = await createTrip(owner.id);
+    const target = await createTrip(owner.id);
+    const [day] = await createDays(source.id, 1);
+    const packed = await add(owner.id, source.id, "Pass");
+    await linkPackingItemToDay({ userId: owner.id, tripId: source.id, tripDayId: day.id, itemId: packed.item.id, origin: "user" });
+    await updatePackingItem({ userId: owner.id, tripId: source.id, itemId: packed.item.id, packed: true, origin: "user" });
+    const notNeeded = await add(owner.id, source.id, "Schnorchel");
+    await updatePackingItem({ userId: owner.id, tripId: source.id, itemId: notNeeded.item.id, notNeeded: true, origin: "user" });
+    const ai = await add(owner.id, source.id, "Regenjacke");
+    const aiRow = await prisma.packingItem.update({ where: { id: ai.item.id }, data: { aiChangedAt: new Date() } });
+
+    const result = await copy(owner.id, target.id, source.id, [packed.item.id, notNeeded.item.id, aiRow.id]);
+
+    expect(result.status).toBe("copied");
+    if (result.status !== "copied") return;
+    expect(result.items.map(shape)).toEqual([
+      { name: "Pass", category: null, tags: [], ...fresh },
+      { name: "Regenjacke", category: null, tags: [], ...fresh },
+      { name: "Schnorchel", category: null, tags: [], ...fresh },
+    ]);
+    expect(await prisma.packingItemDay.count({ where: { packingItem: { tripId: target.id } } })).toBe(0);
+  });
+
+  it("allows a source trip where the person is only a viewer", async () => {
+    const owner = await createUser("owner");
+    const other = await createUser("other");
+    const target = await createTrip(owner.id);
+    const source = await createTrip(other.id);
+    await prisma.tripMember.create({ data: { tripId: source.id, userId: owner.id, role: "VIEWER" } });
+    const a = await add(other.id, source.id, "Badehose");
+
+    expect(await copy(owner.id, target.id, source.id, [a.item.id])).toMatchObject({ status: "copied", added: 1 });
+  });
+
+  it("refuses a source trip the person cannot see and writes nothing", async () => {
+    const owner = await createUser("owner");
+    const stranger = await createUser("stranger");
+    const target = await createTrip(owner.id);
+    const source = await createTrip(stranger.id);
+    const a = await add(stranger.id, source.id, "Badehose");
+
+    expect(await copy(owner.id, target.id, source.id, [a.item.id])).toEqual({ status: "source_not_found" });
+    expect(await copy(owner.id, target.id, "missing-trip", [a.item.id])).toEqual({ status: "source_not_found" });
+    expect(await prisma.packingItem.count({ where: { tripId: target.id } })).toBe(0);
+  });
+
+  it("refuses the target trip itself as the source", async () => {
+    const owner = await createUser("owner");
+    const trip = await createTrip(owner.id);
+    const a = await add(owner.id, trip.id, "Badehose");
+
+    expect(await copy(owner.id, trip.id, trip.id, [a.item.id])).toEqual({ status: "source_not_found" });
+  });
+
+  it("refuses a viewer or outsider of the target", async () => {
+    const owner = await createUser("owner");
+    const viewer = await createUser("viewer");
+    const stranger = await createUser("stranger");
+    const target = await createTrip(owner.id);
+    const source = await createTrip(owner.id);
+    await prisma.tripMember.createMany({
+      data: [
+        { tripId: target.id, userId: viewer.id, role: "VIEWER" },
+        { tripId: source.id, userId: viewer.id, role: "CONTRIBUTOR" },
+      ],
+    });
+    const a = await add(owner.id, source.id, "Badehose");
+
+    expect(await copy(viewer.id, target.id, source.id, [a.item.id])).toEqual({ status: "not_found" });
+    expect(await copy(stranger.id, target.id, source.id, [a.item.id])).toEqual({ status: "not_found" });
+    expect(await prisma.packingItem.count({ where: { tripId: target.id } })).toBe(0);
+  });
+
+  it("ignores item ids that are not on the source trip", async () => {
+    const owner = await createUser("owner");
+    const source = await createTrip(owner.id);
+    const third = await createTrip(owner.id);
+    const target = await createTrip(owner.id);
+    const a = await add(owner.id, source.id, "Badehose");
+    const foreign = await add(owner.id, third.id, "Zelt");
+
+    const result = await copy(owner.id, target.id, source.id, [a.item.id, foreign.item.id, "deleted-id"]);
+
+    expect(result).toMatchObject({ status: "copied", added: 1, existed: 0 });
+    if (result.status === "copied") expect(result.items.map((item) => item.name)).toEqual(["Badehose"]);
+  });
+
+  it("never writes the source trip", async () => {
+    const owner = await createUser("owner");
+    const source = await createTrip(owner.id);
+    const target = await createTrip(owner.id);
+    const [day] = await createDays(source.id, 1);
+    const a = await add(owner.id, source.id, "Badehose", "Kleidung", ["Sommer"]);
+    await linkPackingItemToDay({ userId: owner.id, tripId: source.id, tripDayId: day.id, itemId: a.item.id, origin: "user" });
+    const snapshot = () =>
+      prisma.packingItem.findMany({
+        where: { tripId: source.id },
+        include: { tags: true, days: true },
+        orderBy: { id: "asc" },
+      });
+    const before = await snapshot();
+    const tripBefore = await prisma.trip.findUniqueOrThrow({ where: { id: source.id } });
+
+    await copy(owner.id, target.id, source.id, [a.item.id]);
+
+    expect(await snapshot()).toEqual(before);
+    expect(await prisma.trip.findUniqueOrThrow({ where: { id: source.id } })).toEqual(tripBefore);
+  });
+
+  it("lists the other trips with packing items the person can see, newest first", async () => {
+    const owner = await createUser("owner");
+    const other = await createUser("other");
+    const target = await tripOn(owner.id, "Ziel", "2027-01-01");
+    const older = await tripOn(owner.id, "Alt", "2025-06-01");
+    const newer = await tripOn(owner.id, "Neu", "2026-07-01");
+    await tripOn(owner.id, "Leer", "2026-09-01");
+    const shared = await tripOn(other.id, "Geteilt", "2026-01-01");
+    const stranger = await tripOn(other.id, "Fremd", "2026-02-01");
+    await prisma.tripMember.create({ data: { tripId: shared.id, userId: owner.id, role: "VIEWER" } });
+    await add(owner.id, target.id, "A");
+    await add(owner.id, older.id, "A");
+    await add(owner.id, newer.id, "A");
+    await add(owner.id, newer.id, "B");
+    await add(other.id, shared.id, "A");
+    await add(other.id, stranger.id, "A");
+
+    const sources = await listPackingCopySources({ userId: owner.id, tripId: target.id });
+
+    expect(sources?.map((trip) => ({ name: trip.name, itemCount: trip.itemCount }))).toEqual([
+      { name: "Neu", itemCount: 2 },
+      { name: "Geteilt", itemCount: 1 },
+      { name: "Alt", itemCount: 1 },
+    ]);
+    expect(sources?.[0].startDate).toEqual(new Date("2026-07-01T00:00:00.000Z"));
+  });
+
+  it("answers null for a viewer of the target", async () => {
+    const owner = await createUser("owner");
+    const viewer = await createUser("viewer");
+    const target = await createTrip(owner.id);
+    await prisma.tripMember.create({ data: { tripId: target.id, userId: viewer.id, role: "VIEWER" } });
+
+    expect(await listPackingCopySources({ userId: viewer.id, tripId: target.id })).toBeNull();
   });
 });
